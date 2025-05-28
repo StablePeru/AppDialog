@@ -1,7 +1,7 @@
-from PyQt6.QtWidgets import ( # CAMBIO
+from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QSpinBox, QPushButton, QHBoxLayout
 )
-from PyQt6.QtCore import Qt # CAMBIO
+from PyQt6.QtCore import Qt 
 
 
 class ConfigDialog(QDialog):

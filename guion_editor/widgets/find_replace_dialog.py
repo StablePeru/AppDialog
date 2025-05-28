@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QHBoxLayout, QPushButton, QMessageBox, QCheckBox
+
 class FindReplaceDialog(QDialog):
     def __init__(self, table_window):
         """Inicializa el cuadro de diálogo de búsqueda y reemplazo."""

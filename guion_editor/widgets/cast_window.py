@@ -1,5 +1,5 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QMessageBox # CAMBIO
-from PyQt6.QtCore import Qt # CAMBIO
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QMessageBox 
+from PyQt6.QtCore import Qt 
 
 class CastWindow(QWidget):
     HEADER_LABELS = ["Personaje", "Intervenciones"]
@@ -10,8 +10,6 @@ class CastWindow(QWidget):
         super().__init__()
         self.parent_table_window = parent_table_window
         
-        # Qt.DescendingOrder -> Qt.SortOrder.DescendingOrder
-        # Qt.AscendingOrder -> Qt.SortOrder.AscendingOrder
         self.current_sort_column = self.COL_INTERVENCIONES
         self.current_sort_order = Qt.SortOrder.DescendingOrder # CAMBIO
         
