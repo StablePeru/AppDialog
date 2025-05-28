@@ -6,8 +6,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput # QAudioOutput es necesario
 from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtCore import QUrl, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QFont, QShortcut, QFontMetrics
+from PyQt6.QtCore import QUrl, Qt, QTimer, pyqtSignal, QSize
+from PyQt6.QtGui import QKeySequence, QFont, QShortcut, QFontMetrics, QIcon
 
 class VideoPlayerWidget(QWidget):
     in_out_signal = pyqtSignal(str, int)
@@ -15,10 +15,24 @@ class VideoPlayerWidget(QWidget):
     detach_requested = pyqtSignal(QWidget)
     set_position_signal = pyqtSignal(int)
 
-    def __init__(self):
+    def __init__(self, get_icon_func=None): # Añadir get_icon_func
         super().__init__()
         self._audio_output_handler = None
         self._shortcuts_list = []
+        self.get_icon = get_icon_func # Guardar la función
+
+        # --- Mover la definición de iconos aquí, ANTES de init_ui ---
+        if self.get_icon:
+            self.play_icon = self.get_icon("play_icon.svg")
+            self.pause_icon = self.get_icon("pause_icon.svg")
+            self.volume_up_icon = self.get_icon("volume_up_icon.svg")
+            self.volume_off_icon = self.get_icon("volume_off_icon.svg") # Para Mute si lo implementas
+        else: # Fallback si no se pasa get_icon
+            self.play_icon = QIcon()
+            self.pause_icon = QIcon()
+            self.volume_up_icon = QIcon()
+            self.volume_off_icon = QIcon()
+        # --- Fin de la definición de iconos movida ---
 
         self.init_ui()
         self.load_stylesheet()
@@ -27,9 +41,9 @@ class VideoPlayerWidget(QWidget):
         self.f6_pressed = False
         
         self.out_timer = QTimer(self)
-        self.out_timer.setInterval(40) # ms, para aprox 25 FPS de muestreo para el OUT
+        self.out_timer.setInterval(40)
         self.out_timer.timeout.connect(self.mark_out)
-        self.out_timer.setSingleShot(False) # Se detendrá manualmente
+        self.out_timer.setSingleShot(False)
 
     def init_ui(self) -> None:
         self.media_player = QMediaPlayer()
@@ -37,11 +51,8 @@ class VideoPlayerWidget(QWidget):
             self._audio_output_handler = QAudioOutput()
             self.media_player.setAudioOutput(self._audio_output_handler)
         
-        # Crear controles ANTES de intentar conectar señales a ellos o usarlos
-        self.setup_controls() 
+        self.setup_controls() # Ahora setup_controls puede usar self.play_icon etc.
 
-        # Ahora que los controles existen, y QAudioOutput está configurado,
-        # podemos conectar señales y establecer valores iniciales.
         if self.media_player.audioOutput():
             self.media_player.audioOutput().volumeChanged.connect(self.update_volume_slider)
             initial_volume_percent = int(self.media_player.audioOutput().volume() * 100)
@@ -53,6 +64,9 @@ class VideoPlayerWidget(QWidget):
         self.video_widget = QVideoWidget()
         self.media_player.setVideoOutput(self.video_widget)
 
+        # La definición de self.play_icon, self.pause_icon etc. se movió al __init__
+        # ya no es necesaria aquí.
+
         self.media_player.playbackStateChanged.connect(self.update_play_button)
         self.media_player.positionChanged.connect(self.update_slider)
         self.media_player.durationChanged.connect(self.update_slider_range)
@@ -63,29 +77,45 @@ class VideoPlayerWidget(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocus()
 
-    def setup_controls(self) -> None:
-        # Este método solo crea los widgets y conecta sus señales internas.
-        # No debe asumir que QMediaPlayer o su audioOutput ya están listos para interactuar.
-        button_font = QFont()
-        button_font.setPointSize(12)
 
-        self.play_button = QPushButton("Play/Pausa")
-        self.play_button.setFont(button_font)
+    def setup_controls(self) -> None:
+        button_font = QFont()
+        button_font.setPointSize(12) 
+
+        icon_size = QSize(20, 20) 
+        icon_only_button_size = QSize(36, 36) 
+
+        self.play_button = QPushButton() 
+        # self.play_icon ya está definido
+        self.play_button.setIcon(self.play_icon) # Icono inicial
+        self.play_button.setIconSize(icon_size)
+        self.play_button.setFixedSize(icon_only_button_size)
         self.play_button.setObjectName("play_button")
+        self.play_button.setToolTip("Reproducir/Pausar (F8)")
         self.play_button.clicked.connect(self.toggle_play)
 
-        self.rewind_button = QPushButton("Retroceder")
-        self.rewind_button.setFont(button_font)
+        self.rewind_button = QPushButton() 
+        if self.get_icon: # Añadir comprobación por si get_icon no está disponible
+            self.rewind_button.setIcon(self.get_icon("rewind_icon.svg"))
+        self.rewind_button.setIconSize(icon_size)
+        self.rewind_button.setFixedSize(icon_only_button_size)
         self.rewind_button.setObjectName("rewind_button")
+        self.rewind_button.setToolTip("Retroceder (F7)")
         self.rewind_button.clicked.connect(lambda: self.change_position(-5000))
 
-        self.forward_button = QPushButton("Avanzar")
-        self.forward_button.setFont(button_font)
+        self.forward_button = QPushButton() 
+        if self.get_icon: # Añadir comprobación
+            self.forward_button.setIcon(self.get_icon("forward_icon.svg"))
+        self.forward_button.setIconSize(icon_size)
+        self.forward_button.setFixedSize(icon_only_button_size)
         self.forward_button.setObjectName("forward_button")
+        self.forward_button.setToolTip("Avanzar (F9)")
         self.forward_button.clicked.connect(lambda: self.change_position(5000))
 
-        self.detach_button = QPushButton("Separar")
-        self.detach_button.setFont(button_font)
+        self.detach_button = QPushButton(" Separar") 
+        if self.get_icon: # Añadir comprobación
+            self.detach_button.setIcon(self.get_icon("detach_video_icon.svg"))
+        self.detach_button.setIconSize(icon_size)
         self.detach_button.setObjectName("detach_button")
         self.detach_button.clicked.connect(self.detach_widget)
 
@@ -93,9 +123,13 @@ class VideoPlayerWidget(QWidget):
         self.slider.setObjectName("position_slider")
         self.slider.sliderMoved.connect(self.set_position)
 
-        self.volume_button = QPushButton("Volumen")
-        self.volume_button.setFont(button_font)
+        self.volume_button = QPushButton() 
+        # self.volume_up_icon ya está definido
+        self.volume_button.setIcon(self.volume_up_icon) # Icono inicial
+        self.volume_button.setIconSize(icon_size)
+        self.volume_button.setFixedSize(icon_only_button_size)
         self.volume_button.setObjectName("volume_button")
+        self.volume_button.setToolTip("Volumen")
         self.volume_button.clicked.connect(self.toggle_volume_slider)
 
         self.volume_slider_vertical = QSlider(Qt.Orientation.Vertical)
@@ -111,19 +145,24 @@ class VideoPlayerWidget(QWidget):
         self.time_code_label.setFont(time_code_font)
         
         font_metrics_height = QFontMetrics(self.time_code_label.font()).height()
-        self.time_code_label.setFixedHeight(int(font_metrics_height * 1.5)) # Un poco de padding
+        self.time_code_label.setFixedHeight(int(font_metrics_height * 1.5)) 
 
-        self.in_button = QPushButton("IN")
-        self.in_button.setFont(button_font)
+        self.in_button = QPushButton(" IN") 
+        if self.get_icon: # Añadir comprobación
+            self.in_button.setIcon(self.get_icon("mark_in_icon.svg"))
+        self.in_button.setIconSize(icon_size)
         self.in_button.setObjectName("in_button")
+        self.in_button.setToolTip("Marcar IN (F5)")
         self.in_button.clicked.connect(self.mark_in)
 
-        self.out_button = QPushButton("OUT")
-        self.out_button.setFont(button_font)
+        self.out_button = QPushButton(" OUT") 
+        if self.get_icon: # Añadir comprobación
+            self.out_button.setIcon(self.get_icon("mark_out_icon.svg"))
+        self.out_button.setIconSize(icon_size)
         self.out_button.setObjectName("out_button")
-        # Si quieres que el botón también marque OUT instantáneamente:
-        self.out_button.pressed.connect(self.start_out_timer) # Inicia el timer al presionar
-        self.out_button.released.connect(self.stop_out_timer) # Detiene el timer (y emite out_released) al soltar
+        self.out_button.setToolTip("Marcar OUT (Mantener F6)")
+        self.out_button.pressed.connect(self.start_out_timer)
+        self.out_button.released.connect(self.stop_out_timer)
 
     def setup_layouts(self) -> None:
         layout = QVBoxLayout()
@@ -277,7 +316,13 @@ class VideoPlayerWidget(QWidget):
 
 
     def update_play_button(self, state: QMediaPlayer.PlaybackState) -> None:
-        self.play_button.setText("Pausa" if state == QMediaPlayer.PlaybackState.PlayingState else "Play")
+        # self.play_button.setText("Pausa" if state == QMediaPlayer.PlaybackState.PlayingState else "Play")
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self.play_button.setIcon(self.pause_icon)
+            self.play_button.setToolTip("Pausar (F8)")
+        else:
+            self.play_button.setIcon(self.play_icon)
+            self.play_button.setToolTip("Reproducir (F8)")
 
     def update_slider(self, position: int) -> None:
         # Solo actualizar el slider si el usuario no lo está moviendo activamente

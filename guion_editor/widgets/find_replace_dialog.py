@@ -1,50 +1,74 @@
+# guion_editor/widgets/find_replace_dialog.py
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QHBoxLayout, QPushButton, QMessageBox, QCheckBox
+from PyQt6.QtGui import QIcon # Importar QIcon
+from PyQt6.QtCore import QSize # Importar QSize
 
 class FindReplaceDialog(QDialog):
-    def __init__(self, table_window):
-        """Inicializa el cuadro de diálogo de búsqueda y reemplazo."""
+    # Modificar __init__
+    def __init__(self, table_window, get_icon_func=None): # Añadir get_icon_func
         super().__init__()
         self.table_window = table_window
+        self.get_icon = get_icon_func # Guardar
         self.setWindowTitle("Find and Replace")
         self.current_search_results = []
         self.current_search_index = -1
-
         self.setup_ui()
 
     def setup_ui(self):
-        """Configura la interfaz de usuario del cuadro de diálogo."""
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
         
-        # Campos de entrada de texto para buscar y reemplazar
         self.find_text_input = QLineEdit()
         self.replace_text_input = QLineEdit()
         form_layout.addRow("Find:", self.find_text_input)
         form_layout.addRow("Replace with:", self.replace_text_input)
 
-        # Añadir opciones de búsqueda
         self.search_in_character = QCheckBox("Search in Character")
         self.search_in_dialogue = QCheckBox("Search in Dialogue")
-        self.search_in_dialogue.setChecked(True)  # Buscar en Diálogo por defecto
+        self.search_in_dialogue.setChecked(True)
 
         layout.addLayout(form_layout)
         layout.addWidget(self.search_in_character)
         layout.addWidget(self.search_in_dialogue)
 
-        # Botones de acción
         button_layout = QHBoxLayout()
-        self.find_prev_button = QPushButton("Find Previous")
-        self.find_next_button = QPushButton("Find Next")
-        self.replace_button = QPushButton("Replace All")
-        self.close_button = QPushButton("Close")
+        icon_size = QSize(18,18)
+        icon_only_button_size = QSize(32,32)
+
+        self.find_prev_button = QPushButton() # "Find Previous" como tooltip
+        if self.get_icon:
+            self.find_prev_button.setIcon(self.get_icon("find_previous_icon.svg"))
+        self.find_prev_button.setIconSize(icon_size)
+        self.find_prev_button.setFixedSize(icon_only_button_size)
+        self.find_prev_button.setToolTip("Find Previous")
+        
+        self.find_next_button = QPushButton() # "Find Next" como tooltip
+        if self.get_icon:
+            self.find_next_button.setIcon(self.get_icon("find_next_icon.svg"))
+        self.find_next_button.setIconSize(icon_size)
+        self.find_next_button.setFixedSize(icon_only_button_size)
+        self.find_next_button.setToolTip("Find Next")
+
+        self.replace_button = QPushButton(" Replace All") # Espacio
+        if self.get_icon:
+            self.replace_button.setIcon(self.get_icon("replace_all_icon.svg"))
+        self.replace_button.setIconSize(icon_size)
+
+        self.close_button = QPushButton() # "Close" como tooltip
+        if self.get_icon:
+            self.close_button.setIcon(self.get_icon("close_dialog_icon.svg"))
+        self.close_button.setIconSize(icon_size)
+        self.close_button.setFixedSize(icon_only_button_size)
+        self.close_button.setToolTip("Close")
+
 
         button_layout.addWidget(self.find_prev_button)
         button_layout.addWidget(self.find_next_button)
         button_layout.addWidget(self.replace_button)
+        button_layout.addStretch() # Para empujar el botón de cerrar a la derecha
         button_layout.addWidget(self.close_button)
         layout.addLayout(button_layout)
 
-        # Conectar señales de eventos
         self.find_text_input.textChanged.connect(self.reset_search)
         self.find_next_button.clicked.connect(self.find_next)
         self.find_prev_button.clicked.connect(self.find_previous)

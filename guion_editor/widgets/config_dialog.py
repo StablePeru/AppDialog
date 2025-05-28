@@ -1,18 +1,21 @@
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QSpinBox, QPushButton, QHBoxLayout
 )
-from PyQt6.QtCore import Qt 
+from PyQt6.QtCore import Qt, QSize # Añadir QSize
+from PyQt6.QtGui import QIcon      # Añadir QIcon
 
 
 class ConfigDialog(QDialog):
-    def __init__(self, current_trim=0, current_font_size=9):
+    def __init__(self, current_trim=0, current_font_size=9, get_icon_func=None): # Añadir get_icon_func
         super().__init__()
+        self.get_icon = get_icon_func # Guardar la función helper
         self.setWindowTitle("Settings")
-        self.setFixedSize(300, 200)
+        self.setFixedSize(300, 200) # Puedes ajustar esto si los iconos hacen que los botones sean más grandes
         self.init_ui(current_trim, current_font_size)
 
     def init_ui(self, current_trim: int, current_font_size: int) -> None:
         layout = QVBoxLayout()
+        icon_size_buttons = QSize(18, 18) # Tamaño para iconos en botones
 
         # Configuración del valor de TRIM
         trim_layout = QHBoxLayout()
@@ -36,11 +39,19 @@ class ConfigDialog(QDialog):
 
         # Botones de confirmación y cancelación
         buttons_layout = QHBoxLayout()
-        self.accept_button = QPushButton("Accept")
+        self.accept_button = QPushButton(" Accept") # Espacio para el icono
+        if self.get_icon:
+            self.accept_button.setIcon(self.get_icon("accept_icon.svg"))
+            self.accept_button.setIconSize(icon_size_buttons)
         self.accept_button.clicked.connect(self.accept)
-        self.cancel_button = QPushButton("Cancel")
+        
+        self.cancel_button = QPushButton(" Cancel") # Espacio para el icono
+        if self.get_icon:
+            self.cancel_button.setIcon(self.get_icon("cancel_icon.svg"))
+            self.cancel_button.setIconSize(icon_size_buttons)
         self.cancel_button.clicked.connect(self.reject)
-        buttons_layout.addStretch()
+        
+        buttons_layout.addStretch() # Empuja los botones a la derecha
         buttons_layout.addWidget(self.accept_button)
         buttons_layout.addWidget(self.cancel_button)
         layout.addLayout(buttons_layout)
@@ -49,5 +60,5 @@ class ConfigDialog(QDialog):
         self.setLayout(layout)
 
     # Devuelve los valores actuales de trim y tamaño de fuente
-    def get_values(self) -> tuple[int, int]: # CAMBIO: tipo de retorno
+    def get_values(self) -> tuple[int, int]:
         return self.trim_spinbox.value(), self.font_spinbox.value()

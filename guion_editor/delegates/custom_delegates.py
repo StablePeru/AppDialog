@@ -2,7 +2,7 @@
 import logging
 from PyQt6.QtWidgets import QStyledItemDelegate, QLineEdit, QMessageBox, QCompleter, QWidget # Asegurar imports de PyQt6
 from PyQt6.QtCore import Qt, QObject                                                        # Asegurar imports de PyQt6
-# from guion_editor.widgets.time_code_edit import TimeCodeEdit                   # Asumir TimeCodeEdit migrado
+from guion_editor.widgets.time_code_edit import TimeCodeEdit                   # Asumir TimeCodeEdit migrado
 
 from typing import Optional, Any
 

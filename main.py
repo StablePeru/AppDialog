@@ -8,8 +8,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
     QMessageBox
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import Qt, QSize # Importar QSize
+from PyQt6.QtGui import QAction, QKeySequence, QIcon # Importar QIcon
 
 from guion_editor.widgets.video_player_widget import VideoPlayerWidget
 from guion_editor.widgets.table_window import TableWindow
@@ -18,6 +18,24 @@ from guion_editor.widgets.config_dialog import ConfigDialog
 from guion_editor.widgets.shortcut_config_dialog import ShortcutConfigDialog
 from guion_editor.utils.shortcut_manager import ShortcutManager
 from guion_editor.utils.guion_manager import GuionManager
+
+# --- INICIO: Icon Helper (si lo pones aquí) ---
+ICON_CACHE = {} 
+ICON_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles', 'icons'))
+
+def get_icon(icon_name: str) -> QIcon:
+    if icon_name in ICON_CACHE:
+        return ICON_CACHE[icon_name]
+    
+    icon_path = os.path.join(ICON_BASE_PATH, icon_name)
+    if not os.path.exists(icon_path):
+        print(f"Advertencia: Icono no encontrado en {icon_path}")
+        return QIcon()
+    
+    icon = QIcon(icon_path)
+    ICON_CACHE[icon_name] = icon
+    return icon
+# --- FIN: Icon Helper ---
 
 
 class MainWindow(QMainWindow):
@@ -36,18 +54,21 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central_widget)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.videoPlayerWidget = VideoPlayerWidget()
+        # Pasa la función get_icon a VideoPlayerWidget si no está en un utils separado
+        self.videoPlayerWidget = VideoPlayerWidget(get_icon_func=get_icon) 
         self.splitter.addWidget(self.videoPlayerWidget)
 
-        self.tableWindow = TableWindow(self.videoPlayerWidget, main_window=self, guion_manager=self.guion_manager)
+        # Pasa la función get_icon a TableWindow
+        self.tableWindow = TableWindow(self.videoPlayerWidget, main_window=self, guion_manager=self.guion_manager, get_icon_func=get_icon)
         self.splitter.addWidget(self.tableWindow)
         layout.addWidget(self.splitter)
 
         self.actions = {}
         self.recent_files = self.load_recent_files()
-        self.create_video_actions()
+        self.create_video_actions() # Asegúrate que get_icon esté disponible aquí también
 
         action_copy_in_out = QAction("Copiar IN/OUT a Siguiente", self)
+        action_copy_in_out.setIcon(get_icon("copy_in_out_icon.svg")) # Añadir icono
         action_copy_in_out.triggered.connect(self.tableWindow.copy_in_out_to_next)
         self.addAction(action_copy_in_out)
         self.actions["Copiar IN/OUT a Siguiente"] = action_copy_in_out
@@ -58,6 +79,7 @@ class MainWindow(QMainWindow):
 
         if "change_scene" not in self.actions:
             self.actions["change_scene"] = QAction("Change Scene Internal", self)
+            # No le ponemos icono a una acción "interna" que no se muestra en menú directamente
             self.actions["change_scene"].triggered.connect(self.change_scene)
             self.addAction(self.actions["change_scene"])
 
@@ -75,50 +97,54 @@ class MainWindow(QMainWindow):
 
     def create_file_menu(self, menuBar):
         fileMenu = menuBar.addMenu("&Archivo")
+        # Formato: (Texto, slot, shortcut, icon_name)
         actions_data = [
-            ("&Abrir Video", self.open_video_file, "Ctrl+O"),
-            ("&Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G"),
-            ("&Exportar Guion a Excel", self.tableWindow.export_to_excel_dialog, "Ctrl+E"),
-            ("&Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I"),
-            ("&Guardar Guion como JSON", self.tableWindow.save_to_json_dialog, "Ctrl+S"),
-            ("&Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D"),
+            ("&Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg"),
+            ("&Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G", "open_document_icon.svg"),
+            ("&Exportar Guion a Excel", self.tableWindow.export_to_excel_dialog, "Ctrl+E", "export_excel_icon.svg"),
+            ("&Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg"),
+            ("&Guardar Guion como JSON", self.tableWindow.save_to_json_dialog, "Ctrl+S", "save_json_icon.svg"),
+            ("&Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg"),
         ]
-        for name, slot, shortcut_str in actions_data:
-            action = self.create_action(name, slot, shortcut_str)
+        for name, slot, shortcut_str, icon_name in actions_data:
+            action = self.create_action(name, slot, shortcut_str, icon_name) # Modificado para icono
             fileMenu.addAction(action)
             self.actions[name] = action
 
         self.recent_files_menu = fileMenu.addMenu("Abrir Recientemente")
+        # Podrías añadir un icono genérico para "Abrir Recientemente" si quieres
+        # self.recent_files_menu.setIcon(get_icon("history_icon.svg")) 
         self.update_recent_files_menu()
 
     def create_edit_menu(self, menuBar):
         editMenu = menuBar.addMenu("&Editar")
+        # Formato: (Texto, slot, shortcut, icon_name)
         actions_data = [
-            ("&Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N"),
-            ("&Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del"),
-            ("Mover &Arriba", self.tableWindow.move_row_up, "Alt+Up"),
-            ("Mover &Abajo", self.tableWindow.move_row_down, "Alt+Down"),
-            ("&Ajustar Diálogos", self.tableWindow.adjust_dialogs, None),
-            ("&Separar Intervención", self.tableWindow.split_intervention, "Alt+I"),
-            ("&Juntar Intervenciones", self.tableWindow.merge_interventions, "Alt+J"),
+            ("&Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N", "add_row_icon.svg"),
+            ("&Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del", "delete_row_icon.svg"),
+            ("Mover &Arriba", self.tableWindow.move_row_up, "Alt+Up", "move_up_icon.svg"),
+            ("Mover &Abajo", self.tableWindow.move_row_down, "Alt+Down", "move_down_icon.svg"),
+            ("&Ajustar Diálogos", self.tableWindow.adjust_dialogs, None, "adjust_dialogs_icon.svg"),
+            ("&Separar Intervención", self.tableWindow.split_intervention, "Alt+I", "split_intervention_icon.svg"),
+            ("&Juntar Intervenciones", self.tableWindow.merge_interventions, "Alt+J", "merge_intervention_icon.svg"),
         ]
 
-        view_cast_action = self.create_action("Ver Reparto Completo", self.open_cast_window)
+        view_cast_action = self.create_action("Ver Reparto Completo", self.open_cast_window, icon_name="view_cast_icon.svg")
         editMenu.addAction(view_cast_action)
         self.actions["Ver Reparto Completo"] = view_cast_action
 
-        find_replace_action = self.create_action("Buscar y Reemplazar", self.open_find_replace_dialog)
+        find_replace_action = self.create_action("Buscar y Reemplazar", self.open_find_replace_dialog, icon_name="find_replace_icon.svg")
         editMenu.addAction(find_replace_action)
         self.actions["Buscar y Reemplazar"] = find_replace_action
 
-        for name, slot, shortcut_str in actions_data:
-            action = self.create_action(name, slot, shortcut_str)
+        for name, slot, shortcut_str, icon_name in actions_data:
+            action = self.create_action(name, slot, shortcut_str, icon_name)
             editMenu.addAction(action)
             self.actions[name] = action
 
     def create_config_menu(self, menuBar):
         configMenu = menuBar.addMenu("&Configuración")
-        openConfigAction = self.create_action("&Configuración", self.open_config_dialog)
+        openConfigAction = self.create_action("&Configuración", self.open_config_dialog, icon_name="settings_icon.svg")
         configMenu.addAction(openConfigAction)
         self.actions["&Configuración"] = openConfigAction
 
@@ -128,56 +154,69 @@ class MainWindow(QMainWindow):
                 menuBar.removeAction(action_menu_item)
                 break
         shortcutsMenu = menuBar.addMenu("&Shortcuts")
-        configure_shortcuts_action = self.create_action("&Configurar Shortcuts", self.open_shortcut_config_dialog)
+        configure_shortcuts_action = self.create_action("&Configurar Shortcuts", self.open_shortcut_config_dialog, icon_name="configure_shortcuts_icon.svg")
         shortcutsMenu.addAction(configure_shortcuts_action)
         self.actions["&Configurar Shortcuts"] = configure_shortcuts_action
+        
         load_config_menu = shortcutsMenu.addMenu("Cargar Configuración")
+        load_config_menu.setIcon(get_icon("load_config_icon.svg")) # Icono para el submenú
         for config_name in self.shortcut_manager.configurations.keys():
-            action = self.create_action(
+            # No se suelen poner iconos a cada item de un submenú de cargar configs
+            action = self.create_action( 
                 config_name,
                 lambda checked, name=config_name: self.shortcut_manager.apply_shortcuts(name)
             )
             load_config_menu.addAction(action)
-        delete_config_action = self.create_action("Eliminar Configuración", self.delete_configuration)
+            
+        delete_config_action = self.create_action("Eliminar Configuración", self.delete_configuration, icon_name="delete_config_icon.svg")
         shortcutsMenu.addAction(delete_config_action)
         self.actions["Eliminar Configuración"] = delete_config_action
 
     def update_recent_files_menu(self):
         self.recent_files_menu.clear()
         for file_path in self.recent_files:
+            # Icono genérico para archivo reciente
             action = QAction(os.path.basename(file_path), self)
+            action.setIcon(get_icon("open_document_icon.svg")) # o un "history_icon.svg" si lo tienes
             action.setToolTip(file_path)
             action.triggered.connect(lambda checked, path=file_path: self.open_recent_file(path))
             self.recent_files_menu.addAction(action)
 
-    def create_action(self, name, slot, shortcut_str=None):
+    # Modificar create_action para aceptar icon_name
+    def create_action(self, name, slot, shortcut_str=None, icon_name=None):
         action = QAction(name, self)
+        if icon_name:
+            action.setIcon(get_icon(icon_name))
         if shortcut_str:
             action.setShortcut(QKeySequence(shortcut_str))
         action.triggered.connect(slot)
         return action
     
     def create_video_actions(self):
+        # Estos no van a menús, sino que se usan para shortcuts. No necesitan icono aquí.
         play_pause_action = self.create_action("Pausar/Reproducir", self.videoPlayerWidget.toggle_play)
         self.addAction(play_pause_action)
         self.actions["Pausar/Reproducir"] = play_pause_action
+        
         rewind_action = self.create_action("Retroceder", lambda: self.videoPlayerWidget.change_position(-5000))
         self.addAction(rewind_action)
         self.actions["Retroceder"] = rewind_action
+        
         forward_action = self.create_action("Avanzar", lambda: self.videoPlayerWidget.change_position(5000))
         self.addAction(forward_action)
         self.actions["Avanzar"] = forward_action
 
     def open_cast_window(self):
         from guion_editor.widgets.cast_window import CastWindow
+        # Podríamos pasar get_icon si CastWindow necesita iconos, pero parece que no por ahora
         self.cast_window = CastWindow(self.tableWindow)
         self.cast_window.show()
 
     def open_find_replace_dialog(self):
         from guion_editor.widgets.find_replace_dialog import FindReplaceDialog
-        from PyQt6.QtWidgets import QFileDialog # CAMBIO
-        dialog = FindReplaceDialog(self.tableWindow)
-        dialog.exec() # CAMBIO
+        # Pasar get_icon a FindReplaceDialog
+        dialog = FindReplaceDialog(self.tableWindow, get_icon_func=get_icon)
+        dialog.exec()
 
     def open_recent_file(self, file_path):
         if os.path.exists(file_path):
@@ -200,11 +239,13 @@ class MainWindow(QMainWindow):
             self.update_recent_files_menu()
 
     def open_config_dialog(self):
+        # Pasar get_icon a ConfigDialog
         config_dialog = ConfigDialog(
             current_trim=self.trim_value,
-            current_font_size=self.font_size
+            current_font_size=self.font_size,
+            get_icon_func=get_icon
         )
-        if config_dialog.exec() == QDialog.DialogCode.Accepted: # CAMBIO
+        if config_dialog.exec() == QDialog.DialogCode.Accepted:
             self.trim_value, self.font_size = config_dialog.get_values()
             self.apply_font_size()
 
@@ -245,8 +286,9 @@ class MainWindow(QMainWindow):
         self.videoPlayerWidget.update_fonts(self.font_size)
 
     def open_shortcut_config_dialog(self):
-        dialog = ShortcutConfigDialog(self.shortcut_manager)
-        dialog.exec() # CAMBIO
+        # Pasar get_icon a ShortcutConfigDialog
+        dialog = ShortcutConfigDialog(self.shortcut_manager, get_icon_func=get_icon)
+        dialog.exec()
         self.shortcut_manager.apply_shortcuts(self.shortcut_manager.current_config)
 
     def delete_configuration(self):
@@ -277,7 +319,8 @@ class MainWindow(QMainWindow):
         if self.videoWindow is not None: return
         try:
             if self.splitter.widget(0) == video_widget_ref:
-                self.videoWindow = VideoWindow(video_widget_ref)
+                # Pasar get_icon a VideoWindow
+                self.videoWindow = VideoWindow(video_widget_ref, get_icon_func=get_icon)
                 self.videoWindow.close_detached.connect(self.attach_video)
                 self.videoWindow.show()
             else:
