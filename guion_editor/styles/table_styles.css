@@ -1,0 +1,60 @@
+QTableWidget {
+    background-color: #2D2D2D; /* Fondo oscuro para la tabla */
+    color: #E0E0E0;             /* Color de texto por defecto para la tabla */
+    gridline-color: #4A4A4A;    /* Color de las líneas de la cuadrícula */
+    border: 1px solid #3A3A3A;  /* Borde sutil para la tabla */
+    font-size: 14px;
+}
+
+QTableWidget::item {
+    background-color: #3C3C3C; /* Fondo de celda un poco más claro */
+    color: #E0E0E0;             /* Texto blanco/gris claro para los items */
+    padding: 5px;               /* Padding dentro de las celdas */
+    border-bottom: 1px solid #2D2D2D; /* Separador de fila más oscuro que la cuadrícula */
+    border-right: none;         /* Sin borde derecho para items, gridline-color se encarga */
+}
+
+QTableWidget::item:alternate {
+    background-color: #383838; /* Tono ligeramente diferente para filas alternas */
+}
+
+QTableWidget::item:selected {
+    background-color: #0078D7; /* Azul brillante para la selección (estilo Windows moderno) */
+    color: #FFFFFF;             /* Texto blanco para la selección */
+}
+
+/* Estilo para la cabecera de la tabla */
+QHeaderView::section {
+    background-color: #4A4A4A; /* Fondo oscuro para la cabecera */
+    color: #E0E0E0;             /* Texto blanco/gris claro para la cabecera */
+    padding: 6px;
+    border: 1px solid #5A5A5A;
+    /* font-weight: bold; */    /* Opcional: texto en negrita */
+}
+
+/* Estilo para el indicador de ordenación en la cabecera (necesitarás imágenes) */
+/* Comenta estas secciones si no tienes las imágenes listas de inmediato */
+/*
+QHeaderView::down-arrow {
+    image: url(icons/arrow_down_white.png);
+    width: 12px;
+    height: 12px;
+    padding-right: 5px;
+}
+
+QHeaderView::up-arrow {
+    image: url(icons/arrow_up_white.png);
+    width: 12px;
+    height: 12px;
+    padding-right: 5px;
+}
+*/
+
+/* Estilo para las QTextEdit dentro de la columna DIÁLOGO */
+QTableWidget QTextEdit { /* Selector más específico para los QTextEdit en la tabla */
+    background-color: #3C3C3C; /* Mismo fondo que QTableWidget::item */
+    color: #E0E0E0;             /* Mismo color de texto que QTableWidget::item */
+    border: none;               /* Quitar el borde por defecto de QTextEdit */
+    padding: 2px;               /* Menor padding para QTextEdit para que no se coma mucho espacio */
+    /* El tamaño de fuente se establece en TableWindow.create_text_edit */
+}

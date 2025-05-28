@@ -1,0 +1,216 @@
+/* --- guion_editor/styles/main.css --- */
+/* Estilos Generales de la Aplicación y Tema Oscuro */
+
+/* --- Colores Base (para referencia, Qt CSS no soporta variables nativas) --- */
+/*
+  --app-bg-dark: #1E1E1E;
+  --widget-bg-medium: #2D2D2D;
+  --widget-bg-light: #3C3C3C;
+  --widget-border-color: #4A4A4A;
+  --text-color-light: #E0E0E0;
+  --text-color-dark: #1E1E1E;
+  --accent-color: #0078D7;
+  --button-text-color: white;
+*/
+
+/* --- Estilos Globales --- */
+QMainWindow, QDialog {
+    background-color: #1E1E1E; /* Fondo muy oscuro para ventanas principales */
+    color: #E0E0E0;            /* Color de texto general */
+}
+
+QWidget { /* Estilo base para la mayoría de los widgets */
+    background-color: transparent; /* Por defecto, para que hereden de su padre o ventana */
+    color: #E0E0E0;
+    /* font-family: "Segoe UI", Arial, sans-serif; */ /* Opcional */
+    /* font-size: 14px; */ /* Opcional, puedes manejar tamaños por widget */
+}
+
+/* --- Controles de Cabecera en TableWindow --- */
+QFormLayout QLabel { /* Etiquetas en QFormLayout (ej: "Número de referencia:") */
+    color: #E0E0E0;
+    padding-top: 4px; /* Alineación vertical con QLineEdit */
+}
+
+QLineEdit {
+    background-color: #2D2D2D;
+    color: #E0E0E0;
+    border: 1px solid #4A4A4A;
+    padding: 5px;
+    border-radius: 4px;
+    min-height: 20px; /* Altura mínima para consistencia */
+}
+QLineEdit:focus {
+    border: 1px solid #0078D7; /* Borde de acento al enfocar */
+}
+QLineEdit[readOnly="true"] {
+    background-color: #383838;
+    color: #B0B0B0;
+}
+
+QComboBox {
+    background-color: #2D2D2D;
+    color: #E0E0E0;
+    border: 1px solid #4A4A4A;
+    padding: 5px;
+    border-radius: 4px;
+    min-height: 20px;
+    selection-background-color: #0078D7;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left-width: 1px;
+    border-left-color: #4A4A4A;
+    border-left-style: solid;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+    background-color: #4A4A4A;
+}
+QComboBox::down-arrow {
+    /* image: url(icons/arrow_combo_down_white.png); */ /* Necesitarás una imagen */
+    /* width: 10px; height: 10px; */
+}
+QComboBox QAbstractItemView { /* Estilo del menú desplegable */
+    background-color: #2D2D2D;
+    color: #E0E0E0;
+    border: 1px solid #4A4A4A;
+    selection-background-color: #0078D7;
+    padding: 2px;
+}
+
+/* --- Botones (Tus estilos, con pequeños ajustes y consistencia) --- */
+QPushButton {
+    border: none;
+    padding: 8px 12px;
+    text-align: center;
+    text-decoration: none;
+    /* font-size: 14px; */ /* Se puede definir globalmente o por widget */
+    margin: 4px 2px;
+    border-radius: 6px;
+    color: white; /* Color de texto predeterminado para botones */
+    min-height: 20px;
+}
+QPushButton:hover {
+    opacity: 0.9;
+}
+QPushButton:pressed {
+    opacity: 0.8;
+}
+QPushButton:disabled {
+    background-color: #4A4A4A !important; /* `!important` para asegurar que anule otros estilos */
+    color: #888888 !important;
+}
+
+/* Colores específicos de botones por objectName */
+QPushButton#play_button { background-color: #4CAF50; }
+QPushButton#rewind_button, QPushButton#forward_button { background-color: #2196F3; }
+QPushButton#detach_button { background-color: #f44336; }
+QPushButton#in_button, QPushButton#out_button { background-color: #FF9800; }
+QPushButton#volume_button { background-color: #607D8B; }
+QPushButton#attach_button { background-color: #9C27B0; }
+
+/* Botones de TableWindow (Agregar Línea, Eliminar Fila, etc.) */
+/* Si tienen objectName, puedes estilizarlos aquí. Si no, heredarán QPushButton */
+/* Ejemplo: QPushButton#add_row_button { background-color: #some_color; } */
+
+/* --- VideoPlayerWidget --- */
+QSlider#position_slider::groove:horizontal {
+    border: 1px solid #4A4A4A;
+    height: 8px;
+    background: #2D2D2D;
+    margin: 2px 0;
+    border-radius: 4px;
+}
+QSlider#position_slider::handle:horizontal {
+    background: #0078D7;
+    border: 1px solid #005BA1;
+    width: 18px; /* Un poco más grande */
+    margin: -5px 0; /* Centrar el manejador (ajusta según (height - handle_width)/2 ) */
+    border-radius: 9px;
+}
+
+QSlider#volume_slider_vertical {
+    min-width: 16px; /* Más espacio para el slider de volumen */
+    max-width: 16px;
+}
+QSlider#volume_slider_vertical::groove:vertical {
+    background: #2D2D2D;
+    width: 8px;
+    border-radius: 4px;
+    border: 1px solid #4A4A4A;
+}
+QSlider#volume_slider_vertical::handle:vertical {
+    background: #0078D7;
+    border: 1px solid #005BA1;
+    height: 18px;
+    margin: 0 -5px;
+    border-radius: 9px;
+}
+
+QLabel#time_code_label {
+    color: #E0E0E0;
+    background-color: transparent;
+    padding: 5px;
+    font-weight: bold;
+    /* El tamaño de la fuente y la altura se ajustan en VideoPlayerWidget.py */
+}
+
+QVideoWidget#video_widget {
+    background-color: black;
+}
+
+/* --- Menú Bar y Menús --- */
+QMenuBar {
+    background-color: #2D2D2D;
+    color: #E0E0E0;
+    /* font-size: 13px; */
+}
+QMenuBar::item {
+    background-color: transparent;
+    padding: 6px 10px;
+}
+QMenuBar::item:selected {
+    background-color: #0078D7;
+    color: white;
+}
+QMenu {
+    background-color: #2D2D2D;
+    color: #E0E0E0;
+    border: 1px solid #4A4A4A;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 20px; /* Mayor padding para items de menú */
+}
+QMenu::item:selected {
+    background-color: #0078D7;
+    color: white;
+}
+QMenu::separator {
+    height: 1px;
+    background: #4A4A4A;
+    margin-left: 10px;
+    margin-right: 5px;
+}
+
+/* --- Otros --- */
+QMessageBox {
+    background-color: #2D2D2D;
+    /* Para QMessageBox, los botones internos son más difíciles de estilizar globalmente
+       sin afectar a todos los QPushButton. Es mejor dejarlos con el estilo por defecto
+       o estilizar los botones específicos de QMessageBox si es realmente necesario. */
+}
+QMessageBox QLabel { /* El texto del mensaje */
+    color: #E0E0E0;
+}
+
+
+QToolTip { /* Tooltips más visibles en tema oscuro */
+    background-color: #4A4A4A;
+    color: #E0E0E0;
+    border: 1px solid #5A5A5A;
+    padding: 4px;
+    border-radius: 3px;
+}

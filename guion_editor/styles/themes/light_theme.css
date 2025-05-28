@@ -1,0 +1,68 @@
+/* Tema Oscuro */
+QPushButton {
+    border: 1px solid #505050; /* Ejemplo de borde para tema oscuro */
+    padding: 10px;
+    text-align: center;
+    font-size: 14px;
+    margin: 4px 2px;
+    border-radius: 8px;
+    color: white; /* Texto claro para fondo oscuro */
+    background-color: #3e3e3e; /* Fondo oscuro para botones */
+}
+QPushButton:hover {
+    background-color: #505050;
+}
+
+QPushButton#play_button { background-color: #4CAF50; }
+QPushButton#play_button:hover { background-color: #5cb85c; }
+/* ... otros estilos de main.css adaptados para oscuro ... */
+QPushButton#detach_button { background-color: #d9534f; } /* Rojo más suave para oscuro */
+QPushButton#detach_button:hover { background-color: #c9302c; }
+
+
+QLabel#time_code_label { font-size: 25px; height: 20px; color: white; }
+QVideoWidget#video_widget { background-color: black; } /* Mantenemos el vídeo negro */
+QMainWindow, QDialog, QWidget { background-color: #2e2e2e; } /* Fondo general oscuro */
+QMenuBar { background-color: #383838; color: white; }
+QMenu { background-color: #424242; color: white; border: 1px solid #505050; }
+QMenu::item:selected { background-color: #555555; }
+
+
+QTableWidget {
+    background-color: #3a3a3a; /* Fondo oscuro para la tabla */
+    color: white; /* Texto claro */
+    gridline-color: #505050; /* Líneas de cuadrícula oscuras */
+}
+QTableWidget::item {
+    background-color: #424242; /* Fondo de celda oscuro */
+    color: white;
+    border-bottom: 1px solid #505050; /* Separador sutil de filas */
+}
+QTableWidget::item:alternate {
+    background-color: #3f3f3f; /* Alternancia sutil */
+}
+QTableWidget::item:selected {
+    background-color: #0078d7; /* Azul más brillante para selección en tema oscuro */
+    color: #FFFFFF;
+}
+QHeaderView::section {
+    background-color: #383838;
+    color: white;
+    padding: 4px;
+    border: 1px solid #505050;
+}
+/* Estilos para QLineEdit, QSpinBox, QComboBox, etc. para tema oscuro */
+QLineEdit, QSpinBox, QComboBox, QTextEdit {
+    background-color: #505050;
+    color: white;
+    border: 1px solid #606060;
+    border-radius: 4px;
+    padding: 2px;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    /* Estilos para los botones del spinbox si es necesario */
+}
+QComboBox::drop-down {
+    /* Estilos para el desplegable del combobox */
+}
+/* ... otros estilos ... */
