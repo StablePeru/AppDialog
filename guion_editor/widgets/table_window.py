@@ -1,4 +1,3 @@
-
 # guion_editor/widgets/table_window.py
 
 import json
@@ -66,12 +65,12 @@ class TableWindow(QWidget):
                     return True
             return super().eventFilter(obj, event)
 
-    def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None, 
+    def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
                  guion_manager: Optional[GuionManager] = None, get_icon_func=None):
         super().__init__()
         self.get_icon = get_icon_func
         self.main_window = main_window
-        
+
         self.video_player_widget = video_player_widget
         if self.video_player_widget:
             self.video_player_widget.in_out_signal.connect(self.update_in_out)
@@ -81,7 +80,7 @@ class TableWindow(QWidget):
 
         # CORRECTA INSTANCIACIÓN de la clase anidada
         self.key_filter = TableWindow.KeyPressFilter(self)
-        
+
         self.installEventFilter(self.key_filter)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -113,14 +112,14 @@ class TableWindow(QWidget):
         main_layout = QVBoxLayout(self)
         icon_size_header_toggle = QSize(20, 20)
 
-        self.toggle_header_button = QPushButton() 
+        self.toggle_header_button = QPushButton()
         self.toggle_header_button.setIconSize(icon_size_header_toggle)
         self.toggle_header_button.setObjectName("toggle_header_button_css")
         self.toggle_header_button.clicked.connect(self.toggle_header_visibility)
         main_layout.addWidget(self.toggle_header_button)
 
         self.header_details_widget = QWidget()
-        self.header_form_layout = QFormLayout() 
+        self.header_form_layout = QFormLayout()
         self.header_details_widget.setLayout(self.header_form_layout)
 
         self.setup_header_fields(self.header_form_layout)
@@ -130,9 +129,9 @@ class TableWindow(QWidget):
         self.setup_table_widget(main_layout)
         self.load_stylesheet()
 
-        self.header_details_widget.setVisible(True) 
-        self.toggle_header_visibility() 
-        self.toggle_header_visibility() 
+        self.header_details_widget.setVisible(True)
+        self.toggle_header_visibility()
+        self.toggle_header_visibility()
 
     def setup_header_fields(self, form_layout: QFormLayout) -> None:
         self.reference_edit = QLineEdit()
@@ -140,19 +139,19 @@ class TableWindow(QWidget):
         self.reference_edit.setMaxLength(6)
         self.reference_edit.setPlaceholderText("Máximo 6 dígitos")
         form_layout.addRow("Número de referencia:", self.reference_edit)
-        
+
         self.product_edit = QLineEdit()
         self.product_edit.setPlaceholderText("Nombre del producto")
         form_layout.addRow("Nombre del Producto:", self.product_edit)
-        
+
         self.chapter_edit = QLineEdit()
         self.chapter_edit.setPlaceholderText("Número de capítulo")
         form_layout.addRow("N.º Capítulo:", self.chapter_edit)
-        
+
         self.type_combo = QComboBox()
         self.type_combo.addItems(["Ficcion", "Animacion", "Documental"])
         form_layout.addRow("Tipo:", self.type_combo)
-        
+
         self.reference_edit.textChanged.connect(lambda: self.set_unsaved_changes(True))
         self.product_edit.textChanged.connect(lambda: self.set_unsaved_changes(True))
         self.chapter_edit.textChanged.connect(lambda: self.set_unsaved_changes(True))
@@ -176,11 +175,11 @@ class TableWindow(QWidget):
         actions_map = [
             (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False),
             (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False),
-            ("", self.move_row_up, "move_up_icon.svg", True), 
-            ("", self.move_row_down, "move_down_icon.svg", True), 
+            ("", self.move_row_up, "move_up_icon.svg", True),
+            ("", self.move_row_down, "move_down_icon.svg", True),
             (" Ajustar Diálogos", self.adjust_dialogs, "adjust_dialogs_icon.svg", False),
-            (" Separar", self.split_intervention, "split_intervention_icon.svg", False), 
-            (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False), 
+            (" Separar", self.split_intervention, "split_intervention_icon.svg", False),
+            (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False),
         ]
         for text, method, icon_name, only_icon in actions_map:
             button = QPushButton(text)
@@ -188,7 +187,7 @@ class TableWindow(QWidget):
                 button.setIcon(self.get_icon(icon_name))
                 button.setIconSize(icon_size)
             if only_icon:
-                 button.setFixedSize(QSize(icon_size.width() + 16, icon_size.height() + 12)) 
+                 button.setFixedSize(QSize(icon_size.width() + 16, icon_size.height() + 12))
                  button.setToolTip(text.strip() if text.strip() else method.__name__.replace("_", " ").title()) # Mejor tooltip para solo icono
             button.clicked.connect(method)
             buttons_layout.addWidget(button)
@@ -205,14 +204,14 @@ class TableWindow(QWidget):
         self.columns = ["ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO"]
         self.table_widget.setColumnCount(len(self.columns))
         self.table_widget.setHorizontalHeaderLabels(self.columns)
-        
+
         if "ID" in self.columns:
             self.table_widget.setColumnHidden(self.columns.index("ID"), True)
-        
+
         self.table_widget.setItemDelegateForColumn(self.COL_IN, TimeCodeDelegate(self.table_widget))
         self.table_widget.setItemDelegateForColumn(self.COL_OUT, TimeCodeDelegate(self.table_widget))
         self.table_widget.setItemDelegateForColumn(self.COL_CHARACTER, CharacterDelegate(get_names_callback=self.get_character_names, parent=self.table_widget))
-        
+
         self.table_widget.cellCtrlClicked.connect(self.handle_ctrl_click)
         self.table_widget.cellAltClicked.connect(self.handle_alt_click)
         self.table_widget.itemChanged.connect(self.on_item_changed)
@@ -229,8 +228,8 @@ class TableWindow(QWidget):
                     css_path = alt_css_path
                 else:
                     print(f"Advertencia: Stylesheet de tabla no encontrado en {css_path} ni {alt_css_path}")
-                    return 
-            
+                    return
+
             with open(css_path, 'r', encoding='utf-8') as f:
                 self.table_widget.setStyleSheet(f.read())
         except Exception as e:
@@ -259,7 +258,7 @@ class TableWindow(QWidget):
         self.dataframe = df
         self._populate_header_ui(header_data)
         self.has_scene_numbers = has_scenes
-        
+
         self.populate_table()
         self.undo_stack.clear()
 
@@ -270,7 +269,7 @@ class TableWindow(QWidget):
 
         if self.main_window and hasattr(self.main_window, 'add_to_recent_files'):
             self.main_window.add_to_recent_files(file_path)
-        
+
         QMessageBox.information(self, "Éxito", f"Guion '{self.current_script_name}' cargado correctamente.")
 
     def open_docx_dialog(self) -> None:
@@ -303,117 +302,32 @@ class TableWindow(QWidget):
         if self.dataframe.empty:
             QMessageBox.information(self, "Exportar", "No hay datos para exportar.")
             return False
-        # Make sure this method calls the first definition or is self-contained and correct.
-        # For now, we assume it calls the corrected _update_dataframe_from_table if it's the one used for export.
-        # If this export_to_excel_dialog itself calls the problematic _update_dataframe_from_table,
-        # then the fix below will help.
-        self._update_dataframe_from_table() # This should call the corrected version if it's the one active.
+
+        self._update_dataframe_from_table()
         header_data = self._get_header_data_from_ui()
-        # ... (rest of the export logic)
-        # This function seems incomplete in the provided snippet.
-        # Assuming the rest of the export logic follows and is correct.
-        return True
 
+        default_filename = "guion.xlsx"
+        if header_data.get("product_name") and header_data.get("chapter_number"):
+            default_filename = f"{header_data['product_name']}_{header_data['chapter_number']}.xlsx"
+        elif header_data.get("product_name"):
+            default_filename = f"{header_data['product_name']}.xlsx"
 
-    # THIS IS THE FIRST DEFINITION OF _update_dataframe_from_table
-    # It seems more complete and robust, especially its ID handling.
-    # Ensure this version is used or its logic is merged into the second one if the second one is being called.
-    def _update_dataframe_from_table(self) -> None:
-        """Actualiza self.dataframe con los datos de la QTableWidget. Crucial antes de guardar."""
-        try:
-            # Si no hay filas en la tabla y el dataframe ya está vacío, no hay nada que hacer.
-            if self.table_widget.rowCount() == 0 and (self.dataframe is None or self.dataframe.empty):
-                # Asegurarse de que el dataframe sea un DataFrame vacío con las columnas correctas si es None
-                if self.dataframe is None or not isinstance(self.dataframe, pd.DataFrame):
-                    self.dataframe = pd.DataFrame(columns=list(self.TABLE_TO_DF_COL_MAP.values()))
-                return
-
-            temp_data = []
-            for row_idx in range(self.table_widget.rowCount()):
-                row_dict = {}
-                # Intentar obtener el ID de la tabla; puede que no exista para filas nuevas aún no procesadas por AddRowCommand
-                id_item = self.table_widget.item(row_idx, self.COL_ID)
-                if id_item and id_item.text():
-                    try:
-                        row_dict['ID'] = int(id_item.text())
-                    except ValueError:
-                        row_dict['ID'] = None # Marcar como None si no es un entero válido
-                else:
-                    row_dict['ID'] = None # ID no presente o vacío
-
-                for col_idx_table, df_col_name in self.TABLE_TO_DF_COL_MAP.items():
-                    if col_idx_table == self.COL_ID: # Ya manejamos el ID arriba
-                        continue
-                    
-                    if col_idx_table == self.COL_DIALOGUE:
-                        widget = self.table_widget.cellWidget(row_idx, self.COL_DIALOGUE)
-                        row_dict[df_col_name] = widget.toPlainText() if widget else ""
-                    else:
-                        item = self.table_widget.item(row_idx, col_idx_table)
-                        row_dict[df_col_name] = item.text() if item else ""
-                temp_data.append(row_dict)
-            
-            if temp_data:
-                new_df = pd.DataFrame(temp_data)
-                
-                # Asegurar que todas las columnas esperadas existan, añadiéndolas con valores por defecto si no
-                for df_col_name in self.TABLE_TO_DF_COL_MAP.values():
-                    if df_col_name not in new_df.columns:
-                        if df_col_name == 'ID':
-                            new_df[df_col_name] = None # Será manejado abajo
-                        elif df_col_name in ['IN', 'OUT']:
-                            new_df[df_col_name] = "00:00:00:00"
-                        else:
-                            new_df[df_col_name] = ""
-
-
-                # Procesamiento robusto de la columna 'ID'
-                if 'ID' in new_df.columns:
-                    numeric_ids = pd.to_numeric(new_df['ID'], errors='coerce') # Convierte a numérico, errores a NaT/NaN
-                    
-                    nan_id_mask = numeric_ids.isna() # Máscara para IDs que son NaN
-                    num_nan_ids = nan_id_mask.sum()   # Cuántos IDs son NaN
-
-                    if num_nan_ids > 0:
-                        # Determinar el ID máximo existente válido para generar nuevos IDs
-                        max_existing_valid_id = -1
-                        valid_numeric_ids_series = numeric_ids[~nan_id_mask] # Series de IDs que NO son NaN
-                        if not valid_numeric_ids_series.empty:
-                            max_existing_valid_id = valid_numeric_ids_series.max()
-                        
-                        # El primer nuevo ID será uno más que el máximo existente (o 0 si no hay válidos)
-                        start_new_id = int(max_existing_valid_id) + 1
-                        
-                        # Generar una secuencia de nuevos IDs para las filas NaN
-                        # Usamos .loc y una serie alineada para la asignación
-                        new_ids_for_nan_values = pd.Series(
-                            range(start_new_id, start_new_id + num_nan_ids),
-                            index=numeric_ids[nan_id_mask].index, # Asegura que los índices coincidan para la asignación
-                            dtype='Int64' # Usar Int64 para permitir NaN temporalmente si Pandas lo necesita
-                        )
-                        numeric_ids.loc[nan_id_mask] = new_ids_for_nan_values
-                    
-                    # Asignar la columna de IDs procesada y convertir a int (los NaNs ya deberían estar rellenos)
-                    new_df['ID'] = numeric_ids.astype(int)
-                else: # Si la columna 'ID' no existía en temp_data (muy improbable si se construyó bien)
-                    new_df['ID'] = range(len(new_df))
-
-
-                if 'SCENE' in new_df.columns:
-                    new_df['SCENE'] = new_df['SCENE'].astype(str)
-                
-                # Reordenar columnas al orden esperado
-                ordered_columns = [col for col in self.TABLE_TO_DF_COL_MAP.values() if col in new_df.columns]
-                # Añadir columnas extra que podrían existir pero no están en TABLE_TO_DF_COL_MAP
-                extra_cols = [col for col in new_df.columns if col not in ordered_columns]
-                self.dataframe = new_df[ordered_columns + extra_cols]
-
-
-            else: # Si temp_data está vacío (la tabla no tenía filas)
-                self.dataframe = pd.DataFrame(columns=list(self.TABLE_TO_DF_COL_MAP.values()))
-
-        except Exception as e:
-            self.handle_exception(e, f"Error crítico al actualizar DataFrame desde la tabla: {str(e)}")
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar Guion como Excel", default_filename, "Archivos Excel (*.xlsx);;Todos los archivos (*.*)")
+        if path:
+            try:
+                self.guion_manager.save_to_excel(path, self.dataframe, header_data)
+                QMessageBox.information(self, "Éxito", "Datos guardados correctamente en Excel.")
+                self.current_script_name = os.path.basename(path)
+                self.current_script_path = path
+                self.set_unsaved_changes(False)
+                self.update_window_title()
+                if self.main_window and hasattr(self.main_window, 'add_to_recent_files'):
+                    self.main_window.add_to_recent_files(path)
+                return True
+            except Exception as e:
+                self.handle_exception(e, "Error al guardar en Excel")
+                return False
+        return False
 
     def load_from_json_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Cargar Guion desde JSON", "", "Archivos JSON (*.json);;Todos los archivos (*.*)")
@@ -433,7 +347,7 @@ class TableWindow(QWidget):
             QMessageBox.information(self, "Guardar", "No hay datos para guardar.")
             return False
 
-        self._update_dataframe_from_table() # Crucial: calls the method that needs to be correct
+        self._update_dataframe_from_table()
         header_data = self._get_header_data_from_ui()
 
         default_filename = "guion.json"
@@ -451,7 +365,7 @@ class TableWindow(QWidget):
                 self.current_script_path = path
                 self.set_unsaved_changes(False)
                 self.update_window_title()
-                if self.main_window:
+                if self.main_window and hasattr(self.main_window, 'add_to_recent_files'):
                     self.main_window.add_to_recent_files(path)
                 return True
             except Exception as e:
@@ -474,7 +388,7 @@ class TableWindow(QWidget):
         try:
             self.table_widget.blockSignals(True)
             self.table_widget.clearContents()
-            
+
             if self.dataframe.empty:
                 self.table_widget.setRowCount(0)
                 self.table_widget.blockSignals(False)
@@ -563,7 +477,7 @@ class TableWindow(QWidget):
                     QMessageBox.warning(self, "Error de Tipo", f"El valor '{new_text}' no es un número válido para 'SCENE'.")
                     item.setText(old_text)
                     return
-            
+
             if new_text != old_text:
                 command = EditCommand(self, row, column, old_text, new_text)
                 self.undo_stack.push(command)
@@ -586,7 +500,7 @@ class TableWindow(QWidget):
                 if self.table_widget.cellWidget(r_idx, self.COL_DIALOGUE) == text_edit_widget:
                     found_pos = (r_idx, self.COL_DIALOGUE)
                     break
-            
+
             if not found_pos:
                 return
 
@@ -594,7 +508,7 @@ class TableWindow(QWidget):
             df_col_name = self.get_dataframe_column_name(column)
             if not df_col_name or row >= len(self.dataframe):
                 return
-            
+
             new_text = text_edit_widget.toPlainText()
             if self.dataframe.empty or row >= len(self.dataframe):
                 old_text = ""
@@ -610,8 +524,6 @@ class TableWindow(QWidget):
         except Exception as e:
             self.handle_exception(e, f"Error al finalizar la edición del texto del diálogo: {e}")
 
-    # THIS IS THE SECOND DEFINITION of _update_dataframe_from_table.
-    # IT IS THE ONE CAUSING THE ERROR. WE WILL MODIFY THIS ONE.
     def _update_dataframe_from_table(self) -> None:
         try:
             if self.dataframe.empty and self.table_widget.rowCount() == 0:
@@ -628,14 +540,14 @@ class TableWindow(QWidget):
                     try:
                         row_dict['ID'] = int(id_item.text())
                     except ValueError:
-                        row_dict['ID'] = None 
+                        row_dict['ID'] = None
                 else:
-                    row_dict['ID'] = None 
+                    row_dict['ID'] = None
 
                 for col_idx_table, df_col_name in self.TABLE_TO_DF_COL_MAP.items():
-                    if col_idx_table == self.COL_ID: 
+                    if col_idx_table == self.COL_ID:
                         continue
-                    
+
                     if col_idx_table == self.COL_DIALOGUE:
                         widget = self.table_widget.cellWidget(row_idx, self.COL_DIALOGUE)
                         row_dict[df_col_name] = widget.toPlainText() if widget else ""
@@ -643,10 +555,10 @@ class TableWindow(QWidget):
                         item = self.table_widget.item(row_idx, col_idx_table)
                         row_dict[df_col_name] = item.text() if item else ""
                 temp_data.append(row_dict)
-            
+
             if temp_data:
                 new_df = pd.DataFrame(temp_data)
-                
+
                 # ---- INICIO DE LA CORRECCIÓN ----
                 # Asegurar que todas las columnas esperadas existan en new_df, añadiéndolas con valores por defecto si no
                 for df_col_name_expected in self.TABLE_TO_DF_COL_MAP.values():
@@ -658,47 +570,37 @@ class TableWindow(QWidget):
                             new_df[df_col_name_expected] = "00:00:00:00"
                         else:
                             new_df[df_col_name_expected] = ""
-                
+
                 # Procesamiento robusto de la columna 'ID'
                 if 'ID' in new_df.columns:
                     numeric_ids = pd.to_numeric(new_df['ID'], errors='coerce')
-                    
+
                     nan_id_mask = numeric_ids.isna()
                     num_nan_ids = nan_id_mask.sum()
 
                     if num_nan_ids > 0:
                         max_existing_valid_id = -1
-                        # Considerar IDs válidos tanto en el self.dataframe actual como en new_df (parte no NaN)
-                        # para asegurar IDs únicos globalmente si esta función se llama incrementalmente.
-                        # Para simplificar, basaremos el nuevo ID en los IDs válidos *dentro de new_df*
                         valid_numeric_ids_in_new_df = numeric_ids[~nan_id_mask]
                         if not valid_numeric_ids_in_new_df.empty:
                             max_existing_valid_id = valid_numeric_ids_in_new_df.max()
-                        
-                        # Opcionalmente, considerar también self.dataframe para el máx ID global:
-                        # if not self.dataframe.empty and 'ID' in self.dataframe.columns:
-                        #     global_max = pd.to_numeric(self.dataframe['ID'], errors='coerce').max()
-                        #     if pd.notna(global_max) and global_max > max_existing_valid_id :
-                        #         max_existing_valid_id = global_max
-                        
+
                         start_new_id = int(max_existing_valid_id) + 1
-                        
+
                         new_ids_for_nan_values = pd.Series(
                             range(start_new_id, start_new_id + num_nan_ids),
                             index=numeric_ids[nan_id_mask].index, # Alinea con las filas NaN en numeric_ids
-                            dtype='Int64' 
+                            dtype='Int64'
                         )
                         numeric_ids.loc[nan_id_mask] = new_ids_for_nan_values
-                    
+
                     new_df['ID'] = numeric_ids.astype(int)
-                else: 
-                    # Esto no debería ocurrir si la lógica anterior de asegurar columnas funciona
+                else:
                     new_df['ID'] = range(len(new_df))
                 # ---- FIN DE LA CORRECCIÓN ----
 
                 if 'SCENE' in new_df.columns:
                     new_df['SCENE'] = new_df['SCENE'].astype(str)
-                
+
                 # Reordenar columnas al orden esperado
                 ordered_columns = [col for col in self.TABLE_TO_DF_COL_MAP.values() if col in new_df.columns]
                 extra_cols = [col for col in new_df.columns if col not in ordered_columns]
@@ -718,7 +620,7 @@ class TableWindow(QWidget):
                 self.clipboard_text = current_item.text()
         except Exception as e:
             self.handle_exception(e, "Error al copiar el tiempo")
-    
+
     def paste_time(self) -> None:
         try:
             if not self.clipboard_text: return
@@ -742,7 +644,7 @@ class TableWindow(QWidget):
             for i in range(len(self.dataframe)):
                 dialog_text_original = str(self.dataframe.at[i, 'DIÁLOGO'])
                 adjusted_text = ajustar_dialogo(dialog_text_original)
-                
+
                 if dialog_text_original != adjusted_text:
                     command = EditCommand(self, i, self.COL_DIALOGUE, dialog_text_original, adjusted_text)
                     self.undo_stack.push(command)
@@ -763,7 +665,7 @@ class TableWindow(QWidget):
             if selected_row_idx == -1 :
                 QMessageBox.warning(self, "Copiar IN/OUT", "Seleccione una fila primero.")
                 return
-            
+
             self._update_dataframe_from_table() # Ensure DF is up-to-date
 
             if selected_row_idx >= len(self.dataframe) - 1:
@@ -776,7 +678,7 @@ class TableWindow(QWidget):
             next_row_df_idx = selected_row_idx + 1 # Assuming view index matches df index after _update_dataframe_from_table
 
             self.undo_stack.beginMacro("Copiar IN/OUT a Siguiente")
-            
+
             old_in_next = str(self.dataframe.at[next_row_df_idx, 'IN'])
             if in_time != old_in_next:
                 cmd_in = EditCommand(self, next_row_df_idx, self.COL_IN, old_in_next, in_time)
@@ -786,9 +688,9 @@ class TableWindow(QWidget):
             if out_time != old_out_next:
                 cmd_out = EditCommand(self, next_row_df_idx, self.COL_OUT, old_out_next, out_time)
                 self.undo_stack.push(cmd_out)
-            
+
             self.undo_stack.endMacro()
-            
+
             # Check if any commands were actually pushed
             if self.undo_stack.count() > 0 and self.undo_stack.command(self.undo_stack.count()-1).text().startswith("Copiar IN/OUT"):
                  self.set_unsaved_changes(True)
@@ -803,29 +705,16 @@ class TableWindow(QWidget):
     def add_new_row(self) -> None:
         try:
             selected_row_view_idx = self.table_widget.currentRow()
-            # _update_dataframe_from_table() # Call before determining insert_at_row_idx based on df
-            
-            # Determine insert position in DataFrame
-            # If a row is selected, insert after it in the DataFrame.
-            # If no row selected, or table is empty, append to DataFrame.
+            self._update_dataframe_from_table() # Call before determining insert_at_row_idx based on df
+
             if selected_row_view_idx != -1 and not self.dataframe.empty and selected_row_view_idx < len(self.dataframe):
-                # Find the DataFrame index corresponding to the selected view row
-                # This is tricky if IDs are not perfectly managed or if _update_dataframe_from_table hasn't been called.
-                # For simplicity, we'll assume view index corresponds to DataFrame index *if* _update_dataframe_from_table was just called.
-                # A more robust way is to use IDs.
-                self._update_dataframe_from_table() # Ensure DF is current
                 df_insert_idx = selected_row_view_idx + 1
             else:
-                self._update_dataframe_from_table() # Ensure DF is current
                 df_insert_idx = len(self.dataframe)
 
-
-            # The view index for inserting a row in QTableWidget
-            # If a row is selected, insert after it. Otherwise, append.
             view_insert_idx = selected_row_view_idx + 1 if selected_row_view_idx != -1 else self.table_widget.rowCount()
 
-
-            command = AddRowCommand(self, view_insert_idx, df_insert_idx) # Pass both view and df insert indices
+            command = AddRowCommand(self, view_insert_idx, df_insert_idx)
             self.undo_stack.push(command)
             self.set_unsaved_changes(True)
         except Exception as e:
@@ -839,15 +728,14 @@ class TableWindow(QWidget):
                 return
 
             rows_to_remove_view_indices = sorted([index.row() for index in selected_indexes], reverse=True)
-            
+
             confirm = QMessageBox.question(self, "Confirmar Eliminación", "¿Estás seguro de que deseas eliminar las filas seleccionadas?",
                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if confirm == QMessageBox.StandardButton.Yes:
                 self._update_dataframe_from_table() # CRUCIAL: Sync DF before finding IDs
-                
+
                 df_indices_to_remove = []
                 for row_view_idx in rows_to_remove_view_indices:
-                    # Find corresponding DataFrame index by ID
                     id_item = self.table_widget.item(row_view_idx, self.COL_ID)
                     if id_item and id_item.text():
                         try:
@@ -860,12 +748,9 @@ class TableWindow(QWidget):
                         except ValueError:
                              print(f"Advertencia: ID no numérico '{id_item.text()}' en la fila de vista {row_view_idx}.")
                     else:
-                        # This could be a new row not yet in DataFrame or an issue.
-                        # For now, we'll only remove rows that have a corresponding DF entry.
                         print(f"Advertencia: No se pudo obtener el ID para la fila de vista {row_view_idx}.")
 
                 if df_indices_to_remove:
-                    # Sort df_indices_to_remove to ensure correct deletion order if RemoveRowsCommand expects it
                     command = RemoveRowsCommand(self, sorted(list(set(df_indices_to_remove)), reverse=False)) # Use set to avoid duplicates
                     self.undo_stack.push(command)
                     self.set_unsaved_changes(True)
@@ -883,7 +768,7 @@ class TableWindow(QWidget):
 
                 id_item_source = self.table_widget.item(selected_row_view_idx, self.COL_ID)
                 if not (id_item_source and id_item_source.text()): return
-                
+
                 current_row_id = int(id_item_source.text())
                 df_idx_source = self.find_dataframe_index_by_id(current_row_id)
 
@@ -902,7 +787,7 @@ class TableWindow(QWidget):
 
                 id_item_source = self.table_widget.item(selected_row_view_idx, self.COL_ID)
                 if not (id_item_source and id_item_source.text()): return
-                
+
                 current_row_id = int(id_item_source.text())
                 df_idx_source = self.find_dataframe_index_by_id(current_row_id)
 
@@ -927,7 +812,7 @@ class TableWindow(QWidget):
 
             id_item = self.table_widget.item(selected_row_view_idx, self.COL_ID)
             if not (id_item and id_item.text()): return
-            
+
             current_row_id = int(id_item.text())
             df_idx = self.find_dataframe_index_by_id(current_row_id)
             if df_idx is None: return
@@ -985,11 +870,12 @@ class TableWindow(QWidget):
 
             dialog_curr = str(self.dataframe.at[df_idx_curr, 'DIÁLOGO']).strip()
             dialog_next = str(self.dataframe.at[df_idx_next, 'DIÁLOGO']).strip()
-            
+
             merged_dialog = f"{dialog_curr} {dialog_next}".strip() if dialog_curr and dialog_next else (dialog_curr or dialog_next)
 
+            original_out_first = str(self.dataframe.at[df_idx_curr, 'OUT']) # Store OUT of the first row before modification
 
-            command = MergeInterventionsCommand(self, df_idx_curr, merged_dialog, df_idx_next)
+            command = MergeInterventionsCommand(self, df_idx_curr, merged_dialog, df_idx_next, original_out_first)
             self.undo_stack.push(command)
             self.set_unsaved_changes(True)
             QMessageBox.information(self, "Juntar", "Intervenciones juntadas.")
@@ -1033,7 +919,7 @@ class TableWindow(QWidget):
 
             id_item = self.table_widget.item(selected_row_view_idx, self.COL_ID)
             if not (id_item and id_item.text()): return # Ensure ID exists
-            
+
             current_row_id = int(id_item.text())
             df_idx = self.find_dataframe_index_by_id(current_row_id)
             if df_idx is None or df_idx >= len(self.dataframe): return
@@ -1048,7 +934,7 @@ class TableWindow(QWidget):
             elif action.upper() == "OUT":
                 col_to_update = self.COL_OUT
                 old_value = str(self.dataframe.at[df_idx, 'OUT'])
-            
+
             if col_to_update != -1 and time_code_str != old_value:
                 command = EditCommand(self, df_idx, col_to_update, old_value, time_code_str)
                 self.undo_stack.push(command)
@@ -1072,7 +958,7 @@ class TableWindow(QWidget):
 
             current_out_time_str = str(self.dataframe.at[df_idx_curr, 'OUT'])
             next_row_view_idx = current_row_view_idx + 1
-            
+
             id_item_next = self.table_widget.item(next_row_view_idx, self.COL_ID)
             if not (id_item_next and id_item_next.text()): return
             next_row_id = int(id_item_next.text())
@@ -1080,13 +966,13 @@ class TableWindow(QWidget):
             if df_idx_next is None: return
 
             self.table_widget.selectRow(next_row_view_idx)
-            
+
             old_in_next = str(self.dataframe.at[df_idx_next, 'IN'])
             if current_out_time_str != old_in_next:
                 command = EditCommand(self, df_idx_next, self.COL_IN, old_in_next, current_out_time_str)
                 self.undo_stack.push(command)
                 self.set_unsaved_changes(True)
-            
+
             self.table_widget.scrollToItem(self.table_widget.item(next_row_view_idx, 0), QAbstractItemView.ScrollHint.PositionAtCenter)
         except Exception as e:
             self.handle_exception(e, "Error al seleccionar la siguiente fila y marcar IN")
@@ -1096,7 +982,7 @@ class TableWindow(QWidget):
         if selected_row_view_idx == -1:
             QMessageBox.warning(self, "Cambio de Escena", "Selecciona una intervención.")
             return
-        
+
         self._update_dataframe_from_table() # Sync DF
 
         id_item = self.table_widget.item(selected_row_view_idx, self.COL_ID)
@@ -1131,7 +1017,7 @@ class TableWindow(QWidget):
             if self.table_widget.item(row_view_idx, self.COL_OUT): self.table_widget.item(row_view_idx, self.COL_OUT).setBackground(QBrush(INVALID_TIME_BG_COLOR))
             return False
         except Exception: # Other unexpected errors
-            return True 
+            return True
 
     def handle_ctrl_click(self, row_view_idx: int) -> None:
         try:
@@ -1180,7 +1066,6 @@ class TableWindow(QWidget):
         # Ensure new_name is not empty
         if not new_name.strip():
             QMessageBox.warning(self, "Nombre Inválido", "El nombre del personaje no puede estar vacío.")
-            # Optionally, revert the change in the CastWindow or refresh it
             return
 
         self.dataframe.loc[self.dataframe['PERSONAJE'] == old_name, 'PERSONAJE'] = new_name
@@ -1206,7 +1091,6 @@ class TableWindow(QWidget):
                 if search_in_character:
                     char_text = str(self.dataframe.at[df_idx, 'PERSONAJE'])
                     if find_text.lower() in char_text.lower():
-                        # Use re.sub for case-insensitive replace if needed, or ensure find_text matches case
                         new_char_text = char_text.replace(find_text, replace_text) # Case-sensitive
                         if char_text != new_char_text:
                             cmd = EditCommand(self, df_idx, self.COL_CHARACTER, char_text, new_char_text)
@@ -1318,7 +1202,7 @@ class EditCommand(QUndoCommand):
         self.col_idx_table = column_index_in_table
         self.old_value = old_value
         self.new_value = new_value
-        
+
         col_name_in_df = self.tw.get_dataframe_column_name(self.col_idx_table)
         row_id_for_msg = self.df_row_idx # Default to df index if ID is not available
         # Check if DataFrame and 'ID' column exist and df_row_idx is valid
@@ -1336,53 +1220,39 @@ class EditCommand(QUndoCommand):
     def _apply_value_to_dataframe_and_table(self, value_to_apply: Any):
         df_col_name = self.tw.get_dataframe_column_name(self.col_idx_table)
         if not df_col_name: return
-        
+
         # Ensure df_row_idx is within current DataFrame bounds
         if self.df_row_idx >= len(self.tw.dataframe):
             print(f"Error en EditCommand: df_row_idx {self.df_row_idx} fuera de los límites del DataFrame (longitud {len(self.tw.dataframe)})")
-            # Optionally, try to repopulate table to see if it resolves, or just return
-            # self.tw.populate_table() # This might be too aggressive
             return
 
         # Update DataFrame
         if df_col_name == 'SCENE':
             try:
-                # Allow empty string for scene, otherwise try to convert to int then str
                 str_val = str(value_to_apply).strip()
-                if str_val: int(str_val) 
+                if str_val: int(str_val)
                 self.tw.dataframe.at[self.df_row_idx, df_col_name] = str_val
             except ValueError:
-                # QMessageBox.warning(self.tw, "Error", f"Valor inválido '{value_to_apply}' para Escena.")
-                # Avoid showing message box from here, just don't apply if invalid
                 return
         elif df_col_name == 'ID':
              try:
                  self.tw.dataframe.at[self.df_row_idx, df_col_name] = int(value_to_apply)
-             except ValueError: return # Don't apply if ID is not int
+             except ValueError: return
         else:
             self.tw.dataframe.at[self.df_row_idx, df_col_name] = value_to_apply
 
-        # Update Table View
-        # It's crucial that an ID exists and is valid to find the table row
         if 'ID' not in self.tw.dataframe.columns or pd.isna(self.tw.dataframe.at[self.df_row_idx, 'ID']):
-            # If no ID, we might be dealing with a new row not fully processed by AddRowCommand yet
-            # Or an issue. For now, repopulate might be the safest.
-            # print(f"Advertencia: No se pudo encontrar el ID para df_row_idx {self.df_row_idx} en _apply_value_to_dataframe_and_table. Repopulando.")
-            # self.tw.populate_table() # This can be slow if called often
             return
-
 
         try:
             row_id = int(self.tw.dataframe.at[self.df_row_idx, 'ID'])
         except ValueError:
-            # print(f"Advertencia: ID no numérico en df_row_idx {self.df_row_idx}. No se puede actualizar la tabla.")
-            # self.tw.populate_table()
             return
 
         table_row_idx = self.tw.find_table_row_by_id(row_id)
 
         if table_row_idx is not None:
-            self.tw.table_widget.blockSignals(True) # Block signals during direct update
+            self.tw.table_widget.blockSignals(True)
             if self.col_idx_table == self.tw.COL_DIALOGUE:
                 widget = self.tw.table_widget.cellWidget(table_row_idx, self.col_idx_table)
                 if isinstance(widget, QTextEdit):
@@ -1392,19 +1262,14 @@ class EditCommand(QUndoCommand):
                 item = self.tw.table_widget.item(table_row_idx, self.col_idx_table)
                 if item:
                     item.setText(str(value_to_apply))
-                else: # If item doesn't exist, create it (can happen if table was cleared)
+                else:
                     new_item = self.tw.create_table_item(str(value_to_apply), self.col_idx_table)
                     self.tw.table_widget.setItem(table_row_idx, self.col_idx_table, new_item)
-            
+
             if self.col_idx_table in [self.tw.COL_IN, self.tw.COL_OUT]:
                 self.tw.validate_in_out_time(table_row_idx)
             self.tw.table_widget.blockSignals(False)
         else:
-            # This can happen if the row was removed from the table by another operation
-            # or if populate_table() was called and IDs are out of sync.
-            # print(f"Advertencia: No se encontró la fila de tabla para ID {row_id} (df_idx {self.df_row_idx}).")
-            # Consider repopulating if this state is problematic, but be careful of performance.
-            # self.tw.populate_table() # Potentially problematic if called too often
             pass
 
 
@@ -1422,13 +1287,13 @@ class AddRowCommand(QUndoCommand):
         super().__init__()
         self.tw = table_window
         self.view_row_to_insert_at = view_row_to_insert_at
-        self.df_row_to_insert_at = df_row_to_insert_at # DataFrame index for insertion
-        self.new_row_id = -1 # Will be set in redo
+        self.df_row_to_insert_at = df_row_to_insert_at
+        self.new_row_id = -1
         self.new_row_data_for_df: Optional[Dict] = None
-        self.setText(f"Agregar fila") # Text will be updated in redo
+        self.setText(f"Agregar fila")
 
     def redo(self) -> None:
-        self.new_row_id = self.tw.get_next_id() # Get ID before modifying DF
+        self.new_row_id = self.tw.get_next_id()
         self.setText(f"Agregar fila (ID {self.new_row_id})")
 
         self.new_row_data_for_df = {
@@ -1436,12 +1301,11 @@ class AddRowCommand(QUndoCommand):
             'SCENE': "1", 'IN': '00:00:00:00', 'OUT': '00:00:00:00',
             'PERSONAJE': '', 'DIÁLOGO': ''
         }
-        
+
         df = self.tw.dataframe
-        # Adjust SCENE and PERSONAJE based on previous row if inserting, not appending
-        if self.df_row_to_insert_at > 0 and self.df_row_to_insert_at <= len(df): # Check if inserting and not the first row
+        if self.df_row_to_insert_at > 0 and self.df_row_to_insert_at <= len(df):
             prev_df_idx = self.df_row_to_insert_at - 1
-            if prev_df_idx < len(df): # Ensure previous index is valid
+            if prev_df_idx < len(df):
                 self.new_row_data_for_df['SCENE'] = str(df.at[prev_df_idx, 'SCENE'])
                 self.new_row_data_for_df['PERSONAJE'] = str(df.at[prev_df_idx, 'PERSONAJE'])
         elif not df.empty and self.df_row_to_insert_at == len(df): # Appending
@@ -1451,8 +1315,7 @@ class AddRowCommand(QUndoCommand):
 
 
         new_df_row_series = pd.Series(self.new_row_data_for_df)
-        
-        # Insert into DataFrame
+
         if self.df_row_to_insert_at >= len(df): # Append
             self.tw.dataframe = pd.concat([df, pd.DataFrame([new_df_row_series])], ignore_index=True)
         else: # Insert
@@ -1460,7 +1323,6 @@ class AddRowCommand(QUndoCommand):
             df_part2 = df.iloc[self.df_row_to_insert_at:]
             self.tw.dataframe = pd.concat([df_part1, pd.DataFrame([new_df_row_series]), df_part2], ignore_index=True)
 
-        # Insert into QTableWidget
         self.tw.table_widget.blockSignals(True)
         self.tw.table_widget.insertRow(self.view_row_to_insert_at)
         for col_idx_table, df_col_name in self.tw.TABLE_TO_DF_COL_MAP.items():
@@ -1471,39 +1333,33 @@ class AddRowCommand(QUndoCommand):
             else:
                 item = self.tw.create_table_item(str(value), col_idx_table)
                 self.tw.table_widget.setItem(self.view_row_to_insert_at, col_idx_table, item)
-        
+
         self.tw.adjust_row_height(self.view_row_to_insert_at)
         self.tw.table_widget.blockSignals(False)
         self.tw.table_widget.selectRow(self.view_row_to_insert_at)
         self.tw.table_widget.scrollToItem(self.tw.table_widget.item(self.view_row_to_insert_at, 0))
         self.tw.set_unsaved_changes(True)
-        self.tw.update_character_completer() # Update completer if new character names could appear
+        self.tw.update_character_completer()
 
 
     def undo(self) -> None:
-        if self.new_row_id == -1: return # Should not happen if redo was called
+        if self.new_row_id == -1: return
 
-        # Remove from DataFrame using the df_row_to_insert_at (which is now the index of the added row)
-        # Or, more robustly, find by ID if IDs are guaranteed unique and present
         df_idx_to_remove = self.tw.find_dataframe_index_by_id(self.new_row_id)
         if df_idx_to_remove is not None:
             self.tw.dataframe.drop(index=df_idx_to_remove, inplace=True)
             self.tw.dataframe.reset_index(drop=True, inplace=True)
         else:
-            # Fallback if ID not found (shouldn't happen ideally)
             if self.df_row_to_insert_at < len(self.tw.dataframe):
                  self.tw.dataframe.drop(index=self.df_row_to_insert_at, inplace=True)
                  self.tw.dataframe.reset_index(drop=True, inplace=True)
 
-
-        # Remove from QTableWidget - view_row_to_insert_at should be the correct view index
-        # However, if other operations happened, finding by ID is safer
         table_row_to_remove = self.tw.find_table_row_by_id(self.new_row_id)
         if table_row_to_remove is not None:
             self.tw.table_widget.removeRow(table_row_to_remove)
         elif self.view_row_to_insert_at < self.tw.table_widget.rowCount(): # Fallback
             self.tw.table_widget.removeRow(self.view_row_to_insert_at)
-            
+
         self.tw.set_unsaved_changes(True)
         self.tw.update_character_completer()
 
@@ -1512,38 +1368,33 @@ class RemoveRowsCommand(QUndoCommand):
     def __init__(self, table_window: TableWindow, df_rows_indices_to_remove: List[int]):
         super().__init__()
         self.tw = table_window
-        # Store DataFrame indices sorted (ascending) for consistent re-insertion
-        self.df_indices_removed = sorted(df_rows_indices_to_remove) 
+        self.df_indices_removed = sorted(df_rows_indices_to_remove)
         self.removed_data_map: Dict[int, pd.Series] = {} # Maps original df_idx to row data
         self.setText(f"Eliminar {len(self.df_indices_removed)} fila(s)")
 
     def redo(self) -> None:
         self.removed_data_map.clear()
-        # Remove from DataFrame from highest index to lowest to maintain subsequent indices
         df_indices_desc = sorted(self.df_indices_removed, reverse=True)
 
         for df_idx in df_indices_desc:
             if df_idx < len(self.tw.dataframe):
                 self.removed_data_map[df_idx] = self.tw.dataframe.iloc[df_idx].copy()
-                # No need to remove from table here, populate_table will refresh it
                 self.tw.dataframe.drop(index=df_idx, inplace=True)
-        
+
         self.tw.dataframe.reset_index(drop=True, inplace=True)
-        self.tw.populate_table() # Refresh table view from modified DataFrame
+        self.tw.populate_table()
         self.tw.set_unsaved_changes(True)
         self.tw.update_character_completer()
 
     def undo(self) -> None:
-        # Re-insert rows in their original DataFrame positions (sorted ascending)
-        for original_df_idx in self.df_indices_removed: # Iterate in ascending order of original indices
+        for original_df_idx in self.df_indices_removed:
             row_data_series = self.removed_data_map.get(original_df_idx)
             if row_data_series is not None:
-                # Insert row_data_series at original_df_idx
                 df_part1 = self.tw.dataframe.iloc[:original_df_idx]
                 df_part2 = self.tw.dataframe.iloc[original_df_idx:]
                 self.tw.dataframe = pd.concat([df_part1, pd.DataFrame([row_data_series]), df_part2], ignore_index=True)
-        
-        self.tw.populate_table() # Refresh table view
+
+        self.tw.populate_table()
         self.tw.set_unsaved_changes(True)
         self.tw.update_character_completer()
 
@@ -1554,7 +1405,7 @@ class MoveRowCommand(QUndoCommand):
         self.tw = table_window
         self.df_source_idx = df_source_idx
         self.df_target_idx = df_target_idx
-        
+
         row_id_for_msg = df_source_idx
         if not self.tw.dataframe.empty and 'ID' in self.tw.dataframe.columns and df_source_idx < len(self.tw.dataframe) and pd.notna(self.tw.dataframe.at[df_source_idx, 'ID']):
             try:
@@ -1563,45 +1414,37 @@ class MoveRowCommand(QUndoCommand):
         self.setText(f"Mover fila ID {row_id_for_msg} de {df_source_idx} a {df_target_idx}")
 
     def _perform_move(self, from_df_idx: int, to_df_idx: int):
-        if from_df_idx >= len(self.tw.dataframe): return # Source out of bounds
+        if from_df_idx >= len(self.tw.dataframe) or to_df_idx > len(self.tw.dataframe): # Adjusted target check
+            # Handle cases where indices might be out of bounds, e.g., after other operations
+            # This might happen if the command is redone after the DataFrame structure changed significantly.
+            # A full repopulate might be needed if the state is too divergent.
+            print(f"Advertencia en MoveRowCommand: Índices ({from_df_idx}, {to_df_idx}) fuera de rango para DataFrame de longitud {len(self.tw.dataframe)}.")
+            self.tw.populate_table() # Fallback to refresh
+            return
 
-        row_to_move = self.tw.dataframe.iloc[from_df_idx].copy()
-        temp_df = self.tw.dataframe.drop(index=from_df_idx).reset_index(drop=True)
+        rows_list = self.tw.dataframe.to_dict(orient='records')
+        if not (0 <= from_df_idx < len(rows_list)):
+            print(f"Advertencia en MoveRowCommand: from_df_idx {from_df_idx} inválido para lista de {len(rows_list)} filas.")
+            self.tw.populate_table()
+            return
+
+        moved_row_data = rows_list.pop(from_df_idx)
+
+        # Ensure to_df_idx is valid for insertion
+        if not (0 <= to_df_idx <= len(rows_list)): # Can insert at len(rows_list) to append
+            print(f"Advertencia en MoveRowCommand: to_df_idx {to_df_idx} inválido para lista de {len(rows_list)} filas (después de pop).")
+            # As a fallback, append if to_df_idx is too large, or prepend if too small (or error out)
+            if to_df_idx > len(rows_list):
+                to_df_idx = len(rows_list)
+            elif to_df_idx < 0:
+                to_df_idx = 0
         
-        # Adjust target index if source was before target and removed
-        actual_to_df_idx = to_df_idx
-        if from_df_idx < to_df_idx:
-            actual_to_df_idx -=0 # No change needed if target was after source for insertion logic
-                               # But if we consider the state of temp_df, target might shift.
-                               # Simpler: insert into the temp_df at the original target_idx if it was
-                               # adjusted for removal of source.
-                               # Let's use the original to_df_idx for insertion point into temp_df
-                               # if from_df_idx < to_df_idx, target in temp_df is to_df_idx -1
-                               # if from_df_idx > to_df_idx, target in temp_df is to_df_idx
-            # Correct logic: if we drop 'from_df_idx', and 'to_df_idx' was > 'from_df_idx',
-            # then the new insertion point in 'temp_df' is 'to_df_idx - 1'.
-            # If 'to_df_idx' was < 'from_df_idx', it remains 'to_df_idx'.
-            # This is complex. A simpler way is to insert then remove, or use a list of rows.
+        rows_list.insert(to_df_idx, moved_row_data)
+        self.tw.dataframe = pd.DataFrame(rows_list)
 
-            # Let's use a list conversion for simplicity and correctness
-            rows_list = self.tw.dataframe.to_dict(orient='records')
-            moved_row_data = rows_list.pop(from_df_idx)
-            rows_list.insert(to_df_idx, moved_row_data)
-            self.tw.dataframe = pd.DataFrame(rows_list)
+        self.tw.populate_table()
 
-
-        else: # Moving up (from_df_idx > to_df_idx) or same place (no actual move)
-            # For moving up, insert at to_df_idx is correct
-            # If from_df_idx == to_df_idx, this logic still works (effectively no change)
-            part1 = temp_df.iloc[:to_df_idx]
-            part2 = temp_df.iloc[to_df_idx:]
-            self.tw.dataframe = pd.concat([part1, pd.DataFrame([row_to_move]), part2], ignore_index=True)
-
-
-        self.tw.populate_table() # Refresh table
-        
-        # Select the moved row in the table
-        moved_row_id_val = row_to_move.get('ID')
+        moved_row_id_val = moved_row_data.get('ID') # Use moved_row_data which is a dict
         if pd.notna(moved_row_id_val):
             try:
                 moved_row_id = int(moved_row_id_val)
@@ -1609,14 +1452,12 @@ class MoveRowCommand(QUndoCommand):
                 if new_table_idx is not None:
                     self.tw.table_widget.selectRow(new_table_idx)
                     self.tw.table_widget.scrollToItem(self.tw.table_widget.item(new_table_idx, 0))
-            except ValueError: pass # ID not int
-        
+            except ValueError: pass
+
         self.tw.set_unsaved_changes(True)
 
+
     def undo(self) -> None:
-        # To undo, move from current target back to original source
-        # The DataFrame indices might have shifted. Find current index of the moved row.
-        # This is complex. Simpler: just swap the source and target for the call.
         self._perform_move(self.df_target_idx, self.df_source_idx)
 
     def redo(self) -> None:
@@ -1631,7 +1472,7 @@ class SplitInterventionCommand(QUndoCommand):
         self.before_text = before_text
         self.after_text = after_text
         self.original_dialog_at_split_idx: Optional[str] = None
-        self.new_row_id_for_second_part = -1 # Set in redo
+        self.new_row_id_for_second_part = -1
         self.second_part_data_for_df: Optional[Dict] = None
 
         row_id_for_msg = df_row_idx_to_split
@@ -1643,35 +1484,33 @@ class SplitInterventionCommand(QUndoCommand):
 
 
     def redo(self) -> None:
-        if self.df_idx_split >= len(self.tw.dataframe): return # Safety check
+        if self.df_idx_split >= len(self.tw.dataframe): return
 
-        if self.original_dialog_at_split_idx is None: # First time redo
+        if self.original_dialog_at_split_idx is None:
              self.original_dialog_at_split_idx = str(self.tw.dataframe.at[self.df_idx_split, 'DIÁLOGO'])
-        
-        self.new_row_id_for_second_part = self.tw.get_next_id() # Get ID for new row
 
-        # Update dialog of the original (first part) row
+        self.new_row_id_for_second_part = self.tw.get_next_id()
+
         self.tw.dataframe.at[self.df_idx_split, 'DIÁLOGO'] = self.before_text
 
-        # Prepare data for the new (second part) row
         if self.second_part_data_for_df is None:
             original_row_data_series = self.tw.dataframe.iloc[self.df_idx_split].copy()
             self.second_part_data_for_df = original_row_data_series.to_dict()
             self.second_part_data_for_df['ID'] = self.new_row_id_for_second_part
             self.second_part_data_for_df['DIÁLOGO'] = self.after_text
-            # IN and OUT times for the new part might need adjustment (e.g., OUT of first part, or user defined)
-            # For now, it copies them. Consider if IN should be OUT of previous, and OUT needs to be set.
+            # Consider IN/OUT for the new part. Default: copies from original.
+            # Example: set IN of new part to OUT of original part, if desired.
+            # self.second_part_data_for_df['IN'] = self.tw.dataframe.at[self.df_idx_split, 'OUT']
 
         df_idx_insert_new_part_at = self.df_idx_split + 1
         new_series_to_insert = pd.Series(self.second_part_data_for_df)
-        
+
         df_part1 = self.tw.dataframe.iloc[:df_idx_insert_new_part_at]
         df_part2 = self.tw.dataframe.iloc[df_idx_insert_new_part_at:]
         self.tw.dataframe = pd.concat([df_part1, pd.DataFrame([new_series_to_insert]), df_part2], ignore_index=True)
-        
-        self.tw.populate_table() # Refresh view
-        
-        # Select the first part of the split row
+
+        self.tw.populate_table()
+
         original_part_id_val = self.tw.dataframe.at[self.df_idx_split, 'ID']
         if pd.notna(original_part_id_val):
             try:
@@ -1686,21 +1525,18 @@ class SplitInterventionCommand(QUndoCommand):
 
     def undo(self) -> None:
         if self.original_dialog_at_split_idx is None or self.new_row_id_for_second_part == -1:
-            return # Should not happen if redo was successful
+            return
 
-        # Restore original dialog to the first part
         if self.df_idx_split < len(self.tw.dataframe):
             self.tw.dataframe.at[self.df_idx_split, 'DIÁLOGO'] = self.original_dialog_at_split_idx
-        
-        # Remove the second part row from DataFrame
+
         df_idx_of_second_part = self.tw.find_dataframe_index_by_id(self.new_row_id_for_second_part)
         if df_idx_of_second_part is not None:
             self.tw.dataframe.drop(index=df_idx_of_second_part, inplace=True)
             self.tw.dataframe.reset_index(drop=True, inplace=True)
-        
-        self.tw.populate_table() # Refresh view
-        
-        # Reselect the (now restored) original row
+
+        self.tw.populate_table()
+
         original_part_id_val = self.tw.dataframe.at[self.df_idx_split, 'ID']
         if pd.notna(original_part_id_val):
             try:
@@ -1715,14 +1551,15 @@ class SplitInterventionCommand(QUndoCommand):
 
 
 class MergeInterventionsCommand(QUndoCommand):
-    def __init__(self, table_window: TableWindow, df_idx_first_row: int, merged_dialog: str, df_idx_second_row_to_remove: int):
+    def __init__(self, table_window: TableWindow, df_idx_first_row: int, merged_dialog: str, df_idx_second_row_to_remove: int, original_out_time_first_row: str):
         super().__init__()
         self.tw = table_window
         self.df_idx_first = df_idx_first_row
-        self.df_idx_second_removed = df_idx_second_row_to_remove # This is the index in the DF *before* removal
+        self.df_idx_second_removed = df_idx_second_row_to_remove
         self.merged_dialog = merged_dialog
         self.original_dialog_first: Optional[str] = None
-        self.data_of_second_row_removed: Optional[pd.Series] = None # Stores the entire row that was removed
+        self.original_out_time_first: str = original_out_time_first_row # Store original OUT time
+        self.data_of_second_row_removed: Optional[pd.Series] = None
 
         row_id_first = df_idx_first_row
         if not self.tw.dataframe.empty and 'ID' in self.tw.dataframe.columns and df_idx_first_row < len(self.tw.dataframe) and pd.notna(self.tw.dataframe.at[df_idx_first_row, 'ID']):
@@ -1733,34 +1570,24 @@ class MergeInterventionsCommand(QUndoCommand):
 
     def redo(self) -> None:
         if self.df_idx_first >= len(self.tw.dataframe) or self.df_idx_second_removed >= len(self.tw.dataframe):
-             return # Safety
+             return
 
-        if self.original_dialog_first is None: # First time redo
+        if self.original_dialog_first is None:
             self.original_dialog_first = str(self.tw.dataframe.at[self.df_idx_first, 'DIÁLOGO'])
-        if self.data_of_second_row_removed is None: # First time redo
+        if self.data_of_second_row_removed is None:
             self.data_of_second_row_removed = self.tw.dataframe.iloc[self.df_idx_second_removed].copy()
 
-        # Update dialog of the first row
         self.tw.dataframe.at[self.df_idx_first, 'DIÁLOGO'] = self.merged_dialog
-        # Update OUT time of the first row to be the OUT time of the second (removed) row
-        self.tw.dataframe.at[self.df_idx_first, 'OUT'] = self.data_of_second_row_removed['OUT']
+        if 'OUT' in self.data_of_second_row_removed: # Ensure 'OUT' exists in the removed row data
+            self.tw.dataframe.at[self.df_idx_first, 'OUT'] = self.data_of_second_row_removed['OUT']
 
-
-        # Remove the second row from DataFrame
         self.tw.dataframe.drop(index=self.df_idx_second_removed, inplace=True)
         self.tw.dataframe.reset_index(drop=True, inplace=True)
-        
-        self.tw.populate_table() # Refresh view
-        
-        # Select the merged row
-        # The df_idx_first might still be valid if no rows were inserted/deleted above it by other commands.
-        # If df_idx_second_removed was directly after df_idx_first, then df_idx_first is still correct.
-        current_id_of_merged_row_val = self.data_of_second_row_removed.get('ID') # ID of the first row before merge.
-                                      # This should be self.tw.dataframe.at[self.df_idx_first, 'ID'] *after* drop
-        
-        # Safer: use the ID of the first row which should still exist
+
+        self.tw.populate_table()
+
         merged_row_id_val = None
-        if self.df_idx_first < len(self.tw.dataframe): # Ensure index is still valid after drop
+        if self.df_idx_first < len(self.tw.dataframe):
              merged_row_id_val = self.tw.dataframe.at[self.df_idx_first, 'ID']
 
         if pd.notna(merged_row_id_val):
@@ -1772,41 +1599,27 @@ class MergeInterventionsCommand(QUndoCommand):
                     self.tw.table_widget.scrollToItem(self.tw.table_widget.item(table_idx_merged,0))
             except ValueError: pass
         self.tw.set_unsaved_changes(True)
-        self.tw.update_character_completer() # Characters might have been unified
+        self.tw.update_character_completer()
 
     def undo(self) -> None:
         if self.original_dialog_first is None or self.data_of_second_row_removed is None:
-            return # Should not happen if redo was successful
+            return
 
-        # Restore dialog of the first row
-        if self.df_idx_first < len(self.tw.dataframe): # Check if df_idx_first is still valid
+        if self.df_idx_first < len(self.tw.dataframe):
             self.tw.dataframe.at[self.df_idx_first, 'DIÁLOGO'] = self.original_dialog_first
-            # Restore OUT time of the first row from its original state (before merge)
-            # This implies original_dialog_first was from the state *before* it was merged.
-            # If self.data_of_second_row_removed contains the *original* first row data before merge,
-            # then this would be correct. Or, we need to store original_out_first.
-            # Assuming self.original_dialog_first implies the state of the first row's dialog
-            # AND we need to restore its original OUT time which we don't have stored separately.
-            # Let's assume OUT of first row is IN of second.
-            if 'IN' in self.data_of_second_row_removed:
-                 self.tw.dataframe.at[self.df_idx_first, 'OUT'] = self.data_of_second_row_removed['IN']
+            self.tw.dataframe.at[self.df_idx_first, 'OUT'] = self.original_out_time_first # Restore original OUT time
 
 
-        
-        # Re-insert the second row at its original position (df_idx_second_removed)
-        # The df_idx_second_removed was its index *before* it was dropped.
-        # So, it should be inserted at that index in the current DataFrame.
         df_part1 = self.tw.dataframe.iloc[:self.df_idx_second_removed]
         df_part2 = self.tw.dataframe.iloc[self.df_idx_second_removed:]
         self.tw.dataframe = pd.concat([df_part1, pd.DataFrame([self.data_of_second_row_removed]), df_part2], ignore_index=True)
-        
-        self.tw.populate_table() # Refresh view
-        
-        # Reselect the first row
+
+        self.tw.populate_table()
+
         first_row_id_val = None
         if self.df_idx_first < len(self.tw.dataframe):
             first_row_id_val = self.tw.dataframe.at[self.df_idx_first, 'ID']
-        
+
         if pd.notna(first_row_id_val):
             try:
                 first_row_id = int(first_row_id_val)
@@ -1824,8 +1637,7 @@ class ChangeSceneCommand(QUndoCommand):
         super().__init__()
         self.tw = table_window
         self.df_start_idx = df_start_row_idx
-        self.old_scene_numbers_map: Dict[int, str] = {} # df_idx -> old_scene_str
-        # self.new_scene_numbers_map no longer needed here, calculated in redo
+        self.old_scene_numbers_map: Dict[int, str] = {}
 
         row_id_for_msg = df_start_row_idx
         if not self.tw.dataframe.empty and 'ID' in self.tw.dataframe.columns and df_start_row_idx < len(self.tw.dataframe) and pd.notna(self.tw.dataframe.at[df_start_row_idx, 'ID']):
@@ -1836,19 +1648,18 @@ class ChangeSceneCommand(QUndoCommand):
 
     def _apply_scene_changes(self, scene_map_to_apply: Dict[int, str], select_row_with_id: Optional[int] = None):
         for df_idx, scene_str_val in scene_map_to_apply.items():
-            if df_idx < len(self.tw.dataframe): # Ensure index is valid
+            if df_idx < len(self.tw.dataframe):
                 self.tw.dataframe.at[df_idx, 'SCENE'] = scene_str_val
-        
-        self.tw.populate_table() # Refresh the entire table view
-        
+
+        self.tw.populate_table()
+
         if select_row_with_id is not None:
             table_idx_to_select = self.tw.find_table_row_by_id(select_row_with_id)
             if table_idx_to_select is not None:
                 self.tw.table_widget.selectRow(table_idx_to_select)
                 self.tw.table_widget.scrollToItem(self.tw.table_widget.item(table_idx_to_select, 0))
-        
+
         self.tw.set_unsaved_changes(True)
-        # Update has_scene_numbers status based on current state of DataFrame
         if not self.tw.dataframe.empty and 'SCENE' in self.tw.dataframe.columns:
             unique_scenes = set(str(s).strip() for s in self.tw.dataframe['SCENE'].unique() if pd.notna(s))
             if len(unique_scenes) > 1 or (len(unique_scenes) == 1 and "1" not in unique_scenes and "" not in unique_scenes) :
@@ -1858,7 +1669,7 @@ class ChangeSceneCommand(QUndoCommand):
 
 
     def redo(self) -> None:
-        if self.df_start_idx >= len(self.tw.dataframe): return # Safety
+        if self.df_start_idx >= len(self.tw.dataframe): return
 
         self.old_scene_numbers_map.clear()
         new_scene_changes_map: Dict[int, str] = {}
@@ -1866,10 +1677,10 @@ class ChangeSceneCommand(QUndoCommand):
         current_scene_val_at_start = 0
         try:
             scene_text_at_start = str(self.tw.dataframe.at[self.df_start_idx, 'SCENE']).strip()
-            if scene_text_at_start: # If not empty
+            if scene_text_at_start:
                 current_scene_val_at_start = int(scene_text_at_start)
-        except (ValueError, IndexError): # If scene is empty, not a number, or index error
-            current_scene_val_at_start = 0 
+        except (ValueError, IndexError):
+            current_scene_val_at_start = 0
 
         new_scene_to_set_from_start = str(current_scene_val_at_start + 1)
 
@@ -1883,7 +1694,7 @@ class ChangeSceneCommand(QUndoCommand):
         for df_idx in range(self.df_start_idx, len(self.tw.dataframe)):
             self.old_scene_numbers_map[df_idx] = str(self.tw.dataframe.at[df_idx, 'SCENE'])
             new_scene_changes_map[df_idx] = new_scene_to_set_from_start
-        
+
         self._apply_scene_changes(new_scene_changes_map, select_row_with_id=id_of_first_changed_row)
 
 
