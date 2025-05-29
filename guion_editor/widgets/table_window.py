@@ -1,26 +1,27 @@
 # guion_editor/widgets/table_window.py
 
-import json
-import os
-from typing import Any, List, Dict, Optional, Tuple
+import os # json removed, QShortcut, QUndoCommand, QFont, QKeySequence, QColor, QBrush, QAction, QFontMetrics might be removed later
+from typing import Any, List, Dict, Optional, Tuple, TYPE_CHECKING
 
 import pandas as pd
 
 from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer
-from PyQt6.QtGui import QFont, QKeySequence, QColor, QIntValidator, QBrush, QAction, QFontMetrics, QIcon
+from PyQt6.QtGui import QIcon, QIntValidator # Other QtGui removed for now, add back if needed
 from PyQt6.QtWidgets import (
     QWidget, QTextEdit, QFileDialog, QAbstractItemView,
     QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
     QLineEdit, QLabel, QFormLayout, QHeaderView, QInputDialog
 )
-from PyQt6.QtGui import QShortcut, QUndoStack, QUndoCommand
+# QUndoStack, QUndoCommand removed as they are now in controller/model
 
 from guion_editor.widgets.custom_table_view import CustomTableView
 from guion_editor.models.pandas_table_model import PandasTableModel
 from guion_editor.delegates.custom_delegates import TimeCodeDelegate, CharacterDelegate
 from guion_editor.delegates.guion_delegate import DialogDelegate # Importar DialogDelegate
-from guion_editor.utils.dialog_utils import ajustar_dialogo
-from guion_editor.utils.guion_manager import GuionManager
+# ajustar_dialogo and GuionManager removed as logic moves to model/controller
+
+if TYPE_CHECKING:
+    from ..controllers.table_controller import TableController
 
 
 class TableWindow(QWidget):
@@ -35,7 +36,7 @@ class TableWindow(QWidget):
     COL_DIALOGUE_VIEW = 5
 
     VIEW_COLUMN_NAMES = ["ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO"]
-    VIEW_TO_DF_COL_MAP = {
+    VIEW_TO_DF_COL_MAP = { # Keep for PandasTableModel
         COL_ID_VIEW: 'ID',
         COL_SCENE_VIEW: 'SCENE',
         COL_IN_VIEW: 'IN',
@@ -61,55 +62,61 @@ class TableWindow(QWidget):
                     return True
             return super().eventFilter(obj, event)
 
-    def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
-                 guion_manager: Optional[GuionManager] = None, get_icon_func=None):
+    def __init__(self, controller: 'TableController', video_player_widget: Any, 
+                 main_window: Optional[QWidget] = None, get_icon_func=None):
         super().__init__()
+        self.controller = controller # Store controller instance
         self.get_icon = get_icon_func
-        self.main_window = main_window
-        self.current_font_size = 9 # Default font size, MainWindow puede actualizarlo
+        self.main_window = main_window # For updating window title via update_window_title_status
+        self.current_font_size = 9 # View-specific display property
 
-        self._resize_rows_timer = QTimer(self)
+        self._resize_rows_timer = QTimer(self) # View-specific timer for UI updates
         self._resize_rows_timer.setSingleShot(True)
         self._resize_rows_timer.setInterval(100) 
         self._resize_rows_timer.timeout.connect(self._perform_resize_rows_to_contents)
 
         self.video_player_widget = video_player_widget
-        if self.video_player_widget:
-            self.video_player_widget.in_out_signal.connect(self.update_in_out)
-            self.video_player_widget.out_released.connect(self.select_next_row_and_set_in)
+        # Old connections to self.update_in_out and self.select_next_row_and_set_in are implicitly removed
+        # as those methods will be deleted. New connections for video player interaction
+        # will be established in Part 2, likely involving controller methods.
+        # if self.video_player_widget:
+            # self.video_player_widget.in_out_signal.connect(self.update_in_out) # To be removed
+            # self.video_player_widget.out_released.connect(self.select_next_row_and_set_in) # To be removed
 
-        self.guion_manager = guion_manager if guion_manager else GuionManager()
+        # self.guion_manager = guion_manager if guion_manager else GuionManager() # Removed
         self.key_filter = TableWindow.KeyPressFilter(self)
         self.installEventFilter(self.key_filter)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         
+        # PandasTableModel is a view-specific adapter for QTableView
         self.pandas_model = PandasTableModel(column_map=self.VIEW_TO_DF_COL_MAP, 
                                              view_column_names=self.VIEW_COLUMN_NAMES)
 
-        self.unsaved_changes = False
-        self.undo_stack = QUndoStack(self)
-        self.has_scene_numbers = False
-        self.current_script_name: Optional[str] = None
-        self.current_script_path: Optional[str] = None
-        self._tw_shortcuts: List[QShortcut] = []
-        self.clipboard_text: str = ""
+        # self.unsaved_changes = False # Removed
+        # self.undo_stack = QUndoStack(self) # Removed
+        # self.has_scene_numbers = False # Removed (model property)
+        # self.current_script_name: Optional[str] = None # Removed
+        # self.current_script_path: Optional[str] = None # Removed
+        # self._tw_shortcuts: List[QShortcut] = [] # Re-evaluate shortcut management later
+        self.clipboard_text: str = "" # View-specific utility for copy/paste timecode
 
-        self.reference_number = "" # Estos podrían ser parte de un objeto "HeaderData"
-        self.product_name = ""
-        self.chapter_number = ""
-        self.selected_type = ""
+        # self.reference_number = "" # Removed
+        # self.product_name = "" # Removed
+        # self.chapter_number = "" # Removed
+        # self.selected_type = "" # Removed
 
+        # Icon setup (view-specific)
         if self.get_icon:
             self.icon_expand_less = self.get_icon("toggle_header_collapse_icon.svg")
             self.icon_expand_more = self.get_icon("toggle_header_expand_icon.svg")
-        else:
+        else: # Fallback icons
             self.icon_expand_less = QIcon()
             self.icon_expand_more = QIcon()
 
         self.setup_ui()
-        self.clear_script_state()
+        # Removed self.clear_script_state() - controller manages script state loading/clearing.
 
-    def setup_ui(self) -> None:
+    def setup_ui(self) -> None: # Largely unchanged, button connections adapted to stubs
         main_layout = QVBoxLayout(self)
         icon_size_header_toggle = QSize(20, 20)
 
