@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QUndoStack, QUndoCommand
 
 from guion_editor.widgets.custom_table_view import CustomTableView
-from guion_editor.models.pandas_table_model import PandasTableModel
+from guion_editor.models.pandas_table_model import PandasTableModel, ROW_NUMBER_COL_IDENTIFIER
 from guion_editor.delegates.custom_delegates import TimeCodeDelegate, CharacterDelegate
 from guion_editor.delegates.guion_delegate import DialogDelegate
 from guion_editor.utils.dialog_utils import ajustar_dialogo
@@ -26,49 +26,70 @@ from guion_editor.widgets.custom_text_edit import CustomTextEdit
 
 class TableWindow(QWidget):
     in_out_signal = pyqtSignal(str, int)
-    character_name_changed = pyqtSignal() # To notify CastWindow or others
+    character_name_changed = pyqtSignal()
 
-    COL_ID_VIEW = 0; COL_SCENE_VIEW = 1; COL_IN_VIEW = 2; COL_OUT_VIEW = 3
-    COL_CHARACTER_VIEW = 4; COL_DIALOGUE_VIEW = 5
-    VIEW_COLUMN_NAMES = ["ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO"]
+    # Nuevos índices de columna en la VISTA
+    COL_NUM_INTERV_VIEW = 0
+    COL_ID_VIEW = 1         # Estaba 0
+    COL_SCENE_VIEW = 2      # Estaba 1
+    COL_IN_VIEW = 3         # Estaba 2
+    COL_OUT_VIEW = 4        # Estaba 3
+    COL_CHARACTER_VIEW = 5  # Estaba 4
+    COL_DIALOGUE_VIEW = 6   # Estaba 5
+
+    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO"]
+    
+    # Mapeo de índice de columna de VISTA a nombre de columna de DataFrame o identificador especial
     VIEW_TO_DF_COL_MAP = {
-        COL_ID_VIEW: 'ID', COL_SCENE_VIEW: 'SCENE', COL_IN_VIEW: 'IN',
-        COL_OUT_VIEW: 'OUT', COL_CHARACTER_VIEW: 'PERSONAJE', COL_DIALOGUE_VIEW: 'DIÁLOGO'
+        COL_NUM_INTERV_VIEW: ROW_NUMBER_COL_IDENTIFIER, # Columna visual especial
+        COL_ID_VIEW: 'ID', 
+        COL_SCENE_VIEW: 'SCENE', 
+        COL_IN_VIEW: 'IN',
+        COL_OUT_VIEW: 'OUT', 
+        COL_CHARACTER_VIEW: 'PERSONAJE', 
+        COL_DIALOGUE_VIEW: 'DIÁLOGO'
     }
-
-    # KeyPressFilter REMOVED
+    # DF_COLUMN_ORDER define el orden de las columnas *reales* en el DataFrame
+    # Esto es lo que PandasTableModel usará para self.df_column_order
+    # No debe incluir ROW_NUMBER_COL_IDENTIFIER
+    DF_COLUMN_ORDER = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO']
 
     def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
                  guion_manager: Optional[GuionManager] = None, get_icon_func=None):
         super().__init__()
         self.get_icon = get_icon_func
-        self.main_window = main_window # Store main_window reference
+        self.main_window = main_window 
         self.current_font_size = 9
-        self.f6_key_pressed_internally = False # For F6 state within TableWindow focus
+        self.f6_key_pressed_internally = False 
 
         self._resize_rows_timer = QTimer(self)
         self._resize_rows_timer.setSingleShot(True)
         self._resize_rows_timer.setInterval(100) 
         self._resize_rows_timer.timeout.connect(self._perform_resize_rows_to_contents)
 
+        # Timer para actualizar el indicador de error de tiempo de forma diferida
+        self._update_error_indicator_timer = QTimer(self)
+        self._update_error_indicator_timer.setSingleShot(True)
+        self._update_error_indicator_timer.setInterval(0) # Ejecutar tan pronto como sea posible en el siguiente ciclo de eventos
+        self._update_error_indicator_timer.timeout.connect(self.update_time_error_indicator)
+
+
         self.video_player_widget = video_player_widget
         if self.video_player_widget:
-            self.video_player_widget.in_out_signal.connect(self.update_in_out_from_player) # Renamed
-            self.video_player_widget.out_released.connect(self.select_next_row_after_out_release) # Renamed
+            self.video_player_widget.in_out_signal.connect(self.update_in_out_from_player) 
+            self.video_player_widget.out_released.connect(self.select_next_row_after_out_release) 
 
         self.guion_manager = guion_manager if guion_manager else GuionManager()
-        # self.key_filter REMOVED
-        # self.installEventFilter(self.key_filter) REMOVED
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus) # Can receive focus
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.pandas_model = PandasTableModel(column_map=self.VIEW_TO_DF_COL_MAP,
                                              view_column_names=self.VIEW_COLUMN_NAMES)
+        
         self.unsaved_changes = False
         self.undo_stack = QUndoStack(self)
-        # self.has_scene_numbers = False # This state is now dynamically checked
         self.current_script_name: Optional[str] = None
         self.current_script_path: Optional[str] = None
-        self.clipboard_text: str = "" # For time copy/paste
+        self.clipboard_text: str = "" 
 
         self.link_out_to_next_in_enabled = True
 
@@ -82,29 +103,46 @@ class TableWindow(QWidget):
         else:
             self.icon_expand_less, self.icon_expand_more = QIcon(), QIcon()
 
-        self.setup_ui()
-        self.clear_script_state() # Initializes model and UI state
-        self.update_window_title() # Ensure title is correct at start
+        self.time_error_indicator_label: Optional[QLabel] = None
 
-    def setup_ui(self) -> None: # No changes related to shortcuts here usually
+        self.setup_ui()
+
+        self.pandas_model.dataChanged.connect(self._request_error_indicator_update) # Cambiado
+        self.pandas_model.layoutChanged.connect(self._request_error_indicator_update) # Cambiado
+        self.pandas_model.modelReset.connect(self._request_error_indicator_update) # Cambiado
+
+
+        self.clear_script_state() 
+        self.update_window_title()
+
+    def _request_error_indicator_update(self):
+        """Solicita una actualización del indicador de error de tiempo de forma diferida."""
+        self._update_error_indicator_timer.start()
+
+    def setup_ui(self) -> None: 
         main_layout = QVBoxLayout(self)
         icon_size_header_toggle = QSize(20, 20)
         self.toggle_header_button = QPushButton()
-        self.toggle_header_button.setIconSize(icon_size_header_toggle)
+        self.toggle_header_button.setIconSize(icon_size_header_toggle) # Asegúrate que esto esté antes de setObjectName si CSS depende de ello
         self.toggle_header_button.setObjectName("toggle_header_button_css")
         self.toggle_header_button.clicked.connect(self.toggle_header_visibility)
         main_layout.addWidget(self.toggle_header_button)
 
         self.header_details_widget = QWidget()
-        self.header_form_layout = QFormLayout()
-        self.header_details_widget.setLayout(self.header_form_layout)
-        self.setup_header_fields(self.header_form_layout)
+        # --- INICIO CORRECCIÓN ---
+        self.header_form_layout = QFormLayout() # Crear el QFormLayout aquí
+        # --- FIN CORRECCIÓN ---
+        self.header_details_widget.setLayout(self.header_form_layout) # Asignar el layout al widget
+        
+        self.setup_header_fields(self.header_form_layout) # Ahora self.header_form_layout existe
         main_layout.addWidget(self.header_details_widget)
+
+        self.header_details_widget.setVisible(False) 
+        self._update_toggle_header_button_text_and_icon() 
 
         self.setup_buttons(main_layout)
         self.setup_table_view(main_layout)
         self.load_stylesheet()
-        self.toggle_header_visibility() # Set initial state (e.g., collapsed)
 
     def setup_header_fields(self, form_layout: QFormLayout) -> None:
         self.reference_edit = QLineEdit(); self.reference_edit.setValidator(QIntValidator(0, 999999, self))
@@ -122,15 +160,13 @@ class TableWindow(QWidget):
 
     def _header_field_changed(self, *args): # Changed to accept arbitrary args from signals
         self.set_unsaved_changes(True)
+        self._update_toggle_header_button_text_and_icon()
         # Update internal state if needed, or rely on _get_header_data_from_ui() when saving
 
     def toggle_header_visibility(self) -> None:
-        is_visible = self.header_details_widget.isVisible()
-        self.header_details_widget.setVisible(not is_visible)
-        icon = self.icon_expand_less if not is_visible else self.icon_expand_more
-        text = " Ocultar Detalles del Guion" if not is_visible else " Mostrar Detalles del Guion"
-        self.toggle_header_button.setText(text)
-        if self.get_icon: self.toggle_header_button.setIcon(icon)
+        current_visibility = self.header_details_widget.isVisible()
+        self.header_details_widget.setVisible(not current_visibility)
+        self._update_toggle_header_button_text_and_icon()
 
     def setup_buttons(self, layout: QVBoxLayout) -> None: # No direct shortcut changes here
         buttons_layout_top_row = QHBoxLayout()
@@ -153,12 +189,62 @@ class TableWindow(QWidget):
             button.clicked.connect(method)
             buttons_layout_top_row.addWidget(button)
         buttons_layout_top_row.addStretch()
+
+        self.time_error_indicator_label = QLabel("")
+        self.time_error_indicator_label.setObjectName("timeErrorIndicatorLabel")
+        buttons_layout_top_row.addWidget(self.time_error_indicator_label)
+
         self.link_out_in_checkbox = QCheckBox("OUT enlaza con sig. IN")
         self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
         self.link_out_in_checkbox.setToolTip("Si está marcado, al definir un OUT también se definirá el IN de la siguiente fila.")
         self.link_out_in_checkbox.stateChanged.connect(self.toggle_link_out_to_next_in_checkbox) # Renamed
         buttons_layout_top_row.addWidget(self.link_out_in_checkbox)
         layout.addLayout(buttons_layout_top_row)
+
+    def _handle_model_change_for_time_errors(self, top_left: QModelIndex, bottom_right: QModelIndex, roles: list[int]):
+        if not top_left.isValid(): return
+
+        col_in_view = self.COL_IN_VIEW
+        col_out_view = self.COL_OUT_VIEW
+        
+        update_needed = False
+        if Qt.ItemDataRole.BackgroundRole in roles or Qt.ItemDataRole.DisplayRole in roles or Qt.ItemDataRole.EditRole in roles:
+            for col_idx in range(top_left.column(), bottom_right.column() + 1):
+                if col_idx == col_in_view or col_idx == col_out_view:
+                    update_needed = True
+                    break
+        
+        if update_needed:
+            self._request_error_indicator_update()
+
+    def update_time_error_indicator(self):
+        # La lógica interna de esta función permanece igual que antes,
+        # pero ahora se llama de forma diferida.
+        if not self.time_error_indicator_label or not hasattr(self.pandas_model, '_time_validation_status'):
+            return
+
+        has_errors = False
+        error_rows_interventions = [] 
+
+        if self.pandas_model.rowCount() > 0 and isinstance(self.pandas_model._time_validation_status, dict):
+            # Iterar sobre una copia de los items si hay riesgo de modificación concurrente (poco probable aquí)
+            for df_row_idx, is_valid in sorted(list(self.pandas_model._time_validation_status.items())):
+                if not is_valid:
+                    has_errors = True
+                    error_rows_interventions.append(str(df_row_idx + 1))
+        
+        if has_errors:
+            self.time_error_indicator_label.setText("⚠️ Errores de Tiempo")
+            self.time_error_indicator_label.setStyleSheet("color: red; font-weight: bold;")
+            if error_rows_interventions:
+                tooltip_text = "Errores en intervenciones: " + ", ".join(error_rows_interventions)
+                self.time_error_indicator_label.setToolTip(tooltip_text)
+            else:
+                self.time_error_indicator_label.setToolTip("Se detectaron errores de tiempo, pero no se pudieron listar las filas afectadas.")
+        else:
+            self.time_error_indicator_label.setText("") 
+            self.time_error_indicator_label.setStyleSheet("") 
+            self.time_error_indicator_label.setToolTip("")
 
     def setup_table_view(self, layout: QVBoxLayout) -> None:
         self.table_view = CustomTableView()
@@ -167,8 +253,12 @@ class TableWindow(QWidget):
         self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table_view.setAlternatingRowColors(True)
         layout.addWidget(self.table_view)
-        self.table_view.setColumnHidden(self.COL_ID_VIEW, True)
 
+        # Ajustar anchos y visibilidad de columnas
+        self.table_view.setColumnWidth(self.COL_NUM_INTERV_VIEW, 40) # Ancho para "Nº"
+        self.table_view.setColumnHidden(self.COL_ID_VIEW, True) # ID sigue oculta, pero su índice cambió
+
+        # Los delegados se asignan a los nuevos índices de columna visual
         time_delegate = TimeCodeDelegate(self.table_view)
         self.table_view.setItemDelegateForColumn(self.COL_IN_VIEW, time_delegate)
         self.table_view.setItemDelegateForColumn(self.COL_OUT_VIEW, time_delegate)
@@ -179,11 +269,10 @@ class TableWindow(QWidget):
         self.dialog_delegate = DialogDelegate(parent=self.table_view, font_size=self.current_font_size, table_window_instance=self)
         self.table_view.setItemDelegateForColumn(self.COL_DIALOGUE_VIEW, self.dialog_delegate)
 
-        self.table_view.cellCtrlClicked.connect(self.handle_ctrl_click_on_cell) # Renamed
-        self.table_view.cellAltClicked.connect(self.handle_alt_click_on_cell)   # Renamed
+        self.table_view.cellCtrlClicked.connect(self.handle_ctrl_click_on_cell)
+        self.table_view.cellAltClicked.connect(self.handle_alt_click_on_cell)  
         self.pandas_model.dataChanged.connect(self.on_model_data_changed)
-        self.pandas_model.layoutChanged.connect(self.on_model_layout_changed) # layoutChanged is Qt's own signal
-        # self.pandas_model.layoutChangedSignal.connect(self.on_model_layout_changed) # Custom signal removed if not needed
+        self.pandas_model.layoutChanged.connect(self.on_model_layout_changed)
 
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.verticalHeader().setVisible(False)
@@ -273,20 +362,25 @@ class TableWindow(QWidget):
             "chapter_number": self.chapter_edit.text(), "type": self.type_combo.currentText()
         }
 
-    def _post_load_script_actions(self, file_path: str, df: pd.DataFrame, header_data: Dict[str, Any]): # Removed has_scenes
+    def _post_load_script_actions(self, file_path: str, df: pd.DataFrame, header_data: Dict[str, Any]):
         self.pandas_model.set_dataframe(df)
         self._populate_header_ui(header_data)
         self.undo_stack.clear()
         self.current_script_name = os.path.basename(file_path)
         self.current_script_path = file_path
-        self.set_unsaved_changes(False) # This calls update_window_title
+        self.set_unsaved_changes(False) 
         if self.main_window and hasattr(self.main_window, 'add_to_recent_files'):
             self.main_window.add_to_recent_files(file_path)
         
         status_bar = self.main_window.statusBar() if self.main_window else None
         if status_bar: status_bar.showMessage(f"Guion '{self.current_script_name}' cargado.", 5000)
         else: print(f"INFO: Guion '{self.current_script_name}' cargado.")
-        self.adjust_all_row_heights_and_validate() # Ensure UI updates after load
+        
+        self.adjust_all_row_heights_and_validate() 
+        self._update_toggle_header_button_text_and_icon()
+        
+        # Solicitar actualización del indicador de error de forma diferida
+        self._request_error_indicator_update() # MODIFICADO
 
     def open_docx_dialog(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(self, "Abrir Guion DOCX", "", "Documentos Word (*.docx)")
@@ -350,13 +444,16 @@ class TableWindow(QWidget):
         return False
 
     def clear_script_state(self):
-        self.pandas_model.set_dataframe(pd.DataFrame(columns=list(self.VIEW_TO_DF_COL_MAP.values())))
-        self._populate_header_ui({}) # Reset header fields
+        self.pandas_model.set_dataframe(pd.DataFrame(columns=self.DF_COLUMN_ORDER))
+        self._populate_header_ui({}) 
         self.undo_stack.clear()
         self.current_script_name = None
         self.current_script_path = None
         self.set_unsaved_changes(False)
-        # has_scene_numbers is now dynamic, no need to reset explicitly
+        self._update_toggle_header_button_text_and_icon()
+        # Solicitar actualización del indicador de error de forma diferida
+        self._request_error_indicator_update() # MODIFICADO
+
 
     def _perform_resize_rows_to_contents(self):
         if self.table_view.isVisible() and self.pandas_model.rowCount() > 0:
@@ -732,12 +829,51 @@ class TableWindow(QWidget):
 
         self.request_resize_rows_to_contents_deferred()
 
-# --- QUndoCommand classes (EditCommand, AddRowCommand, etc.) ---
-# No direct changes needed in these for shortcut refactoring, but ensure they
-# correctly interact with the model and trigger necessary UI updates.
-# For example, AddRowCommand correctly sets default scene/character.
+    def _check_header_fields_completeness(self) -> bool:
+        """Verifica si los campos clave de la cabecera están rellenos."""
+        if not hasattr(self, 'reference_edit') or \
+           not hasattr(self, 'product_edit') or \
+           not hasattr(self, 'chapter_edit'): # Si los widgets aún no existen
+            return True # Asumir completo para evitar errores tempranos si se llama antes de que todo esté listo
 
-class EditCommand(QUndoCommand): # No changes
+        ref_empty = not self.reference_edit.text().strip()
+        prod_empty = not self.product_edit.text().strip()
+        chap_empty = not self.chapter_edit.text().strip()
+        
+        return not (ref_empty or prod_empty or chap_empty)
+
+    # --- FUNCIÓN FALTANTE ---
+    def _update_toggle_header_button_text_and_icon(self):
+        """Actualiza el texto y el icono del botón para mostrar/ocultar detalles."""
+        if not hasattr(self, 'toggle_header_button') or not hasattr(self, 'header_details_widget'):
+            # Puede ocurrir si se llama antes de que setup_ui esté completamente terminado
+            # o si hay un error en el orden de inicialización.
+            return 
+
+        is_visible = self.header_details_widget.isVisible()
+        
+        if not is_visible: # Si está oculto, el botón dirá "Mostrar..."
+            text = " Mostrar Detalles del Guion"
+            if not self._check_header_fields_completeness():
+                text += " (Campos Incompletos)"
+            icon_to_set = self.icon_expand_more
+        else: # Si está visible, el botón dirá "Ocultar..."
+            text = " Ocultar Detalles del Guion"
+            icon_to_set = self.icon_expand_less
+        
+        self.toggle_header_button.setText(text)
+        if self.get_icon and icon_to_set: # Solo si la función get_icon está disponible y el icono no es None
+            self.toggle_header_button.setIcon(icon_to_set)
+        elif not self.get_icon: # Si no hay get_icon, al menos quitar cualquier icono previo
+            self.toggle_header_button.setIcon(QIcon())
+
+
+    def toggle_header_visibility(self) -> None:
+        current_visibility = self.header_details_widget.isVisible()
+        self.header_details_widget.setVisible(not current_visibility)
+        self._update_toggle_header_button_text_and_icon() # Llamar a la función unificada
+
+class EditCommand(QUndoCommand): 
     def __init__(self, table_window: TableWindow, df_row_index: int, view_col_index: int, old_value: Any, new_value: Any):
         super().__init__()
         self.tw = table_window; self.df_row_idx = df_row_index; self.view_col_idx = view_col_index
@@ -938,3 +1074,4 @@ class ChangeSceneCommand(QUndoCommand): # No changes
         if not self.old_scenes_map: self.setText(f"Incrementar escena (sin datos para undo)"); return # Nothing to undo
         self._apply_scenes(self.old_scenes_map, self.df_start_idx)
         # Text reset by redo or initial if redo failed
+
