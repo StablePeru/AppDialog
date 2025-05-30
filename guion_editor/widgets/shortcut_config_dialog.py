@@ -1,30 +1,28 @@
+# guion_editor/widgets/shortcut_config_dialog.py
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QInputDialog, QKeySequenceEdit, QAbstractItemView
 )
-from PyQt6.QtGui import QKeySequence, QIcon # Añadir QIcon
-from PyQt6.QtCore import Qt, QSize          # Añadir QSize
+from PyQt6.QtGui import QKeySequence, QIcon
+from PyQt6.QtCore import Qt, QSize
 
 
 class ShortcutConfigDialog(QDialog):
-    def __init__(self, shortcut_manager, get_icon_func=None): # Añadir get_icon_func
-        """Inicializa el diálogo de configuración de shortcuts."""
+    def __init__(self, shortcut_manager, get_icon_func=None):
         super().__init__()
         self.shortcut_manager = shortcut_manager
-        self.get_icon = get_icon_func # Guardar la función helper
-        self.setWindowTitle("Configure Shortcuts")
+        self.main_window = shortcut_manager.main_window # Access MainWindow for actions
+        self.get_icon = get_icon_func
+        self.setWindowTitle("Configurar Shortcuts")
         self.setMinimumSize(600, 400)
         self.init_ui()
 
     def init_ui(self):
-        """Configura los elementos de la interfaz de usuario."""
         layout = QVBoxLayout()
-        icon_size_buttons = QSize(18, 18) # Tamaño para iconos en botones
+        icon_size_buttons = QSize(18, 18)
 
-        # Añadir etiqueta de instrucciones
         layout.addWidget(QLabel("Seleccione una acción para cambiar su shortcut:"))
 
-        # Crear tabla para mostrar las acciones y sus shortcuts
         self.action_table = QTableWidget()
         self.action_table.setColumnCount(2)
         self.action_table.setHorizontalHeaderLabels(["Acción", "Shortcut"])
@@ -32,152 +30,194 @@ class ShortcutConfigDialog(QDialog):
         self.action_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.action_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.action_table.horizontalHeader().setStretchLastSection(True)
+        self.action_table.verticalHeader().setVisible(False) # Hide vertical header
 
-        # Llenar la tabla con las acciones disponibles
         self.populate_table()
-
         layout.addWidget(self.action_table)
 
-        # Añadir etiqueta para el nuevo shortcut
         layout.addWidget(QLabel("Presione las teclas para asignar el nuevo shortcut:"))
-
-        # Crear campo de entrada para la secuencia de teclas
         self.shortcut_edit = QKeySequenceEdit()
         self.shortcut_edit.setKeySequence(QKeySequence())
         self.shortcut_edit.keySequenceChanged.connect(self.on_key_sequence_changed)
         layout.addWidget(self.shortcut_edit)
 
-        # Crear botones de asignar y guardar configuración
         btn_layout = QHBoxLayout()
-        self.assign_btn = QPushButton(" Asignar") # Espacio para el icono
+        self.assign_btn = QPushButton(" Asignar")
         if self.get_icon:
             self.assign_btn.setIcon(self.get_icon("assign_shortcut_icon.svg"))
             self.assign_btn.setIconSize(icon_size_buttons)
         self.assign_btn.setEnabled(False)
         self.assign_btn.clicked.connect(self.assign_shortcut)
         btn_layout.addWidget(self.assign_btn)
+        
+        btn_layout.addStretch() # Push save to the right
 
-        self.save_config_btn = QPushButton(" Guardar Configuración") # Espacio para el icono
+        self.save_config_btn = QPushButton(" Guardar Perfil de Shortcuts")
         if self.get_icon:
             self.save_config_btn.setIcon(self.get_icon("save_config_icon.svg"))
             self.save_config_btn.setIconSize(icon_size_buttons)
-        self.save_config_btn.clicked.connect(self.save_configuration)
+        self.save_config_btn.clicked.connect(self.save_configuration_profile) # Renamed method
         btn_layout.addWidget(self.save_config_btn)
 
         layout.addLayout(btn_layout)
         self.setLayout(layout)
 
-        # Inicializar variables de estado
-        self.selected_action_internal = None
-        self.new_shortcut = ""
+        self.selected_action_object_name = None # Store objectName of selected QAction
+        self.new_shortcut_sequence = QKeySequence() # Store QKeySequence directly
 
-        # Conectar la señal de selección de la tabla
         self.action_table.itemSelectionChanged.connect(self.on_action_selected)
 
     def populate_table(self):
-        """Llena la tabla con las acciones y sus shortcuts actuales."""
-        actions = self.shortcut_manager.main_window.actions
-        self.action_table.setRowCount(len(actions))
-        for row, (action_name, action) in enumerate(actions.items()):
-            display_name = action_name
-            shortcut = action.shortcut().toString()
+        self.action_table.setRowCount(0) # Clear table
+        
+        # Sort actions by their display text for consistent order
+        sorted_actions = sorted(self.main_window.actions.values(), key=lambda act: act.text().replace("&", ""))
+        
+        self.action_table.setRowCount(len(sorted_actions))
+        current_shortcuts_for_profile = self.shortcut_manager.configurations.get(self.shortcut_manager.current_config, {})
+
+        for row, action in enumerate(sorted_actions):
+            display_name = action.text().replace("&", "") # Clean display name
+            action_object_name = action.objectName()
+            
+            # Get shortcut string from the current profile in shortcut_manager
+            shortcut_str = current_shortcuts_for_profile.get(action_object_name, "")
+            key_sequence = QKeySequence(shortcut_str)
 
             action_item = QTableWidgetItem(display_name)
-            shortcut_item = QTableWidgetItem(shortcut if shortcut else "")
+            action_item.setData(Qt.ItemDataRole.UserRole, action_object_name) # Store objectName
 
-            action_item.setData(Qt.ItemDataRole.UserRole, action_name) 
+            shortcut_display_str = key_sequence.toString(QKeySequence.SequenceFormat.NativeText)
+            shortcut_item = QTableWidgetItem(shortcut_display_str)
 
             self.action_table.setItem(row, 0, action_item)
             self.action_table.setItem(row, 1, shortcut_item)
+        
+        self.action_table.resizeColumnsToContents()
+        if self.action_table.columnCount() > 1:
+             self.action_table.horizontalHeader().setStretchLastSection(True)
+
 
     def on_action_selected(self):
         selected_items = self.action_table.selectedItems()
         if selected_items:
-            action_item = selected_items[0] 
-            shortcut_item_candidate = self.action_table.item(action_item.row(), 1) 
-            if not shortcut_item_candidate: return
-
-            shortcut = shortcut_item_candidate.text()
-            self.selected_action_internal = action_item.data(Qt.ItemDataRole.UserRole)
-            self.shortcut_edit.setKeySequence(QKeySequence(shortcut))
-            self.new_shortcut = shortcut
-            self.assign_btn.setEnabled(bool(shortcut))
+            # We selected a row, item at column 0 is the action name item
+            action_item_in_table = self.action_table.item(selected_items[0].row(), 0)
+            self.selected_action_object_name = action_item_in_table.data(Qt.ItemDataRole.UserRole)
+            
+            # Get the QKeySequence from the QAction itself (which should be up-to-date)
+            # or from the table's display if preferred (but QAction is source of truth)
+            q_action = self.main_window.actions.get(self.selected_action_object_name)
+            if q_action:
+                current_key_sequence = q_action.shortcut()
+                self.shortcut_edit.setKeySequence(current_key_sequence)
+                self.new_shortcut_sequence = current_key_sequence # Initialize with current
+                self.assign_btn.setEnabled(True) # Enable if an action is selected
+            else: # Should not happen if populate_table is correct
+                self.selected_action_object_name = None
+                self.shortcut_edit.setKeySequence(QKeySequence())
+                self.new_shortcut_sequence = QKeySequence()
+                self.assign_btn.setEnabled(False)
         else:
-            self.selected_action_internal = None
+            self.selected_action_object_name = None
             self.shortcut_edit.setKeySequence(QKeySequence())
-            self.new_shortcut = ""
+            self.new_shortcut_sequence = QKeySequence()
             self.assign_btn.setEnabled(False)
 
     def on_key_sequence_changed(self, key_seq: QKeySequence):
-        if key_seq.isEmpty():
-            self.assign_btn.setEnabled(False)
-            self.new_shortcut = ""
-        else:
-            self.assign_btn.setEnabled(True)
-            self.new_shortcut = key_seq.toString(QKeySequence.SequenceFormat.NativeText)
+        self.new_shortcut_sequence = key_seq
+        # Assign button enabled if an action is selected, regardless of key_seq emptiness (to allow clearing)
+        self.assign_btn.setEnabled(self.selected_action_object_name is not None)
+
 
     def assign_shortcut(self):
-        """Asigna un nuevo shortcut a la acción seleccionada."""
-        if not self.selected_action_internal:
+        if not self.selected_action_object_name:
             QMessageBox.warning(self, "Advertencia", "Seleccione una acción primero.")
             return
-        if not self.new_shortcut:
-            QMessageBox.warning(self, "Advertencia", "Ingrese un shortcut válido.")
-            return
 
-        for action_name_iter, shortcut_iter in self.shortcut_manager.configurations[self.shortcut_manager.current_config].items():
-            if shortcut_iter == self.new_shortcut and action_name_iter != self.selected_action_internal:
-                display_conflict_action = action_name_iter.replace("&", "")
-                QMessageBox.warning(
-                    self,
-                    "Advertencia",
-                    f"El shortcut '{self.new_shortcut}' ya está asignado a '{display_conflict_action}'."
-                )
-                return
+        new_shortcut_str_for_conflict_check = self.new_shortcut_sequence.toString(QKeySequence.SequenceFormat.PortableText)
+        if not self.new_shortcut_sequence.isEmpty(): # Only check for conflicts if new shortcut is not empty
+            for obj_name, action_instance in self.main_window.actions.items():
+                if obj_name == self.selected_action_object_name:
+                    continue # Don't compare with itself
+                
+                existing_shortcut = action_instance.shortcut()
+                if not existing_shortcut.isEmpty() and existing_shortcut.toString(QKeySequence.SequenceFormat.PortableText) == new_shortcut_str_for_conflict_check:
+                    QMessageBox.warning(
+                        self, "Advertencia de Conflicto",
+                        f"El shortcut '{self.new_shortcut_sequence.toString(QKeySequence.SequenceFormat.NativeText)}' "
+                        f"ya está asignado a la acción '{action_instance.text().replace('&','')}'."
+                    )
+                    return
 
-        action = self.shortcut_manager.main_window.actions.get(self.selected_action_internal)
-        if action:
+        q_action_to_modify = self.main_window.actions.get(self.selected_action_object_name)
+        if q_action_to_modify:
             try:
-                key_seq = QKeySequence(self.new_shortcut)
-                if key_seq.isEmpty() and self.new_shortcut != "": # Permite borrar un shortcut asignando una secuencia vacía si new_shortcut es explicitamente ""
-                    action.setShortcut(QKeySequence()) # Borra el shortcut
-                elif not key_seq.isEmpty():
-                    action.setShortcut(key_seq)
-                else: # Si new_shortcut es "" y key_seq es empty (porque se borró el texto del QKeySequenceEdit)
-                    action.setShortcut(QKeySequence()) # Borra el shortcut
-                    # QMessageBox.information(self, "Información", f"Shortcut eliminado para '{self.selected_action_internal.replace('&', '')}'.")
-                    # No es necesario este mensaje si el comportamiento es simplemente borrar
+                q_action_to_modify.setShortcut(self.new_shortcut_sequence)
+                
+                # Update the configuration in ShortcutManager
+                current_config_name = self.shortcut_manager.current_config
+                # Ensure the config exists (should always, but good practice)
+                if current_config_name not in self.shortcut_manager.configurations:
+                    self.shortcut_manager.configurations[current_config_name] = {}
+                
+                # Store as string for JSON
+                self.shortcut_manager.configurations[current_config_name][self.selected_action_object_name] = \
+                    self.new_shortcut_sequence.toString(QKeySequence.SequenceFormat.PortableText)
 
-                self.shortcut_manager.configurations[self.shortcut_manager.current_config][self.selected_action_internal] = self.new_shortcut if not key_seq.isEmpty() else ""
-                self.shortcut_manager.save_shortcuts()
-                if not key_seq.isEmpty():
-                    QMessageBox.information(self, "Éxito", f"Shortcut asignado a '{self.selected_action_internal.replace('&', '')}'.")
+                self.shortcut_manager.save_shortcuts() # Save immediately
+                
+                action_display_name = q_action_to_modify.text().replace('&', '')
+                if not self.new_shortcut_sequence.isEmpty():
+                    QMessageBox.information(self, "Éxito", f"Shortcut asignado a '{action_display_name}'.")
                 else:
-                    QMessageBox.information(self, "Éxito", f"Shortcut eliminado para '{self.selected_action_internal.replace('&', '')}'.")
+                    QMessageBox.information(self, "Éxito", f"Shortcut eliminado para '{action_display_name}'.")
+                
+                self.populate_table() # Refresh table to show new shortcut
+                
+                # Optionally, clear selection and edit field, or re-select
+                # self.new_shortcut_sequence = QKeySequence()
+                # self.shortcut_edit.setKeySequence(QKeySequence())
+                # self.assign_btn.setEnabled(False)
+                # self.action_table.clearSelection()
+                # self.selected_action_object_name = None
 
-                self.new_shortcut = "" # Reset
-                self.shortcut_edit.setKeySequence(QKeySequence()) # Reset
-                self.assign_btn.setEnabled(False) # Disable button
-                self.populate_table() # Refresh table
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Error al asignar shortcut: {str(e)}")
         else:
-            QMessageBox.warning(self, "Error", f"Acción '{self.selected_action_internal}' no encontrada.")
+            QMessageBox.warning(self, "Error", f"Acción '{self.selected_action_object_name}' no encontrada.")
 
-    def save_configuration(self):
-        name, ok = QInputDialog.getText(self, "Guardar Configuración", "Ingrese el nombre para la configuración:")
+    def save_configuration_profile(self): # Renamed from save_configuration
+        name, ok = QInputDialog.getText(self, "Guardar Perfil de Shortcuts", 
+                                        "Ingrese el nombre para este perfil de shortcuts:")
         if ok and name:
+            name = name.strip()
+            if not name:
+                QMessageBox.warning(self, "Nombre Inválido", "El nombre del perfil no puede estar vacío.")
+                return
+
             if name in self.shortcut_manager.configurations:
                 overwrite = QMessageBox.question(
-                    self, "Confirmar",
-                    f"Ya existe una configuración llamada '{name}'. ¿Desea sobrescribirla?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    self, "Confirmar Sobrescritura",
+                    f"Ya existe un perfil de shortcuts llamado '{name}'. ¿Desea sobrescribirlo?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No # Default to No
                 )
                 if overwrite == QMessageBox.StandardButton.No:
                     return
-            current_shortcuts = self.shortcut_manager.configurations[self.shortcut_manager.current_config].copy()
-            self.shortcut_manager.configurations[name] = current_shortcuts
-            self.shortcut_manager.save_shortcuts()
-            QMessageBox.information(self, "Éxito", f"Configuración '{name}' guardada exitosamente.")
-            # Actualizar el menú principal para reflejar la nueva configuración guardada
-            self.shortcut_manager.refresh_shortcuts_menu()
+            
+            # Get the currently configured shortcuts for the *active* profile
+            # These are the shortcuts that have been potentially modified by 'assign_shortcut'
+            # and are stored in self.shortcut_manager.configurations[self.shortcut_manager.current_config]
+            current_active_shortcuts_map = self.shortcut_manager.configurations.get(
+                                                self.shortcut_manager.current_config, {}).copy()
+
+            try:
+                self.shortcut_manager.add_configuration(name, current_active_shortcuts_map) # add_configuration also saves
+                QMessageBox.information(self, "Éxito", f"Perfil de shortcuts '{name}' guardado exitosamente.")
+                self.shortcut_manager.current_config = name # Switch to the new/overwritten profile
+                self.shortcut_manager.apply_shortcuts(name) # Apply it
+                self.shortcut_manager.refresh_shortcuts_menu() # Update main menu
+                self.populate_table() # Refresh dialog table if current_config changed its display
+            except Exception as e: # Covers ConfigurationExistsError if add_configuration raises it again
+                 QMessageBox.warning(self, "Error al Guardar", str(e))

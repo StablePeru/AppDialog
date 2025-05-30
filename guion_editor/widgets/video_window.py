@@ -1,41 +1,33 @@
 # guion_editor/widgets/video_window.py
-
 import os
-from PyQt6.QtCore import pyqtSignal, QSize, Qt, QTimer # Asegúrate de importar QTimer
-from PyQt6.QtGui import QFont, QIcon, QKeyEvent
+from PyQt6.QtCore import pyqtSignal, QSize, Qt, QTimer, QKeyCombination
+from PyQt6.QtGui import QFont, QIcon, QKeyEvent, QKeySequence
 from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QMessageBox
-
 
 class VideoWindow(QMainWindow):
     close_detached = pyqtSignal()
 
-    def __init__(self, video_player_widget_instance: QWidget, get_icon_func=None): # Renombrar parámetro
+    def __init__(self, video_player_widget_instance: QWidget, get_icon_func=None, main_window=None): # Added main_window
         super().__init__()
         self.get_icon = get_icon_func
+        self.main_window = main_window # Store reference
+        self.video_widget = video_player_widget_instance 
+        self.f6_key_pressed_internally = False # For F6 state within this window
+
         self.setWindowTitle("Reproductor de Video Independiente")
         self.setGeometry(150, 150, 800, 600)
         
-        # Renombrar self.video_widget_ref a self.video_widget
-        # Este es el VideoPlayerWidget que esta ventana está mostrando.
-        self.video_widget = video_player_widget_instance 
-        
-        self.init_ui() # init_ui ahora usará self.video_widget
+        self.init_ui()
         self.load_stylesheet()
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.f6_pressed_in_detached_window = False
-        
-        self.activateWindow()
-        self.raise_()
-        # No necesitas llamar a self.setFocus() aquí explícitamente, 
-        # activateWindow y el foco del sistema operativo deberían manejarlo.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus) # Important for key events
+        self.activateWindow(); self.raise_()
+        self.video_widget.setFocus() # Give focus to the player inside
 
-    def init_ui(self) -> None: # Ya no necesita el parámetro video_widget_param
+    def init_ui(self) -> None:
         central_widget = QWidget()
         layout = QVBoxLayout(central_widget)
-
-        # self.video_widget ya está definido en __init__
-        self.video_widget.setParent(self) 
-        # self.video_widget.setObjectName("video_widget") # El objectName ya debería estar en VideoPlayerWidget
+        # self.video_widget is already set in __init__
+        # Its parent is changed when added to this layout (or explicitly by setParent)
         layout.addWidget(self.video_widget)
 
         self.attach_button = QPushButton(" Adjuntar de Nuevo")
@@ -43,96 +35,89 @@ class VideoWindow(QMainWindow):
             self.attach_button.setIcon(self.get_icon("attach_video_icon.svg"))
             self.attach_button.setIconSize(QSize(20, 20))
         self.attach_button.setObjectName("attach_button")
+        self.attach_button.setToolTip("Volver a adjuntar el reproductor a la ventana principal")
         self.attach_button.clicked.connect(self.attach_back)
         layout.addWidget(self.attach_button)
-
         self.setCentralWidget(central_widget)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        key = event.key()
+    def update_key_listeners(self):
+        # Called by ShortcutManager if shortcuts change.
+        # For "video_mark_out_hold", its QKeySequence is stored in the QAction.
+        # KeyPress/Release events in this widget will query this QAction's shortcut.
+        pass
 
-        if not self.video_widget or not hasattr(self.video_widget, 'media_player'):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        # print(f"VPW KeyPress: key={event.key()}, combo={event.keyCombination()}, focus={QApplication.focusWidget()}")
+        if not self.main_window or not hasattr(self.main_window, 'mark_out_hold_key_sequence'): # Comprueba el nuevo atributo
             super().keyPressEvent(event)
             return
 
-        handled = False
-        if key == Qt.Key.Key_F5:
-            if hasattr(self.video_widget, 'mark_in'):
-                QTimer.singleShot(0, self.video_widget.mark_in) # Diferir llamada
-                handled = True
-        elif key == Qt.Key.Key_F6:
-            if not event.isAutoRepeat() and not self.f6_pressed_in_detached_window:
-                if hasattr(self.video_widget, 'start_out_timer'):
-                    QTimer.singleShot(0, self.video_widget.start_out_timer) # Diferir llamada
-                    self.f6_pressed_in_detached_window = True
-                    handled = True
-        elif key == Qt.Key.Key_F7:
-            if hasattr(self.video_widget, 'change_position'):
-                QTimer.singleShot(0, lambda: self.video_widget.change_position(-5000)) # Diferir
-                handled = True
-        elif key == Qt.Key.Key_F8:
-            if hasattr(self.video_widget, 'toggle_play'):
-                QTimer.singleShot(0, self.video_widget.toggle_play) # Diferir
-                handled = True
-        elif key == Qt.Key.Key_F9:
-            if hasattr(self.video_widget, 'change_position'):
-                QTimer.singleShot(0, lambda: self.video_widget.change_position(5000)) # Diferir
-                handled = True
-
-        if handled:
+        current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
+        # print(f"  VPW: Expected F6 combo from main_window: {current_mark_out_shortcut[0] if not current_mark_out_shortcut.isEmpty() else 'EMPTY'}")
+            
+        key_match = False
+        if not current_mark_out_shortcut.isEmpty():
+            # event.keyCombination() es la forma correcta de obtener la combinación del evento
+            if event.keyCombination() == current_mark_out_shortcut[0]: 
+                key_match = True
+        
+        if key_match and not event.isAutoRepeat() and not self.f6_key_pressed_internally:
+            self.f6_key_pressed_internally = True
+            # --- CORRECCIÓN AQUÍ ---
+            if self.video_widget and hasattr(self.video_widget, 'handle_out_button_pressed'):
+                self.video_widget.handle_out_button_pressed()
+            # --- FIN DE LA CORRECCIÓN ---
             event.accept()
-        else:
-            super().keyPressEvent(event)
+            return
+        
+        # Si F6 no coincidió, deja que las QActions de este widget (si las tuviera) o del padre se procesen
+        super().keyPressEvent(event)
+
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
-        key = event.key()
-
-        if not self.video_widget or not hasattr(self.video_widget, 'media_player'):
+        if not self.main_window or not hasattr(self.main_window, 'mark_out_hold_key_sequence') or not self.video_widget:
             super().keyReleaseEvent(event)
             return
 
-        handled = False
-        if key == Qt.Key.Key_F6:
-            if not event.isAutoRepeat() and self.f6_pressed_in_detached_window:
-                if hasattr(self.video_widget, 'stop_out_timer'):
-                    QTimer.singleShot(0, self.video_widget.stop_out_timer) # Diferir
-                    self.f6_pressed_in_detached_window = False
-                    handled = True
-        
-        if handled:
+        # --- CORRECCIÓN AQUÍ ---
+        current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
+        # --- FIN DE LA CORRECCIÓN ---
+            
+        key_match = False
+        if not current_mark_out_shortcut.isEmpty():
+            if event.keyCombination() == current_mark_out_shortcut[0]:
+                key_match = True
+
+        if key_match and not event.isAutoRepeat() and self.f6_key_pressed_internally:
+            self.f6_key_pressed_internally = False
+            if hasattr(self.video_widget, 'handle_out_button_released'):
+                self.video_widget.handle_out_button_released()
             event.accept()
-        else:
-            super().keyReleaseEvent(event)
+            return
+        
+        super().keyReleaseEvent(event)
 
     def load_stylesheet(self) -> None:
-        # ... (sin cambios)
         try:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             css_path = os.path.join(current_dir, '..', 'styles', 'main.css')
-            
             if not os.path.exists(css_path):
                 alt_css_path = os.path.join(os.path.dirname(current_dir), 'styles', 'main.css')
-                if os.path.exists(alt_css_path):
-                    css_path = alt_css_path
-                else:
-                    return
-
-            with open(css_path, 'r', encoding='utf-8') as f:
-                self.setStyleSheet(f.read())
-        except Exception as e:
-            QMessageBox.warning(self, "Error de Estilos", f"Error al cargar el stylesheet: {str(e)}")
-
+                if os.path.exists(alt_css_path): css_path = alt_css_path
+                else: return
+            with open(css_path, 'r', encoding='utf-8') as f: self.setStyleSheet(f.read())
+        except Exception as e: QMessageBox.warning(self, "Error de Estilos", f"Error al cargar el stylesheet para VideoWindow: {str(e)}")
 
     def attach_back(self) -> None:
-        self.close_detached.emit()
-        self.close()
+        # This method will trigger closeEvent, which then emits close_detached
+        self.close() 
 
     def closeEvent(self, event) -> None:
-        if self.f6_pressed_in_detached_window:
-            if hasattr(self.video_widget, 'stop_out_timer'):
-                # No es necesario diferir aquí, ya que estamos cerrando
-                self.video_widget.stop_out_timer() 
-            self.f6_pressed_in_detached_window = False
+        # Ensure F6 state is reset if window is closed while key is pressed
+        if self.f6_key_pressed_internally:
+            if hasattr(self.video_widget, 'handle_out_button_released'):
+                self.video_widget.handle_out_button_released() 
+            self.f6_key_pressed_internally = False
         
-        self.close_detached.emit()
+        self.close_detached.emit() # Signal MainWindow to re-attach
         super().closeEvent(event)

@@ -1,0 +1,32 @@
+{
+    "current_config": "default",
+    "configs": {
+        "default": {
+            "file_open_video": "Ctrl+O",
+            "file_open_docx": "Ctrl+G",
+            "file_export_excel": "Ctrl+E",
+            "file_import_excel": "Ctrl+I",
+            "file_save_json": "Ctrl+S",
+            "file_load_json": "Ctrl+L",
+            "edit_add_row": "Ctrl+N",
+            "edit_delete_row": "Ctrl+Del",
+            "edit_move_up": "Alt+Up",
+            "edit_move_down": "Alt+Down",
+            "edit_adjust_dialogs": "",
+            "edit_split_intervention": "Alt+S",
+            "edit_merge_interventions": "Alt+M",
+            "edit_view_cast": "",
+            "edit_find_replace": "Ctrl+F",
+            "edit_copy_in_out": "Ctrl+B",
+            "edit_increment_scene": "Ctrl+R",
+            "config_app_settings": "Ctrl+K",
+            "video_toggle_play": "F8",
+            "video_rewind": "F7",
+            "video_forward": "F9",
+            "video_mark_in": "F5",
+            "video_mark_out_hold": "F6",
+            "config_shortcuts_dialog": "",
+            "config_delete_shortcut_profile": ""
+        }
+    }
+}
