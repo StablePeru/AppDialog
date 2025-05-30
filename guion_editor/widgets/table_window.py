@@ -11,7 +11,7 @@ from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QFileDialog, QAbstractItemView,
     QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
-    QLineEdit, QLabel, QFormLayout, QInputDialog
+    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox
 )
 from PyQt6.QtGui import QUndoStack, QUndoCommand
 
@@ -99,6 +99,8 @@ class TableWindow(QWidget):
         self.chapter_number = ""
         self.selected_type = ""
 
+        self.link_out_to_next_in_enabled = True # Activar/desactivar la funcionalidad de vincular OUT al siguiente IN
+
         # State for split_intervention based on editor focus
         self.last_focused_dialog_text: Optional[str] = None
         self.last_focused_dialog_cursor_pos: int = -1
@@ -181,7 +183,7 @@ class TableWindow(QWidget):
             if self.get_icon: self.toggle_header_button.setIcon(self.icon_expand_more)
 
     def setup_buttons(self, layout: QVBoxLayout) -> None:
-        buttons_layout = QHBoxLayout()
+        buttons_layout_top_row = QHBoxLayout() # Renombrar para claridad si hay dos filas
         icon_size = QSize(18, 18)
         actions_map = [
             (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False),
@@ -201,8 +203,18 @@ class TableWindow(QWidget):
                  button.setFixedSize(QSize(icon_size.width() + 16, icon_size.height() + 12))
                  button.setToolTip(text.strip() if text.strip() else method.__name__.replace("_", " ").title())
             button.clicked.connect(method)
-            buttons_layout.addWidget(button)
-        layout.addLayout(buttons_layout)
+            buttons_layout_top_row.addWidget(button)
+        
+        buttons_layout_top_row.addStretch() # Empujar a la derecha lo que venga después
+
+        # Checkbox para la funcionalidad de enlazar OUT con siguiente IN
+        self.link_out_in_checkbox = QCheckBox("OUT enlaza con sig. IN")
+        self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
+        self.link_out_in_checkbox.setToolTip("Si está marcado, al definir un OUT también se definirá el IN de la siguiente fila.")
+        self.link_out_in_checkbox.stateChanged.connect(self.toggle_link_out_to_next_in)
+        buttons_layout_top_row.addWidget(self.link_out_in_checkbox)
+        
+        layout.addLayout(buttons_layout_top_row)
 
     def setup_table_view(self, layout: QVBoxLayout) -> None:
         self.table_view = CustomTableView()
@@ -612,7 +624,25 @@ class TableWindow(QWidget):
             command = EditCommand(self, df_idx, view_col_to_update, old_value, time_code_str)
             self.undo_stack.push(command)
 
+    def toggle_link_out_to_next_in(self, state: int):
+        self.link_out_to_next_in_enabled = (state == Qt.CheckState.Checked.value)
+
     def select_next_row_and_set_in(self) -> None:
+        if not self.link_out_to_next_in_enabled: # <<-- NUEVA CONDICIÓN
+            # Si la funcionalidad está desactivada, solo selecciona la siguiente fila si es posible
+            # pero no modifica su IN.
+            selected_indexes = self.table_view.selectedIndexes()
+            if not selected_indexes: return
+            current_view_row = selected_indexes[0].row()
+            if current_view_row < self.pandas_model.rowCount() - 1:
+                df_idx_next = current_view_row + 1
+                self.table_view.selectRow(df_idx_next)
+                idx_to_scroll = self.pandas_model.index(df_idx_next, 0) # Scroll a la fila seleccionada
+                if idx_to_scroll.isValid():
+                    self.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
+            return
+
+        # Comportamiento original si link_out_to_next_in_enabled es True
         selected_indexes = self.table_view.selectedIndexes()
         if not selected_indexes: return
         current_view_row = selected_indexes[0].row()

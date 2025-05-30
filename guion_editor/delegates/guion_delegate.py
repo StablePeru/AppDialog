@@ -33,8 +33,8 @@ class DialogDelegate(QStyledItemDelegate):
     def setEditorData(self, editor_widget: CustomTextEdit, index: QModelIndex) -> None:
         text = index.model().data(index, Qt.ItemDataRole.EditRole)
         if isinstance(editor_widget, CustomTextEdit):
+            editor_widget.setEditingIndex(index) # Establecer el índice
             editor_widget.setPlainText(str(text) if text is not None else "")
-            editor_widget.setEditingIndex(index) # Asegurar que el índice esté actualizado
 
     # ... (setModelData, updateEditorGeometry, sizeHint, paint, setFontSize sin cambios) ...
     def setModelData(self, editor_widget: CustomTextEdit,
