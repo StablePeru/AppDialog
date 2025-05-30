@@ -282,10 +282,23 @@ class TableWindow(QWidget):
         self.undo_stack.clear()
         self.current_script_name = os.path.basename(file_path)
         self.current_script_path = file_path
-        self.set_unsaved_changes(False) # This calls update_window_title
+        self.set_unsaved_changes(False)
         if self.main_window and hasattr(self.main_window, 'add_to_recent_files'):
             self.main_window.add_to_recent_files(file_path)
-        QMessageBox.information(self, "Éxito", f"Guion '{self.current_script_name}' cargado.")
+        
+        # En lugar del QMessageBox:
+        if self.main_window and hasattr(self.main_window, 'statusBar') and callable(self.main_window.statusBar):
+            try:
+                # El método showMessage puede no existir o la barra de estado ser None
+                status_bar = self.main_window.statusBar()
+                if status_bar:
+                    status_bar.showMessage(f"Guion '{self.current_script_name}' cargado.", 5000) # Muestra por 5 segundos
+                else:
+                    print(f"INFO: Guion '{self.current_script_name}' cargado. (StatusBar no disponible para notificación)") # Fallback
+            except Exception as e:
+                print(f"INFO: Guion '{self.current_script_name}' cargado. (Error al notificar en StatusBar: {e})") # Fallback
+        else:
+            print(f"INFO: Guion '{self.current_script_name}' cargado.") # Fallback si no hay main_window o statusBar
 
     def open_docx_dialog(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(self, "Abrir Guion DOCX", "", "Documentos Word (*.docx)")
