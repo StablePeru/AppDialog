@@ -6,12 +6,12 @@ from typing import Any, List, Dict, Optional, Tuple
 
 import pandas as pd
 
-from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer, QKeyCombination
-from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, QKeySequence # Added QKeyEvent
+from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer, QKeyCombination, QPoint
+from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, QKeySequence, QAction
 from PyQt6.QtWidgets import (
     QWidget, QFileDialog, QAbstractItemView,
     QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
-    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox
+    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu
 )
 from PyQt6.QtGui import QUndoStack, QUndoCommand
 
@@ -28,31 +28,29 @@ class TableWindow(QWidget):
     in_out_signal = pyqtSignal(str, int)
     character_name_changed = pyqtSignal()
 
-    # Nuevos índices de columna en la VISTA
     COL_NUM_INTERV_VIEW = 0
-    COL_ID_VIEW = 1         # Estaba 0
-    COL_SCENE_VIEW = 2      # Estaba 1
-    COL_IN_VIEW = 3         # Estaba 2
-    COL_OUT_VIEW = 4        # Estaba 3
-    COL_CHARACTER_VIEW = 5  # Estaba 4
-    COL_DIALOGUE_VIEW = 6   # Estaba 5
+    COL_ID_VIEW = 1         
+    COL_SCENE_VIEW = 2      
+    COL_IN_VIEW = 3         
+    COL_OUT_VIEW = 4        
+    COL_CHARACTER_VIEW = 5  
+    COL_DIALOGUE_VIEW = 6   
+    COL_EUSKERA_VIEW = 7 # NUEVA COLUMNA VISUAL
 
-    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO"]
+    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO", "EUSKERA"] # AÑADIDO
     
-    # Mapeo de índice de columna de VISTA a nombre de columna de DataFrame o identificador especial
     VIEW_TO_DF_COL_MAP = {
-        COL_NUM_INTERV_VIEW: ROW_NUMBER_COL_IDENTIFIER, # Columna visual especial
+        COL_NUM_INTERV_VIEW: ROW_NUMBER_COL_IDENTIFIER,
         COL_ID_VIEW: 'ID', 
         COL_SCENE_VIEW: 'SCENE', 
         COL_IN_VIEW: 'IN',
         COL_OUT_VIEW: 'OUT', 
         COL_CHARACTER_VIEW: 'PERSONAJE', 
-        COL_DIALOGUE_VIEW: 'DIÁLOGO'
+        COL_DIALOGUE_VIEW: 'DIÁLOGO',
+        COL_EUSKERA_VIEW: 'EUSKERA' # AÑADIDO
     }
-    # DF_COLUMN_ORDER define el orden de las columnas *reales* en el DataFrame
-    # Esto es lo que PandasTableModel usará para self.df_column_order
-    # No debe incluir ROW_NUMBER_COL_IDENTIFIER
-    DF_COLUMN_ORDER = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO']
+    # AÑADIR 'EUSKERA' A DF_COLUMN_ORDER
+    DF_COLUMN_ORDER = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA']
 
     def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
                  guion_manager: Optional[GuionManager] = None, get_icon_func=None):
@@ -73,7 +71,7 @@ class TableWindow(QWidget):
         self._update_error_indicator_timer.setInterval(0) # Ejecutar tan pronto como sea posible en el siguiente ciclo de eventos
         self._update_error_indicator_timer.timeout.connect(self.update_time_error_indicator)
 
-
+        self.action_buttons = {}
         self.video_player_widget = video_player_widget
         if self.video_player_widget:
             self.video_player_widget.in_out_signal.connect(self.update_in_out_from_player) 
@@ -105,7 +103,8 @@ class TableWindow(QWidget):
 
         self.time_error_indicator_label: Optional[QLabel] = None
 
-        self.setup_ui()
+        self.setup_ui() # setup_ui se llama aquí
+        self.update_action_buttons_state() # Llamada inicial para establecer el estado correcto
 
         self.pandas_model.dataChanged.connect(self._request_error_indicator_update) # Cambiado
         self.pandas_model.layoutChanged.connect(self._request_error_indicator_update) # Cambiado
@@ -114,6 +113,8 @@ class TableWindow(QWidget):
 
         self.clear_script_state() 
         self.update_window_title()
+
+        QTimer.singleShot(0, lambda: self.table_view.setColumnHidden(self.COL_EUSKERA_VIEW, True))
 
     def _request_error_indicator_update(self):
         """Solicita una actualización del indicador de error de tiempo de forma diferida."""
@@ -168,12 +169,11 @@ class TableWindow(QWidget):
         self.header_details_widget.setVisible(not current_visibility)
         self._update_toggle_header_button_text_and_icon()
 
-    def setup_buttons(self, layout: QVBoxLayout) -> None: # No direct shortcut changes here
+    def setup_buttons(self, layout: QVBoxLayout) -> None:
         buttons_layout_top_row = QHBoxLayout()
         icon_size = QSize(18, 18)
-        # Buttons now primarily rely on QActions in MainWindow for shortcuts
-        # Their clicked signals are still connected for direct mouse interaction.
         actions_map = [
+            # (texto, método, icono, solo_icono, nombre_accion_mainwindow)
             (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False, "edit_add_row"),
             (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, "edit_delete_row"),
             ("", self.move_row_up, "move_up_icon.svg", True, "edit_move_up"),
@@ -181,14 +181,16 @@ class TableWindow(QWidget):
             (" Ajustar Diálogos", self.adjust_dialogs, "adjust_dialogs_icon.svg", False, "edit_adjust_dialogs"),
             (" Separar", self.split_intervention, "split_intervention_icon.svg", False, "edit_split_intervention"),
             (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False, "edit_merge_interventions"),
+            # NUEVO: Identificador para el botón de Copiar IN/OUT para control de estado
+            (" Copiar IN/OUT", self.copy_in_out_to_next, "copy_in_out_icon.svg", False, "edit_copy_in_out")
         ]
-        for text, method, icon_name, only_icon, _ in actions_map: # action_obj_name ignored here
+        for text, method, icon_name, only_icon, action_obj_name in actions_map: # CAMBIO action_obj_name
             button = QPushButton(text)
             if self.get_icon and icon_name: button.setIcon(self.get_icon(icon_name)); button.setIconSize(icon_size)
             if only_icon: button.setFixedSize(QSize(icon_size.width() + 16, icon_size.height() + 12)); button.setToolTip(text.strip() if text.strip() else method.__name__.replace("_", " ").title())
             button.clicked.connect(method)
             buttons_layout_top_row.addWidget(button)
-        buttons_layout_top_row.addStretch()
+            self.action_buttons[action_obj_name] = button
 
         self.time_error_indicator_label = QLabel("")
         self.time_error_indicator_label.setObjectName("timeErrorIndicatorLabel")
@@ -250,15 +252,14 @@ class TableWindow(QWidget):
         self.table_view = CustomTableView()
         self.table_view.setModel(self.pandas_model)
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table_view.setAlternatingRowColors(True)
         layout.addWidget(self.table_view)
 
-        # Ajustar anchos y visibilidad de columnas
-        self.table_view.setColumnWidth(self.COL_NUM_INTERV_VIEW, 40) # Ancho para "Nº"
-        self.table_view.setColumnHidden(self.COL_ID_VIEW, True) # ID sigue oculta, pero su índice cambió
+        self.table_view.setColumnWidth(self.COL_NUM_INTERV_VIEW, 40) 
+        self.table_view.setColumnHidden(self.COL_ID_VIEW, True) 
+        self.table_view.selectionModel().selectionChanged.connect(self.update_action_buttons_state)
 
-        # Los delegados se asignan a los nuevos índices de columna visual
         time_delegate = TimeCodeDelegate(self.table_view)
         self.table_view.setItemDelegateForColumn(self.COL_IN_VIEW, time_delegate)
         self.table_view.setItemDelegateForColumn(self.COL_OUT_VIEW, time_delegate)
@@ -268,6 +269,7 @@ class TableWindow(QWidget):
 
         self.dialog_delegate = DialogDelegate(parent=self.table_view, font_size=self.current_font_size, table_window_instance=self)
         self.table_view.setItemDelegateForColumn(self.COL_DIALOGUE_VIEW, self.dialog_delegate)
+        self.table_view.setItemDelegateForColumn(self.COL_EUSKERA_VIEW, self.dialog_delegate)
 
         self.table_view.cellCtrlClicked.connect(self.handle_ctrl_click_on_cell)
         self.table_view.cellAltClicked.connect(self.handle_alt_click_on_cell)  
@@ -276,6 +278,49 @@ class TableWindow(QWidget):
 
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.verticalHeader().setVisible(False)
+
+        # Configurar la política del menú contextual para la cabecera horizontal
+        self.table_view.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_view.horizontalHeader().sectionResized.connect(self.handle_column_resized)
+        self.table_view.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
+
+    def show_header_context_menu(self, position: QPoint) -> None: # CAMBIADO
+        """Muestra un menú contextual para alternar la visibilidad de las columnas."""
+        menu = QMenu(self)
+        header = self.table_view.horizontalHeader()
+
+        for view_col_idx, col_view_name in enumerate(self.VIEW_COLUMN_NAMES):
+            if view_col_idx == self.COL_ID_VIEW:
+                continue 
+
+            action = QAction(col_view_name, self, checkable=True)
+            action.setChecked(not self.table_view.isColumnHidden(view_col_idx))
+            action.setData(view_col_idx)
+            action.toggled.connect(self.toggle_column_visibility)
+            menu.addAction(action)
+
+        menu.exec(header.mapToGlobal(position))
+
+    def toggle_column_visibility(self, checked: bool) -> None:
+        """Slot para ocultar o mostrar una columna según el estado de la acción."""
+        action = self.sender() # Obtener la QAction que emitió la señal
+        if isinstance(action, QAction):
+            view_col_idx = action.data() # Recuperar el índice de la columna de la vista
+            if isinstance(view_col_idx, int):
+                # Ocultar la columna si 'checked' es False (se desmarcó), mostrarla si es True
+                self.table_view.setColumnHidden(view_col_idx, not checked)
+
+    def handle_column_resized(self, logical_index: int, old_size: int, new_size: int):
+        """
+        Llamado cuando una columna es redimensionada manualmente.
+        Si es una columna de diálogo, solicita redimensionar las filas.
+        """
+        # logical_index es el índice de la columna en la vista (view column index)
+        
+        # Nos interesa principalmente si las columnas de DIÁLOGO o EUSKERA son redimensionadas,
+        # ya que su contenido afecta directamente la altura necesaria.
+        if logical_index == self.COL_DIALOGUE_VIEW or logical_index == self.COL_EUSKERA_VIEW:
+            self.request_resize_rows_to_contents_deferred()
 
     def load_stylesheet(self) -> None: # No changes here
         try:
@@ -443,6 +488,72 @@ class TableWindow(QWidget):
             except Exception as e: self.handle_exception(e, "Error al guardar como JSON"); return False
         return False
 
+    def update_action_buttons_state(self):
+        """Actualiza el estado (enabled/disabled) de los botones y QActions basado en la selección."""
+        selected_model_indices = self.table_view.selectionModel().selectedRows()
+        num_selected = len(selected_model_indices)
+        is_main_window_available = self.main_window and hasattr(self.main_window, 'actions')
+
+        # Acciones que siempre están habilitadas (o cuya lógica interna maneja la selección)
+        # "edit_add_row", "edit_adjust_dialogs" (opera en todo), "file_..."
+
+        # --- Acciones que dependen del número de filas seleccionadas ---
+
+        # Eliminar Fila: Habilitado si al menos una fila seleccionada
+        can_delete = num_selected > 0
+        if is_main_window_available and "edit_delete_row" in self.main_window.actions:
+            self.main_window.actions["edit_delete_row"].setEnabled(can_delete)
+        if "edit_delete_row" in self.action_buttons:
+            self.action_buttons["edit_delete_row"].setEnabled(can_delete)
+
+        # Mover Arriba/Abajo: Solo si exactamente UNA fila está seleccionada
+        can_move = num_selected == 1
+        if is_main_window_available:
+            if "edit_move_up" in self.main_window.actions:
+                df_idx = selected_model_indices[0].row() if can_move else -1
+                self.main_window.actions["edit_move_up"].setEnabled(can_move and df_idx > 0)
+            if "edit_move_down" in self.main_window.actions:
+                df_idx = selected_model_indices[0].row() if can_move else -1
+                self.main_window.actions["edit_move_down"].setEnabled(can_move and df_idx < self.pandas_model.rowCount() - 1)
+        if "edit_move_up" in self.action_buttons:
+            df_idx = selected_model_indices[0].row() if can_move else -1
+            self.action_buttons["edit_move_up"].setEnabled(can_move and df_idx > 0)
+        if "edit_move_down" in self.action_buttons:
+            df_idx = selected_model_indices[0].row() if can_move else -1
+            self.action_buttons["edit_move_down"].setEnabled(can_move and df_idx < self.pandas_model.rowCount() - 1)
+
+
+        # Separar Intervención: Solo si exactamente UNA fila está seleccionada
+        can_split = num_selected == 1
+        if is_main_window_available and "edit_split_intervention" in self.main_window.actions:
+            self.main_window.actions["edit_split_intervention"].setEnabled(can_split)
+        if "edit_split_intervention" in self.action_buttons:
+            self.action_buttons["edit_split_intervention"].setEnabled(can_split)
+
+        # Juntar Intervenciones:
+        # Necesita al menos dos filas seleccionadas y que sean contiguas y del mismo personaje.
+        # O, si se seleccionan N filas, juntar la primera con la segunda, si cumplen.
+        # Por simplicidad, vamos a permitirlo si hay >= 1 seleccionada, y la lógica interna de merge_interventions
+        # se encargará de si es posible con la *siguiente* fila.
+        can_merge_check = num_selected >= 1 # La lógica de merge_interventions verifica si hay una siguiente
+        if is_main_window_available and "edit_merge_interventions" in self.main_window.actions:
+            self.main_window.actions["edit_merge_interventions"].setEnabled(can_merge_check)
+        if "edit_merge_interventions" in self.action_buttons:
+            self.action_buttons["edit_merge_interventions"].setEnabled(can_merge_check)
+
+
+        # Copiar IN/OUT a Siguiente: Solo si exactamente UNA fila está seleccionada y NO es la última.
+        can_copy_in_out = (num_selected == 1 and selected_model_indices[0].row() < self.pandas_model.rowCount() - 1)
+        if is_main_window_available and "edit_copy_in_out" in self.main_window.actions:
+            self.main_window.actions["edit_copy_in_out"].setEnabled(can_copy_in_out)
+        if "edit_copy_in_out" in self.action_buttons: # Asegúrate que el key coincida con el de setup_buttons
+            self.action_buttons["edit_copy_in_out"].setEnabled(can_copy_in_out)
+
+        # Incrementar Escena: Solo si exactamente UNA fila está seleccionada
+        can_change_scene = num_selected == 1
+        if is_main_window_available and "edit_increment_scene" in self.main_window.actions:
+            self.main_window.actions["edit_increment_scene"].setEnabled(can_change_scene)
+
     def clear_script_state(self):
         self.pandas_model.set_dataframe(pd.DataFrame(columns=self.DF_COLUMN_ORDER))
         self._populate_header_ui({}) 
@@ -475,11 +586,14 @@ class TableWindow(QWidget):
         if not top_left_index.isValid(): return
         self.set_unsaved_changes(True)
         for row in range(top_left_index.row(), bottom_right_index.row() + 1):
-            view_col_idx = top_left_index.column()
+            view_col_idx = top_left_index.column() # Usar el índice de la columna de la celda cambiada
             df_col_name = self.pandas_model.get_df_column_name(view_col_idx)
-            if df_col_name == 'DIÁLOGO': self.request_resize_rows_to_contents_deferred()
-            elif df_col_name == 'PERSONAJE': self.update_character_completer_and_notify()
-            # SCENE changes don't need specific handling here as has_scene_numbers is dynamic
+            
+            # Si la columna DIÁLOGO o EUSKERA cambian, solicitar redimensionar filas
+            if df_col_name in ['DIÁLOGO', 'EUSKERA']:
+                self.request_resize_rows_to_contents_deferred()
+            elif df_col_name == 'PERSONAJE':
+                self.update_character_completer_and_notify()
 
     def update_character_completer_and_notify(self): # Renamed
         # Re-instantiate delegate to update its completer list
@@ -524,40 +638,65 @@ class TableWindow(QWidget):
         else: QMessageBox.information(self, "Info", "No hubo diálogos que necesitaban ajuste.")
 
     def copy_in_out_to_next(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: QMessageBox.warning(self, "Copiar Tiempos", "Por favor, seleccione una fila."); return
-        df_idx_selected = selected_indexes[0].row()
+        selected_model_indices = self.table_view.selectionModel().selectedRows()
+        if not selected_model_indices or len(selected_model_indices) != 1: # Solo para una fila
+            QMessageBox.warning(self, "Copiar Tiempos", "Por favor, seleccione exactamente una fila.")
+            return
+
+        df_idx_selected = selected_model_indices[0].row() # df_idx de la fila seleccionada
         if df_idx_selected >= self.pandas_model.rowCount() - 1:
-            QMessageBox.warning(self, "Copiar Tiempos", "No se puede copiar a la siguiente fila desde la última fila."); return
+            QMessageBox.warning(self, "Copiar Tiempos", "No se puede copiar a la siguiente fila desde la última fila.")
+            return
+
         current_df = self.pandas_model.dataframe()
-        in_time = str(current_df.at[df_idx_selected, 'IN']); out_time = str(current_df.at[df_idx_selected, 'OUT'])
+        in_time = str(current_df.at[df_idx_selected, 'IN'])
+        out_time = str(current_df.at[df_idx_selected, 'OUT'])
         df_idx_next = df_idx_selected + 1
+
         self.undo_stack.beginMacro("Copiar IN/OUT a Siguiente")
         old_in_next = str(current_df.at[df_idx_next, 'IN'])
-        if in_time != old_in_next: self.undo_stack.push(EditCommand(self, df_idx_next, self.COL_IN_VIEW, old_in_next, in_time))
+        if in_time != old_in_next:
+            self.undo_stack.push(EditCommand(self, df_idx_next, self.COL_IN_VIEW, old_in_next, in_time))
         old_out_next = str(current_df.at[df_idx_next, 'OUT'])
-        if out_time != old_out_next: self.undo_stack.push(EditCommand(self, df_idx_next, self.COL_OUT_VIEW, old_out_next, out_time))
+        if out_time != old_out_next:
+            self.undo_stack.push(EditCommand(self, df_idx_next, self.COL_OUT_VIEW, old_out_next, out_time))
         self.undo_stack.endMacro()
 
     def add_new_row(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        current_view_row = selected_indexes[0].row() if selected_indexes else self.pandas_model.rowCount() -1
-        df_insert_idx = current_view_row + 1 if current_view_row != -1 else self.pandas_model.rowCount()
-        # Pass df_insert_idx for both view and df row, model handles translation if needed
-        command = AddRowCommand(self, df_insert_idx, df_insert_idx) 
+        selected_model_indices = self.table_view.selectionModel().selectedRows()
+        current_view_row = selected_model_indices[0].row() if selected_model_indices else self.pandas_model.rowCount() -1
+        # current_view_row es el índice de la vista. Para el modelo pandas (df_insert_idx),
+        # si es -1 (no hay selección y tabla vacía), insertamos en 0.
+        # Si es la última fila, insertamos después.
+        if current_view_row == -1 and self.pandas_model.rowCount() == 0: # Tabla vacía
+            df_insert_idx = 0
+        elif current_view_row != -1: # Hay selección o filas
+            df_insert_idx = current_view_row + 1
+        else: # No hay selección, pero hay filas, añadir al final
+            df_insert_idx = self.pandas_model.rowCount()
+
+        command = AddRowCommand(self, df_insert_idx, df_insert_idx)
         self.undo_stack.push(command)
 
     def remove_row(self) -> None:
-        selected_model_indices = self.table_view.selectionModel().selectedRows() # QModelIndex list
-        if not selected_model_indices: QMessageBox.warning(self, "Eliminar Fila", "Por favor, seleccione una o más filas para eliminar."); return
+        selected_model_indices = self.table_view.selectionModel().selectedRows()
+        if not selected_model_indices:
+            QMessageBox.warning(self, "Eliminar Fila", "Por favor, seleccione una o más filas para eliminar.")
+            return
         
-        df_indices_to_remove = sorted([index.row() for index in selected_model_indices], reverse=True) # Get df_row indices
+        # Obtener los índices de DataFrame (df_row) de las filas seleccionadas en la vista
+        df_indices_to_remove = sorted([index.row() for index in selected_model_indices]) # Ya está ordenado ascendente
         
-        confirm = QMessageBox.question(self, "Confirmar Eliminación", f"¿Está seguro de que desea eliminar {len(df_indices_to_remove)} fila(s)?",
-                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        num_filas_a_eliminar = len(df_indices_to_remove)
+        confirm_msg = f"¿Está seguro de que desea eliminar {num_filas_a_eliminar} fila(s)?" \
+            if num_filas_a_eliminar > 1 else "¿Está seguro de que desea eliminar la fila seleccionada?"
+            
+        confirm = QMessageBox.question(self, "Confirmar Eliminación", confirm_msg,
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                    QMessageBox.StandardButton.No)
         if confirm == QMessageBox.StandardButton.Yes:
-            # RemoveRowsCommand expects df_indices sorted ascending for correct re-insertion on undo
-            command = RemoveRowsCommand(self, sorted(list(set(idx.row() for idx in selected_model_indices)))) 
+            # RemoveRowsCommand espera los índices de DataFrame, ordenados ascendentemente
+            command = RemoveRowsCommand(self, df_indices_to_remove)
             self.undo_stack.push(command)
 
     def move_row_up(self) -> None:
@@ -616,16 +755,32 @@ class TableWindow(QWidget):
         self.undo_stack.push(command)
 
     def merge_interventions(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: QMessageBox.warning(self, "Juntar", "Por favor, seleccione la primera de las dos filas a juntar."); return
-        df_idx_curr = selected_indexes[0].row(); df_idx_next = df_idx_curr + 1
-        if df_idx_next >= self.pandas_model.rowCount(): QMessageBox.warning(self, "Juntar", "No se puede juntar la última fila con una inexistente."); return
+        selected_model_indices = self.table_view.selectionModel().selectedRows() # Obtener las filas de la vista
+        if not selected_model_indices:
+            QMessageBox.warning(self, "Juntar", "Por favor, seleccione la primera de las dos filas a juntar.")
+            return
+
+        # Operar sobre la primera fila seleccionada en la vista
+        df_idx_curr = selected_model_indices[0].row() # df_idx de la primera fila seleccionada
+        df_idx_next = df_idx_curr + 1
+
+        if df_idx_next >= self.pandas_model.rowCount():
+            QMessageBox.warning(self, "Juntar", "No se puede juntar la última fila con una inexistente o no hay fila siguiente a la primera seleccionada.")
+            return
+
         current_df = self.pandas_model.dataframe()
-        char_curr = str(current_df.at[df_idx_curr, 'PERSONAJE']); char_next = str(current_df.at[df_idx_next, 'PERSONAJE'])
-        if char_curr != char_next: QMessageBox.warning(self, "Juntar", "Solo se pueden juntar intervenciones del mismo personaje."); return
-        dialog_curr = str(current_df.at[df_idx_curr, 'DIÁLOGO']); dialog_next = str(current_df.at[df_idx_next, 'DIÁLOGO'])
+        char_curr = str(current_df.at[df_idx_curr, 'PERSONAJE'])
+        char_next = str(current_df.at[df_idx_next, 'PERSONAJE'])
+
+        if char_curr != char_next:
+            QMessageBox.warning(self, "Juntar", "Solo se pueden juntar intervenciones del mismo personaje.")
+            return
+
+        dialog_curr = str(current_df.at[df_idx_curr, 'DIÁLOGO'])
+        dialog_next = str(current_df.at[df_idx_next, 'DIÁLOGO'])
         merged_dialog = f"{dialog_curr.strip()} {dialog_next.strip()}".strip()
         original_out_first = str(current_df.at[df_idx_curr, 'OUT'])
+
         command = MergeInterventionsCommand(self, df_idx_curr, merged_dialog, df_idx_next, original_out_first)
         self.undo_stack.push(command)
 

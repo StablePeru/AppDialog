@@ -52,6 +52,7 @@ class ShortcutManager:
             "default": {
                 # File Menu
                 "file_open_video": "Ctrl+O",
+                "file_load_me": "Ctrl+Shift+M",
                 "file_open_docx": "Ctrl+G",
                 "file_export_excel": "Ctrl+E",
                 "file_import_excel": "Ctrl+I",

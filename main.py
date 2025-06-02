@@ -6,7 +6,7 @@ import os
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
-    QMessageBox
+    QMessageBox, QFileDialog
 )
 from PyQt6.QtCore import Qt, QSize 
 from PyQt6.QtGui import QAction, QKeySequence, QIcon 
@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
     def create_all_actions(self):
         # File Menu Actions
         self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", "file_open_video")
+        self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", "file_load_me")
         self.add_managed_action("Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G", "open_document_icon.svg", "file_open_docx")
         self.add_managed_action("Exportar Guion a Excel", self.tableWindow.export_to_excel_dialog, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
         self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
@@ -148,6 +149,7 @@ class MainWindow(QMainWindow):
     def create_file_menu(self, menuBar):
         fileMenu = menuBar.addMenu("&Archivo")
         fileMenu.addAction(self.actions["file_open_video"])
+        fileMenu.addAction(self.actions["file_load_me"])
         fileMenu.addAction(self.actions["file_open_docx"])
         fileMenu.addSeparator()
         fileMenu.addAction(self.actions["file_export_excel"])
@@ -262,6 +264,16 @@ class MainWindow(QMainWindow):
         if config_dialog.exec() == QDialog.DialogCode.Accepted:
             self.trim_value, self.font_size = config_dialog.get_values()
             self.apply_font_size()
+
+    def load_me_audio_file(self):
+        # Check if a video is loaded first, M+E without video is less useful
+        if self.videoPlayerWidget.media_player.source().isEmpty():
+            QMessageBox.information(self, "Cargar M+E", "Por favor, cargue primero un archivo de video.")
+            return
+
+        file_name, _ = QFileDialog.getOpenFileName(self, "Cargar Audio M+E", "", "Archivos de Audio (*.wav *.mp3);;Todos los archivos (*.*)")
+        if file_name:
+            self.videoPlayerWidget.load_me_file(file_name)
 
     def add_to_recent_files(self, file_path):
         abs_file_path = os.path.abspath(file_path) # Store absolute paths

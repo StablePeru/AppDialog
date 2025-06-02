@@ -3,7 +3,7 @@ import os
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QSlider, QLabel,
-    QMessageBox, QHBoxLayout, QStackedLayout
+    QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -26,13 +26,20 @@ class VideoPlayerWidget(QWidget):
         self.main_window = main_window
         self.f6_key_pressed_internally = False
 
+        self._me_audio_output_handler = None # For M+E audio
+        self.me_player = None # Player for M+E
+        self.use_me_audio = False # Flag to indicate M+E usage
+        self.user_volume_float = 1.0 # Store user's desired volume (0.0 to 1.0)
+
         if self.get_icon:
             self.play_icon = self.get_icon("play_icon.svg")
             self.pause_icon = self.get_icon("pause_icon.svg")
             self.volume_up_icon = self.get_icon("volume_up_icon.svg")
             self.volume_off_icon = self.get_icon("volume_off_icon.svg")
+            self.load_audio_icon = self.get_icon("load_audio_icon.svg") # New icon
+
         else:
-            self.play_icon, self.pause_icon, self.volume_up_icon, self.volume_off_icon = QIcon(), QIcon(), QIcon(), QIcon()
+            self.play_icon, self.pause_icon, self.volume_up_icon, self.volume_off_icon, self.load_audio_icon = QIcon(), QIcon(), QIcon(), QIcon(), QIcon()
 
         self.init_ui()
         self.load_stylesheet()
@@ -150,6 +157,12 @@ class VideoPlayerWidget(QWidget):
         self.out_button.setObjectName("out_button"); self.out_button.setToolTip("Marcar OUT (Mantener - Ver Shortcuts)")
         self.out_button.pressed.connect(self.handle_out_button_pressed)
         self.out_button.released.connect(self.handle_out_button_released)
+
+        self.me_toggle_checkbox = QCheckBox("Usar M+E")
+        self.me_toggle_checkbox.setObjectName("me_toggle_checkbox")
+        self.me_toggle_checkbox.setToolTip("Alternar entre audio original (V.O.) y Música+Efectos (M+E)")
+        self.me_toggle_checkbox.stateChanged.connect(self.toggle_me_audio_source)
+        self.me_toggle_checkbox.setEnabled(False) # Disabled until M+E is loaded
     
     def setup_layouts(self) -> None:
         layout = QVBoxLayout()
@@ -169,11 +182,13 @@ class VideoPlayerWidget(QWidget):
         buttons_layout = QHBoxLayout(); buttons_layout.setSpacing(5)
         button_widgets = [ self.detach_button, self.play_button, self.rewind_button, self.forward_button, self.in_button, self.out_button ]
         for btn in button_widgets: buttons_layout.addWidget(btn)
+        buttons_layout.addWidget(self.me_toggle_checkbox) # Add the checkbox
         buttons_layout.addStretch(1)
         buttons_layout.addWidget(self.volume_button)
         buttons_layout.addWidget(self.volume_slider_vertical)
         layout.addLayout(buttons_layout)
         self.setLayout(layout)
+
 
     def load_stylesheet(self) -> None:
         try:
@@ -267,8 +282,13 @@ class VideoPlayerWidget(QWidget):
             
         if current_state == QMediaPlayer.PlaybackState.PlayingState:
             self.media_player.pause()
+            if self.me_player and not self.me_player.source().isEmpty():
+                self.me_player.pause()
         else:
             self.media_player.play()
+            if self.me_player and not self.me_player.source().isEmpty() and self.use_me_audio:
+                self.me_player.play()
+                self.me_player.setPosition(self.media_player.position()) # Ensure sync
 
     def change_position(self, change_ms: int) -> None:
         if self.media_player.duration() <= 0 and self.media_player.source().isEmpty(): return
@@ -276,31 +296,35 @@ class VideoPlayerWidget(QWidget):
         new_position = current_pos + change_ms
         
         if self.media_player.duration() > 0 :
-             new_position = max(0, min(new_position, self.media_player.duration()))
+            new_position = max(0, min(new_position, self.media_player.duration()))
         else:
-             new_position = max(0, new_position)
+            new_position = max(0, new_position)
         self.media_player.setPosition(new_position)
+        if self.me_player and not self.me_player.source().isEmpty():
+            self.me_player.setPosition(new_position)
 
     def set_position_from_slider_move(self, position: int) -> None:
         if self.media_player.duration() <= 0 and position > 0:
-             self.slider.blockSignals(True)
-             current_player_pos = self.media_player.position()
-             self.slider.setValue(current_player_pos if current_player_pos >= 0 else 0)
-             self.slider.blockSignals(False)
-             return
-        if self.media_player.isSeekable(): # Solo intentar si es seekable
+            self.slider.blockSignals(True)
+            current_player_pos = self.media_player.position()
+            self.slider.setValue(current_player_pos if current_player_pos >= 0 else 0)
+            self.slider.blockSignals(False)
+            return
+        if self.media_player.isSeekable():
             self.media_player.setPosition(position)
+            if self.me_player and not self.me_player.source().isEmpty():
+                self.me_player.setPosition(position)
 
-
+    # Modify set_volume_from_slider_value
     def set_volume_from_slider_value(self, volume_percent: int) -> None:
-        if self.media_player and self.media_player.audioOutput():
-            volume_float = volume_percent / 100.0
-            self.media_player.audioOutput().setVolume(volume_float)
+        self.user_volume_float = volume_percent / 100.0
+        self._update_audio_outputs() # This will apply volume to the correct player
 
-    def update_volume_slider_display(self, volume_float: float):
-        volume_percent = int(volume_float * 100)
+    def update_volume_slider_display(self, volume_float: float): # volume_float is from a player signal
+        # We want the slider to always reflect user_volume_float
+        volume_percent_user = int(self.user_volume_float * 100)
         self.volume_slider_vertical.blockSignals(True)
-        self.volume_slider_vertical.setValue(volume_percent)
+        self.volume_slider_vertical.setValue(volume_percent_user)
         self.volume_slider_vertical.blockSignals(False)
 
     def update_play_button_icon(self, state: QMediaPlayer.PlaybackState) -> None:
@@ -347,6 +371,13 @@ class VideoPlayerWidget(QWidget):
                  return
             
             self.media_player.setSource(media_url)
+
+            # Clear M+E player and disable checkbox if a new main video is loaded
+            if self.me_player:
+                self.me_player.setSource(QUrl()) # Clear M+E source
+            self.me_toggle_checkbox.setEnabled(False)
+            self.me_toggle_checkbox.setChecked(False) # Reset to V.O.
+            self.use_me_audio = False
             
             audio_out = self.media_player.audioOutput()
             if not audio_out:
@@ -360,8 +391,86 @@ class VideoPlayerWidget(QWidget):
                     setattr(audio_out, '_volume_signal_connected_vp', True)
                 self.volume_slider_vertical.setValue(int(audio_out.volume() * 100))
             
+            # Apply initial volume and mute state based on V.O. being active
+            self.user_volume_float = self.media_player.audioOutput().volume() # Or a default like 1.0
+            self._update_audio_outputs()
+
             self.media_player.play()
         except Exception as e: QMessageBox.critical(self, "Error Crítico", f"Error crítico al cargar el video: {str(e)}")
+
+    def load_me_file(self, audio_path: str) -> None:
+        try:
+            if not os.path.exists(audio_path):
+                QMessageBox.warning(self, "Error", f"Archivo de audio M+E no encontrado: {audio_path}")
+                return
+            media_url = QUrl.fromLocalFile(audio_path)
+            if media_url.isEmpty() or not media_url.isValid():
+                QMessageBox.warning(self, "Error", f"No se pudo crear una URL válida para M+E: {audio_path}")
+                return
+
+            if not self.me_player: # Should exist from init_ui
+                self.me_player = QMediaPlayer()
+                if not self.me_player.audioOutput():
+                    self._me_audio_output_handler = QAudioOutput()
+                    self.me_player.setAudioOutput(self._me_audio_output_handler)
+            
+            self.me_player.setSource(media_url)
+            # Sync M+E with main player if main player has a source
+            if not self.media_player.source().isEmpty():
+                self.me_player.setPosition(self.media_player.position())
+                if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                    if self.use_me_audio: # Only play M+E if it's supposed to be active
+                        self.me_player.play()
+                else:
+                    self.me_player.pause()
+
+            self.me_toggle_checkbox.setEnabled(True)
+            self._update_audio_outputs() # Apply volume/mute settings
+            QMessageBox.information(self, "M+E Cargado", f"Archivo M+E '{os.path.basename(audio_path)}' cargado.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error Crítico", f"Error crítico al cargar el audio M+E: {str(e)}")
+            self.me_toggle_checkbox.setEnabled(False)
+            if self.me_player:
+                self.me_player.setSource(QUrl()) # Clear source on error
+
+
+    # Add this new method
+    def toggle_me_audio_source(self, state: int) -> None:
+        self.use_me_audio = (Qt.CheckState(state) == Qt.CheckState.Checked)
+        self._update_audio_outputs()
+
+    # Add this new method
+    def _update_audio_outputs(self) -> None:
+        if not self.media_player or not self.me_player:
+            return
+
+        main_audio = self.media_player.audioOutput()
+        me_audio = self.me_player.audioOutput()
+
+        if not main_audio or not me_audio:
+            return
+
+        if self.use_me_audio and not self.me_player.source().isEmpty():
+            main_audio.setMuted(True)
+            me_audio.setMuted(False)
+            me_audio.setVolume(self.user_volume_float)
+            # Sync playback state if M+E was just activated
+            if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                self.me_player.play()
+                self.me_player.setPosition(self.media_player.position())
+            else:
+                self.me_player.pause()
+                self.me_player.setPosition(self.media_player.position())
+        else: # Use V.O.
+            main_audio.setMuted(False)
+            me_audio.setMuted(True)
+            main_audio.setVolume(self.user_volume_float)
+            # Ensure M+E player is paused if V.O. is active and M+E source exists
+            if not self.me_player.source().isEmpty():
+                self.me_player.pause()
+            # Optional: keep M+E position synced even when muted and V.O. is active
+            # self.me_player.setPosition(self.media_player.position())
 
     def on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
         if status == QMediaPlayer.MediaStatus.LoadedMedia:
@@ -371,11 +480,19 @@ class VideoPlayerWidget(QWidget):
         elif status == QMediaPlayer.MediaStatus.EndOfMedia:
             self.media_player.setPosition(0)
             self.media_player.pause()
+            if self.me_player and not self.me_player.source().isEmpty():
+                self.me_player.setPosition(0)
+                self.me_player.pause()
         elif status == QMediaPlayer.MediaStatus.InvalidMedia:
             QMessageBox.warning(self, "Error de Medio", "El archivo de video es inválido o no soportado.")
-        elif status == QMediaPlayer.MediaStatus.NoMedia:
-             self.time_code_label.setText("00:00:00:00")
-             self.slider.setValue(0)
+        elif status == QMediaPlayer.MediaStatus.NoMedia: # Main video removed
+            self.time_code_label.setText("00:00:00:00")
+            self.slider.setValue(0)
+            if self.me_player:
+                self.me_player.setSource(QUrl())
+            self.me_toggle_checkbox.setEnabled(False)
+            self.me_toggle_checkbox.setChecked(False)
+            self.use_me_audio = False
 
     def on_media_error(self, error_code: QMediaPlayer.Error, error_string: str) -> None:
         if error_code != QMediaPlayer.Error.NoError:
@@ -385,12 +502,19 @@ class VideoPlayerWidget(QWidget):
     def set_position_public(self, milliseconds: int) -> None:
         try:
             duration = self.media_player.duration()
+            new_pos = 0
             if duration > 0:
-                self.media_player.setPosition(max(0, min(milliseconds, duration)))
+                new_pos = max(0, min(milliseconds, duration))
             elif milliseconds == 0:
-                self.media_player.setPosition(0)
-        except Exception as e: QMessageBox.warning(self, "Error", f"Error al establecer la posición del video: {str(e)}")
+                new_pos = 0
+            else: # No duration, but milliseconds is not 0
+                new_pos = max(0, milliseconds)
 
+            self.media_player.setPosition(new_pos)
+            if self.me_player and not self.me_player.source().isEmpty():
+                self.me_player.setPosition(new_pos)
+        except Exception as e: QMessageBox.warning(self, "Error", f"Error al establecer la posición del video: {str(e)}")
+        
     def detach_widget(self) -> None:
         self.detach_requested.emit(self)
 
@@ -448,8 +572,13 @@ class VideoPlayerWidget(QWidget):
                                     f"El tiempo '{new_tc_str}' está fuera del rango del vídeo (00:00:00:00 a {self.convert_milliseconds_to_time_code_str(duration_msecs)}).")
             elif not self.media_player.isSeekable() and target_msecs != self.media_player.position():
                  QMessageBox.warning(self, "No Modificable", "El vídeo actual no permite cambiar la posición de esta manera.")
-            else:
+            elif self.media_player.isSeekable() or target_msecs == self.media_player.position(): # Check seekable for main
                 self.media_player.setPosition(target_msecs)
+                if self.me_player and not self.me_player.source().isEmpty():
+                    # M+E player just follows, assume it's seekable if main is.
+                    self.me_player.setPosition(target_msecs)
+                else:
+                    QMessageBox.warning(self, "No Modificable", "El vídeo actual no permite cambiar la posición de esta manera.")
 
         except ValueError as e:
             QMessageBox.warning(self, "Formato Inválido", str(e))

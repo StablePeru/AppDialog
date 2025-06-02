@@ -7,20 +7,18 @@ from .dialog_utils import leer_guion
 
 class GuionManager:
     BASE_COLUMNS = ['IN', 'OUT', 'PERSONAJE', 'DIÁLOGO']
-    ALL_COLUMNS = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO']
+    # AÑADIR 'EUSKERA' a ALL_COLUMNS
+    ALL_COLUMNS = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA']
 
     def __init__(self):
         pass
 
     def _verify_and_prepare_df(self, df: pd.DataFrame, file_source: str = "unknown") -> Tuple[pd.DataFrame, bool]:
-        """
-        Verifica columnas requeridas, añade ID y SCENE si faltan,
-        y procesa datos de escena.
-        Retorna el DataFrame procesado y has_scene_numbers.
-        """
         missing_cols = [col for col in self.BASE_COLUMNS if col not in df.columns]
         if missing_cols:
-            raise ValueError(f"Faltan columnas requeridas en los datos de '{file_source}': {', '.join(missing_cols)}")
+            # No lanzaremos error si falta 'EUSKERA' en la carga, se añadirá si es necesario.
+            # El error solo es para las columnas base.
+            pass # Opcionalmente, loguear una advertencia si faltan columnas no base pero esperadas.
 
         if 'ID' not in df.columns:
             if not df.empty:
@@ -30,7 +28,7 @@ class GuionManager:
 
         has_scene_numbers = False
         if 'SCENE' not in df.columns:
-            df.insert(df.columns.get_loc('IN'), 'SCENE', "1")
+            df.insert(df.columns.get_loc('IN'), 'SCENE', "1") # Asume posición relativa a 'IN'
             has_scene_numbers = False
         else:
             df['SCENE'] = df['SCENE'].astype(str)
@@ -41,6 +39,21 @@ class GuionManager:
                 df['SCENE'] = "1"
                 has_scene_numbers = False
         
+        # Añadir EUSKERA si no existe, PandasTableModel también lo hará si está en su df_column_order
+        if 'EUSKERA' not in df.columns:
+            # Insertar después de DIÁLOGO si DIÁLOGO existe, sino al final de las columnas base
+            insert_pos = -1
+            if 'DIÁLOGO' in df.columns:
+                insert_pos = df.columns.get_loc('DIÁLOGO') + 1
+            elif self.BASE_COLUMNS[-1] in df.columns: # Si DIÁLOGO no está pero la última de BASE_COLUMNS sí
+                 insert_pos = df.columns.get_loc(self.BASE_COLUMNS[-1]) + 1
+            
+            if insert_pos != -1 and insert_pos <= len(df.columns):
+                df.insert(insert_pos, 'EUSKERA', "")
+            else: # Fallback, añadir al final
+                df['EUSKERA'] = ""
+
+
         ordered_present_columns = [col for col in self.ALL_COLUMNS if col in df.columns]
         extra_cols = [col for col in df.columns if col not in self.ALL_COLUMNS]
         df = df[ordered_present_columns + extra_cols]

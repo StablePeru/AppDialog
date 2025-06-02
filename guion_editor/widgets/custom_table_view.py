@@ -11,26 +11,26 @@ class CustomTableView(QTableView):
         super().__init__(parent)
 
     def mousePressEvent(self, event: QMouseEvent):
-        # Check for keyboard modifiers BEFORE calling super,
-        # as super().mousePressEvent might change selection, clear focus, etc.
-        # which could affect how other parts of the application react.
-        
         modifiers = QApplication.keyboardModifiers()
         index_at_click: QModelIndex = self.indexAt(event.pos())
 
         if event.button() == Qt.MouseButton.LeftButton:
-            if index_at_click.isValid(): # Click was on a cell
+            if index_at_click.isValid():
                 if modifiers == Qt.KeyboardModifier.ControlModifier:
                     self.cellCtrlClicked.emit(index_at_click.row())
-                    # event.accept() # Accept to prevent default processing like selection change if needed
-                                   # For now, let selection proceed.
-                    super().mousePressEvent(event) # Still allow default processing for selection
+                    # NO ACEPTAMOS EL EVENTO AQUÍ SI QUEREMOS QUE LA SELECCIÓN MÚLTIPLE NO FUNCIONE CON CTRL+CLICK
+                    # Si lo aceptaras, ExtendedSelection no lo vería.
+                    # Para que la selección múltiple NO use Ctrl+Click, DEBERÍAS aceptarlo aquí.
+                    # event.accept() # <--- AÑADIR ESTO SI QUIERES QUE CTRL+CLICK SOLO SEA PARA TU ACCIÓN
+                    super().mousePressEvent(event) # Permitir que la selección normal ocurra o no.
                     return
                 elif modifiers == Qt.KeyboardModifier.AltModifier:
                     self.cellAltClicked.emit(index_at_click.row())
-                    # event.accept()
+                    # event.accept() # <--- IDEM
                     super().mousePressEvent(event)
                     return
-        
-        # If not a handled special click, or click not on a cell, let base class handle it.
+                # Aquí es donde ExtendedSelection haría su magia con Ctrl+Click si no lo interceptamos.
+                # Si Ctrl+Click fue tu acción, y llamaste a super(), entonces ExtendedSelection también
+                # podría haber actuado.
+
         super().mousePressEvent(event)
