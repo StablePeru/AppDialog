@@ -69,3 +69,5 @@ target/
 
 # Jasper
 *.jasper
+
+recent_files.json
