@@ -196,7 +196,7 @@ class TableWindow(QWidget):
         self.time_error_indicator_label.setObjectName("timeErrorIndicatorLabel")
         buttons_layout_top_row.addWidget(self.time_error_indicator_label)
 
-        self.link_out_in_checkbox = QCheckBox("OUT enlaza con sig. IN")
+        self.link_out_in_checkbox = QCheckBox("OUT->IN")
         self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
         self.link_out_in_checkbox.setToolTip("Si está marcado, al definir un OUT también se definirá el IN de la siguiente fila.")
         self.link_out_in_checkbox.stateChanged.connect(self.toggle_link_out_to_next_in_checkbox) # Renamed
@@ -236,7 +236,7 @@ class TableWindow(QWidget):
                     error_rows_interventions.append(str(df_row_idx + 1))
         
         if has_errors:
-            self.time_error_indicator_label.setText("⚠️ Errores de Tiempo")
+            self.time_error_indicator_label.setText("⚠️ TIEMPOS")
             self.time_error_indicator_label.setStyleSheet("color: red; font-weight: bold;")
             if error_rows_interventions:
                 tooltip_text = "Errores en intervenciones: " + ", ".join(error_rows_interventions)
