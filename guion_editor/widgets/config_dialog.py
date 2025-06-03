@@ -6,7 +6,7 @@ from PyQt6.QtGui import QIcon      # Añadir QIcon
 
 
 class ConfigDialog(QDialog):
-    def __init__(self, current_trim=0, current_font_size=9, get_icon_func=None): # Añadir get_icon_func
+    def __init__(self, current_trim=0, current_font_size=11, get_icon_func=None): # Añadir get_icon_func
         super().__init__()
         self.get_icon = get_icon_func # Guardar la función helper
         self.setWindowTitle("Settings")

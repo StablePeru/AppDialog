@@ -103,6 +103,9 @@ class TableWindow(QWidget):
 
         self.time_error_indicator_label: Optional[QLabel] = None
 
+        self._current_header_data_for_undo: Dict[str, Any] = {} # Para rastrear el estado anterior de la cabecera
+        self._header_change_timer: Optional[QTimer] = None # Timer para agrupar cambios de cabecera
+
         self.setup_ui() # setup_ui se llama aquí
         self.update_action_buttons_state() # Llamada inicial para establecer el estado correcto
 
@@ -110,11 +113,31 @@ class TableWindow(QWidget):
         self.pandas_model.layoutChanged.connect(self._request_error_indicator_update) # Cambiado
         self.pandas_model.modelReset.connect(self._request_error_indicator_update) # Cambiado
 
+        self.undo_stack.canUndoChanged.connect(self._update_undo_action_state)
+        self.undo_stack.canRedoChanged.connect(self._update_redo_action_state)
+        self.undo_stack.cleanChanged.connect(self._handle_clean_changed)
 
         self.clear_script_state() 
         self.update_window_title()
 
         QTimer.singleShot(0, lambda: self.table_view.setColumnHidden(self.COL_EUSKERA_VIEW, True))
+
+    def _update_undo_action_state(self, can_undo: bool):
+        print(f"TableWindow: _update_undo_action_state CALLED, can_undo = {can_undo}") # AÑADE ESTE PRINT
+        if self.main_window and hasattr(self.main_window, 'actions') and "edit_undo" in self.main_window.actions:
+            print(f"  Setting 'edit_undo' action enabled: {can_undo}") # AÑADE ESTE PRINT
+            self.main_window.actions["edit_undo"].setEnabled(can_undo)
+
+    def _update_redo_action_state(self, can_redo: bool):
+        if self.main_window and hasattr(self.main_window, 'actions') and "edit_redo" in self.main_window.actions:
+            self.main_window.actions["edit_redo"].setEnabled(can_redo)
+
+    def _handle_clean_changed(self, is_clean: bool):
+        """
+        Llamado cuando el estado 'clean' del QUndoStack cambia.
+        Si la pila está limpia, no hay cambios sin guardar respecto al último punto de guardado/limpieza.
+        """
+        self.set_unsaved_changes(not is_clean)
 
     def _request_error_indicator_update(self):
         """Solicita una actualización del indicador de error de tiempo de forma diferida."""
@@ -155,14 +178,36 @@ class TableWindow(QWidget):
         form_layout.addRow("N.º Capítulo:", self.chapter_edit)
         self.type_combo = QComboBox(); self.type_combo.addItems(["Ficcion", "Animacion", "Documental"])
         form_layout.addRow("Tipo:", self.type_combo)
+        
+        # Conectar a _header_field_changed
         for widget in [self.reference_edit, self.product_edit, self.chapter_edit, self.type_combo]:
-            if isinstance(widget, QLineEdit): widget.textChanged.connect(self._header_field_changed)
-            elif isinstance(widget, QComboBox): widget.currentIndexChanged.connect(self._header_field_changed)
+            if isinstance(widget, QLineEdit): 
+                widget.textChanged.connect(self._header_field_changed)
+            elif isinstance(widget, QComboBox): 
+                widget.currentIndexChanged.connect(self._header_field_changed)
 
-    def _header_field_changed(self, *args): # Changed to accept arbitrary args from signals
-        self.set_unsaved_changes(True)
-        self._update_toggle_header_button_text_and_icon()
-        # Update internal state if needed, or rely on _get_header_data_from_ui() when saving
+    def _header_field_changed(self, *args):
+        # No llamar a set_unsaved_changes directamente. El comando lo hará.
+        self._update_toggle_header_button_text_and_icon() # Solo para UI
+
+        # Usar un QTimer para agrupar cambios rápidos y crear un solo comando de deshacer.
+        if self._header_change_timer is None:
+            self._header_change_timer = QTimer(self)
+            self._header_change_timer.setSingleShot(True)
+            self._header_change_timer.timeout.connect(self._process_header_change_for_undo)
+        
+        self._header_change_timer.start(250) # Esperar 250ms antes de procesar
+
+    def _process_header_change_for_undo(self):
+        """Crea y apila el HeaderEditCommand si hay cambios reales."""
+        current_ui_header_data = self._get_header_data_from_ui()
+        
+        # Solo crear comando si los datos han cambiado respecto al último estado guardado para undo
+        if current_ui_header_data != self._current_header_data_for_undo:
+            command = HeaderEditCommand(self, self._current_header_data_for_undo, current_ui_header_data)
+            self.undo_stack.push(command)
+            # _current_header_data_for_undo se actualiza dentro de command.redo() y command.undo()
+            # No es necesario llamarlo aquí porque el comando se ejecuta inmediatamente (redo).
 
     def toggle_header_visibility(self) -> None:
         current_visibility = self.header_details_widget.isVisible()
@@ -394,12 +439,24 @@ class TableWindow(QWidget):
         super().keyReleaseEvent(event)
 
     def _populate_header_ui(self, header_data: Dict[str, Any]):
-        self.reference_edit.setText(str(header_data.get("reference_number", ""))) # Ensure string
+        # Bloquear señales temporalmente para evitar disparar _header_field_changed múltiples veces
+        # mientras se establecen los valores programáticamente.
+        widgets_to_block = [self.reference_edit, self.product_edit, self.chapter_edit, self.type_combo]
+        for widget in widgets_to_block:
+            widget.blockSignals(True)
+
+        self.reference_edit.setText(str(header_data.get("reference_number", "")))
         self.product_edit.setText(str(header_data.get("product_name", "")))
         self.chapter_edit.setText(str(header_data.get("chapter_number", "")))
         tipo = str(header_data.get("type", "Ficcion"))
-        idx = self.type_combo.findText(tipo, Qt.MatchFlag.MatchFixedString | Qt.MatchFlag.MatchCaseSensitive) # More precise match
+        idx = self.type_combo.findText(tipo, Qt.MatchFlag.MatchFixedString | Qt.MatchFlag.MatchCaseSensitive)
         self.type_combo.setCurrentIndex(idx if idx != -1 else 0)
+
+        for widget in widgets_to_block:
+            widget.blockSignals(False)
+        
+        # Después de popular la UI, actualizar el estado base para el próximo comando de deshacer
+        self._current_header_data_for_undo = self._get_header_data_from_ui()
 
     def _get_header_data_from_ui(self) -> Dict[str, Any]:
         return {
@@ -413,7 +470,6 @@ class TableWindow(QWidget):
         self.undo_stack.clear()
         self.current_script_name = os.path.basename(file_path)
         self.current_script_path = file_path
-        self.set_unsaved_changes(False) 
         if self.main_window and hasattr(self.main_window, 'add_to_recent_files'):
             self.main_window.add_to_recent_files(file_path)
         
@@ -421,6 +477,7 @@ class TableWindow(QWidget):
         if status_bar: status_bar.showMessage(f"Guion '{self.current_script_name}' cargado.", 5000)
         else: print(f"INFO: Guion '{self.current_script_name}' cargado.")
         
+        self.update_window_title()
         self.adjust_all_row_heights_and_validate() 
         self._update_toggle_header_button_text_and_icon()
         
@@ -459,33 +516,43 @@ class TableWindow(QWidget):
         return f"{'_'.join(base_name_parts) if base_name_parts else 'guion'}.{extension}"
 
     def export_to_excel_dialog(self) -> bool:
-        if self.pandas_model.dataframe().empty: QMessageBox.information(self, "Exportar", "No hay datos para exportar."); return False
+        if self.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Exportar", "No hay datos para exportar.")
+            return False
         default_filename = self._generate_default_filename("xlsx")
         path, _ = QFileDialog.getSaveFileName(self, "Exportar a Excel", default_filename, "Archivos Excel (*.xlsx)")
         if path:
             try:
                 self.guion_manager.save_to_excel(path, self.pandas_model.dataframe(), self._get_header_data_from_ui())
                 QMessageBox.information(self, "Éxito", "Guion guardado en Excel.")
-                self.current_script_name = os.path.basename(path); self.current_script_path = path
-                self.set_unsaved_changes(False)
+                self.current_script_name = os.path.basename(path)
+                self.current_script_path = path
+                self.undo_stack.setClean() # Marcar estado actual como guardado
                 if self.main_window: self.main_window.add_to_recent_files(path)
                 return True
-            except Exception as e: self.handle_exception(e, "Error al guardar en Excel"); return False
+            except Exception as e:
+                self.handle_exception(e, "Error al guardar en Excel")
+                return False
         return False
-
+    
     def save_to_json_dialog(self) -> bool:
-        if self.pandas_model.dataframe().empty: QMessageBox.information(self, "Guardar", "No hay datos para guardar."); return False
+        if self.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Guardar", "No hay datos para guardar.")
+            return False
         default_filename = self._generate_default_filename("json")
         path, _ = QFileDialog.getSaveFileName(self, "Guardar como JSON", default_filename, "Archivos JSON (*.json)")
         if path:
             try:
                 self.guion_manager.save_to_json(path, self.pandas_model.dataframe(), self._get_header_data_from_ui())
                 QMessageBox.information(self, "Éxito", "Guion guardado como JSON.")
-                self.current_script_name = os.path.basename(path); self.current_script_path = path
-                self.set_unsaved_changes(False)
+                self.current_script_name = os.path.basename(path)
+                self.current_script_path = path
+                self.undo_stack.setClean() # Marcar estado actual como guardado
                 if self.main_window: self.main_window.add_to_recent_files(path)
                 return True
-            except Exception as e: self.handle_exception(e, "Error al guardar como JSON"); return False
+            except Exception as e:
+                self.handle_exception(e, "Error al guardar como JSON")
+                return False
         return False
 
     def update_action_buttons_state(self):
@@ -560,10 +627,10 @@ class TableWindow(QWidget):
         self.undo_stack.clear()
         self.current_script_name = None
         self.current_script_path = None
-        self.set_unsaved_changes(False)
         self._update_toggle_header_button_text_and_icon()
         # Solicitar actualización del indicador de error de forma diferida
         self._request_error_indicator_update() # MODIFICADO
+        self.update_window_title()
 
 
     def _perform_resize_rows_to_contents(self):
@@ -622,20 +689,43 @@ class TableWindow(QWidget):
                 self.undo_stack.push(command)
 
     def adjust_dialogs(self) -> None:
-        if self.pandas_model.dataframe().empty: return
-        self.undo_stack.beginMacro("Ajustar Diálogos")
+        if self.pandas_model.dataframe().empty:
+            return
+
+        self.undo_stack.beginMacro("Ajustar Diálogos (DIÁLOGO y EUSKERA)") # Título del macro actualizado
         changed_any = False
+
+        # Obtener los índices de las columnas de la vista para DIÁLOGO y EUSKERA
         view_col_dialogue = self.pandas_model.get_view_column_index('DIÁLOGO')
-        if view_col_dialogue is None: self.undo_stack.endMacro(); return
+        view_col_euskera = self.pandas_model.get_view_column_index('EUSKERA')
+
         for df_idx in range(self.pandas_model.rowCount()):
-            dialog_text_original = str(self.pandas_model.dataframe().at[df_idx, 'DIÁLOGO'])
-            adjusted_text = ajustar_dialogo(dialog_text_original)
-            if dialog_text_original != adjusted_text:
-                command = EditCommand(self, df_idx, view_col_dialogue, dialog_text_original, adjusted_text)
-                self.undo_stack.push(command); changed_any = True
+            # Ajustar columna DIÁLOGO
+            if view_col_dialogue is not None:
+                dialog_text_original = str(self.pandas_model.dataframe().at[df_idx, 'DIÁLOGO'])
+                adjusted_dialog_text = ajustar_dialogo(dialog_text_original)
+                if dialog_text_original != adjusted_dialog_text:
+                    command_dialog = EditCommand(self, df_idx, view_col_dialogue, dialog_text_original, adjusted_dialog_text)
+                    self.undo_stack.push(command_dialog)
+                    changed_any = True
+            
+            # Ajustar columna EUSKERA
+            if view_col_euskera is not None:
+                euskera_text_original = str(self.pandas_model.dataframe().at[df_idx, 'EUSKERA'])
+                adjusted_euskera_text = ajustar_dialogo(euskera_text_original) # Usamos la misma función de ajuste
+                if euskera_text_original != adjusted_euskera_text:
+                    command_euskera = EditCommand(self, df_idx, view_col_euskera, euskera_text_original, adjusted_euskera_text)
+                    self.undo_stack.push(command_euskera)
+                    changed_any = True
+
         self.undo_stack.endMacro()
-        if changed_any: QMessageBox.information(self, "Éxito", "Diálogos ajustados.")
-        else: QMessageBox.information(self, "Info", "No hubo diálogos que necesitaban ajuste.")
+
+        if changed_any:
+            QMessageBox.information(self, "Éxito", "Diálogos y textos en Euskera ajustados.")
+            # No es necesario llamar a request_resize_rows_to_contents_deferred() aquí
+            # porque EditCommand -> setData -> on_model_data_changed ya lo hará si es necesario.
+        else:
+            QMessageBox.information(self, "Info", "No hubo diálogos ni textos en Euskera que necesitaran ajuste.")
 
     def copy_in_out_to_next(self) -> None:
         selected_model_indices = self.table_view.selectionModel().selectedRows()
@@ -697,7 +787,9 @@ class TableWindow(QWidget):
         if confirm == QMessageBox.StandardButton.Yes:
             # RemoveRowsCommand espera los índices de DataFrame, ordenados ascendentemente
             command = RemoveRowsCommand(self, df_indices_to_remove)
+            print(f"Pushing RemoveRowsCommand. Undo stack count before: {self.undo_stack.count()}")
             self.undo_stack.push(command)
+            print(f"Undo stack count after: {self.undo_stack.count()}, Can undo: {self.undo_stack.canUndo()}")
 
     def move_row_up(self) -> None:
         selected_indexes = self.table_view.selectedIndexes()
@@ -1090,6 +1182,7 @@ class RemoveRowsCommand(QUndoCommand): # No changes
             if removed_series is not None: self.removed_data_list.insert(0, (df_idx, removed_series)) # Keep original index
         self.tw.set_unsaved_changes(True); self.tw.update_character_completer_and_notify()
     def undo(self):
+        print("Executing RemoveRowsCommand.undo()")
         # Insert from lowest original index to highest
         for original_df_idx, row_data_series in sorted(self.removed_data_list, key=lambda x: x[0]):
             self.tw.pandas_model.insert_row_data(original_df_idx, row_data_series.to_dict())
@@ -1230,3 +1323,23 @@ class ChangeSceneCommand(QUndoCommand): # No changes
         self._apply_scenes(self.old_scenes_map, self.df_start_idx)
         # Text reset by redo or initial if redo failed
 
+class HeaderEditCommand(QUndoCommand):
+    def __init__(self, table_window: TableWindow, old_header_data: Dict[str, Any], new_header_data: Dict[str, Any], text: str = "Cambiar datos de cabecera"):
+        super().__init__(text)
+        self.tw = table_window
+        self.old_data = old_header_data.copy() # Guardar una copia
+        self.new_data = new_header_data.copy() # Guardar una copia
+
+    def redo(self):
+        self.tw._populate_header_ui(self.new_data)
+        # Actualizar el estado base para el próximo comando de deshacer de cabecera
+        self.tw._current_header_data_for_undo = self.new_data.copy()
+        self.tw.set_unsaved_changes(True) # La pila de undo maneja esto, pero es bueno ser explícito si el comando lo causa
+        self.tw._update_toggle_header_button_text_and_icon()
+
+    def undo(self):
+        self.tw._populate_header_ui(self.old_data)
+        # Actualizar el estado base para el próximo comando de deshacer de cabecera
+        self.tw._current_header_data_for_undo = self.old_data.copy()
+        self.tw.set_unsaved_changes(True)
+        self.tw._update_toggle_header_button_text_and_icon()
