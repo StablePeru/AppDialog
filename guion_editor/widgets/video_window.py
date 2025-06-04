@@ -18,7 +18,6 @@ class VideoWindow(QMainWindow):
         self.setGeometry(150, 150, 800, 600)
         
         self.init_ui()
-        self.load_stylesheet()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus) # Important for key events
         self.activateWindow(); self.raise_()
         self.video_widget.setFocus() # Give focus to the player inside
@@ -96,17 +95,6 @@ class VideoWindow(QMainWindow):
             return
         
         super().keyReleaseEvent(event)
-
-    def load_stylesheet(self) -> None:
-        try:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            css_path = os.path.join(current_dir, '..', 'styles', 'main.css')
-            if not os.path.exists(css_path):
-                alt_css_path = os.path.join(os.path.dirname(current_dir), 'styles', 'main.css')
-                if os.path.exists(alt_css_path): css_path = alt_css_path
-                else: return
-            with open(css_path, 'r', encoding='utf-8') as f: self.setStyleSheet(f.read())
-        except Exception as e: QMessageBox.warning(self, "Error de Estilos", f"Error al cargar el stylesheet para VideoWindow: {str(e)}")
 
     def attach_back(self) -> None:
         # This method will trigger closeEvent, which then emits close_detached

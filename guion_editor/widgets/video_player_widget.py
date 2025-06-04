@@ -42,7 +42,6 @@ class VideoPlayerWidget(QWidget):
             self.play_icon, self.pause_icon, self.volume_up_icon, self.volume_off_icon, self.load_audio_icon = QIcon(), QIcon(), QIcon(), QIcon(), QIcon()
 
         self.init_ui()
-        self.load_stylesheet()
         self.setup_timers()
         
         self.out_timer = QTimer(self)
@@ -86,44 +85,57 @@ class VideoPlayerWidget(QWidget):
         # self.setup_timers() # Movido a __init__ para asegurar que display_update_timer se cree antes
 
     def setup_controls(self) -> None:
-        icon_size = QSize(20, 20) 
-        icon_only_button_size = QSize(36, 36) 
+        # Tamaño estándar para los iconos dentro de los botones del reproductor
+        player_icon_size = QSize(20, 20) # Mantener el tamaño original o ajustarlo
+        # La altura objetivo para los botones será definida en CSS, ej: 36px
 
         self.play_button = QPushButton() 
-        self.play_button.setIcon(self.play_icon)
-        self.play_button.setIconSize(icon_size)
-        self.play_button.setFixedSize(icon_only_button_size)
+        if self.get_icon: self.play_button.setIcon(self.play_icon) # play_icon ya debería estar cargado
+        self.play_button.setIconSize(player_icon_size)
+        # self.play_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
         self.play_button.setObjectName("play_button")
         self.play_button.setToolTip("Reproducir/Pausar (Ver Shortcuts)")
         self.play_button.clicked.connect(self.toggle_play)
+        self.play_button.setProperty("iconOnlyButton", True) # Indicar que es solo icono
 
         self.rewind_button = QPushButton() 
         if self.get_icon: self.rewind_button.setIcon(self.get_icon("rewind_icon.svg"))
-        self.rewind_button.setIconSize(icon_size); self.rewind_button.setFixedSize(icon_only_button_size)
-        self.rewind_button.setObjectName("rewind_button"); self.rewind_button.setToolTip("Retroceder (Ver Shortcuts)")
+        self.rewind_button.setIconSize(player_icon_size)
+        # self.rewind_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
+        self.rewind_button.setObjectName("rewind_button")
+        self.rewind_button.setToolTip("Retroceder (Ver Shortcuts)")
         self.rewind_button.clicked.connect(lambda: self.change_position(-5000))
+        self.rewind_button.setProperty("iconOnlyButton", True)
 
         self.forward_button = QPushButton() 
         if self.get_icon: self.forward_button.setIcon(self.get_icon("forward_icon.svg"))
-        self.forward_button.setIconSize(icon_size); self.forward_button.setFixedSize(icon_only_button_size)
-        self.forward_button.setObjectName("forward_button"); self.forward_button.setToolTip("Avanzar (Ver Shortcuts)")
+        self.forward_button.setIconSize(player_icon_size)
+        # self.forward_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
+        self.forward_button.setObjectName("forward_button")
+        self.forward_button.setToolTip("Avanzar (Ver Shortcuts)")
         self.forward_button.clicked.connect(lambda: self.change_position(5000))
+        self.forward_button.setProperty("iconOnlyButton", True)
 
-        self.detach_button = QPushButton(" Separar") 
+        self.detach_button = QPushButton(" Separar") # Este tiene texto
         if self.get_icon: self.detach_button.setIcon(self.get_icon("detach_video_icon.svg"))
-        self.detach_button.setIconSize(icon_size)
-        self.detach_button.setObjectName("detach_button"); self.detach_button.setToolTip("Separar/Adjuntar Video")
+        self.detach_button.setIconSize(player_icon_size) # El icono es 20x20
+        self.detach_button.setObjectName("detach_button")
+        self.detach_button.setToolTip("Separar/Adjuntar Video")
         self.detach_button.clicked.connect(self.detach_widget)
+        # No necesita setProperty("iconOnlyButton", True)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setObjectName("position_slider")
         self.slider.sliderMoved.connect(self.set_position_from_slider_move)
 
         self.volume_button = QPushButton() 
-        self.volume_button.setIcon(self.volume_up_icon)
-        self.volume_button.setIconSize(icon_size); self.volume_button.setFixedSize(icon_only_button_size)
-        self.volume_button.setObjectName("volume_button"); self.volume_button.setToolTip("Volumen")
+        if self.get_icon: self.volume_button.setIcon(self.volume_up_icon) # volume_up_icon ya cargado
+        self.volume_button.setIconSize(player_icon_size)
+        # self.volume_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
+        self.volume_button.setObjectName("volume_button")
+        self.volume_button.setToolTip("Volumen")
         self.volume_button.clicked.connect(self.toggle_volume_slider_visibility)
+        self.volume_button.setProperty("iconOnlyButton", True)
 
         self.volume_slider_vertical = QSlider(Qt.Orientation.Vertical)
         self.volume_slider_vertical.setRange(0, 100)
@@ -148,16 +160,18 @@ class VideoPlayerWidget(QWidget):
         self.time_code_editor.setVisible(False)
         self.time_code_editor.editingFinished.connect(self.finish_edit_time_code)
 
-        self.in_button = QPushButton(" IN") 
+        self.in_button = QPushButton(" IN") # Tiene texto
         if self.get_icon: self.in_button.setIcon(self.get_icon("mark_in_icon.svg"))
-        self.in_button.setIconSize(icon_size)
-        self.in_button.setObjectName("in_button"); self.in_button.setToolTip("Marcar IN (Ver Shortcuts)")
+        self.in_button.setIconSize(player_icon_size)
+        self.in_button.setObjectName("in_button")
+        self.in_button.setToolTip("Marcar IN (Ver Shortcuts)")
         self.in_button.clicked.connect(self.mark_in)
 
-        self.out_button = QPushButton(" OUT") 
+        self.out_button = QPushButton(" OUT") # Tiene texto
         if self.get_icon: self.out_button.setIcon(self.get_icon("mark_out_icon.svg"))
-        self.out_button.setIconSize(icon_size)
-        self.out_button.setObjectName("out_button"); self.out_button.setToolTip("Marcar OUT (Mantener - Ver Shortcuts)")
+        self.out_button.setIconSize(player_icon_size)
+        self.out_button.setObjectName("out_button")
+        self.out_button.setToolTip("Marcar OUT (Mantener - Ver Shortcuts)")
         self.out_button.pressed.connect(self.handle_out_button_pressed)
         self.out_button.released.connect(self.handle_out_button_released)
 
@@ -169,43 +183,46 @@ class VideoPlayerWidget(QWidget):
     
     def setup_layouts(self) -> None:
         layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5); layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
 
         self.time_code_display_stack = QStackedLayout()
         self.time_code_display_stack.addWidget(self.time_code_label)
         self.time_code_display_stack.addWidget(self.time_code_editor)
         self.time_code_display_stack.setCurrentIndex(0)
 
-        top_info_layout_container = QWidget() 
+        top_info_layout_container = QWidget()
         top_info_layout_container.setLayout(self.time_code_display_stack)
         
         layout.addWidget(top_info_layout_container)
-        layout.addWidget(self.video_widget, 1)
+        layout.addWidget(self.video_widget, 1) # video_widget ocupa el espacio sobrante
         layout.addWidget(self.slider) 
-        buttons_layout = QHBoxLayout(); buttons_layout.setSpacing(5)
-        button_widgets = [ self.detach_button, self.play_button, self.rewind_button, self.forward_button, self.in_button, self.out_button ]
-        for btn in button_widgets: buttons_layout.addWidget(btn)
-        buttons_layout.addWidget(self.me_toggle_checkbox) # Add the checkbox
-        buttons_layout.addStretch(1)
-        buttons_layout.addWidget(self.volume_button)
-        buttons_layout.addWidget(self.volume_slider_vertical)
-        layout.addLayout(buttons_layout)
+
+        # --- Crear el QWidget contenedor para los controles del video ---
+        self.video_controls_bar_widget = QWidget()
+        self.video_controls_bar_widget.setObjectName("video_controls_bar") # Para el CSS
+
+        # Layout para *dentro* de video_controls_bar_widget
+        video_buttons_internal_layout = QHBoxLayout(self.video_controls_bar_widget)
+        video_buttons_internal_layout.setContentsMargins(0, 0, 0, 0)
+        video_buttons_internal_layout.setSpacing(6) # Espacio entre botones del reproductor
+
+        # Añadir botones al layout interno
+        video_buttons_internal_layout.addWidget(self.detach_button)
+        video_buttons_internal_layout.addWidget(self.play_button)
+        video_buttons_internal_layout.addWidget(self.rewind_button)
+        video_buttons_internal_layout.addWidget(self.forward_button)
+        video_buttons_internal_layout.addWidget(self.in_button)
+        video_buttons_internal_layout.addWidget(self.out_button)
+        video_buttons_internal_layout.addWidget(self.me_toggle_checkbox) 
+        video_buttons_internal_layout.addStretch(1) # Empuja el botón de volumen a la derecha
+        video_buttons_internal_layout.addWidget(self.volume_button)
+        video_buttons_internal_layout.addWidget(self.volume_slider_vertical) # Este se muestra/oculta
+
+        # Añadir el widget contenedor al layout principal
+        layout.addWidget(self.video_controls_bar_widget)
         self.setLayout(layout)
 
-
-    def load_stylesheet(self) -> None:
-        try:
-            current_file_dir = os.path.dirname(os.path.abspath(__file__))
-            css_path = os.path.join(current_file_dir, '..', 'styles', 'main.css')
-            if not os.path.exists(css_path):
-                 alt_css_path = os.path.join(os.getcwd(), 'guion_editor', 'styles', 'main.css')
-                 if os.path.exists(alt_css_path): css_path = alt_css_path
-                 else: 
-                     alt_css_path_2 = os.path.join(os.path.dirname(current_file_dir), 'styles', 'main.css')
-                     if os.path.exists(alt_css_path_2): css_path = alt_css_path_2
-                     else: return
-            with open(css_path, 'r', encoding='utf-8') as f: self.setStyleSheet(f.read())
-        except Exception as e: QMessageBox.warning(self, "Error de Estilos", f"Error al cargar stylesheet para VideoPlayer: {str(e)}")
 
     def update_key_listeners(self):
         pass

@@ -20,6 +20,7 @@ from guion_editor.utils.shortcut_manager import ShortcutManager
 from guion_editor.utils.guion_manager import GuionManager
 
 ICON_CACHE = {}
+# Asume que main.py está en la raíz del proyecto, y guion_editor es un subdirectorio
 ICON_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles', 'icons'))
 
 def get_icon(icon_name: str) -> QIcon:
@@ -29,23 +30,27 @@ def get_icon(icon_name: str) -> QIcon:
     icon_path = os.path.join(ICON_BASE_PATH, icon_name)
     if not os.path.exists(icon_path):
         print(f"Advertencia: Icono no encontrado en {icon_path}")
-        # Fallback a un path alternativo si estás ejecutando desde la raíz del proyecto
-        # y la estructura de carpetas es `proyecto_raiz/guion_editor/styles/icons`
-        alt_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'styles', 'icons', icon_name)
-        if os.path.exists(alt_icon_path):
-            icon_path = alt_icon_path
-        else:
-            # Fallback a la carpeta de iconos directamente en el directorio del script (si main.py está en guion_editor)
-            alt_icon_path_2 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', icon_name)
-            if os.path.exists(alt_icon_path_2):
-                 icon_path = alt_icon_path_2
-            else:
-                return QIcon()
-
+        # Podrías añadir un fallback si es estrictamente necesario para algún caso de uso alternativo
+        # pero para la estructura principal, esto debería bastar.
+        return QIcon() # Devuelve un icono vacío si no se encuentra
 
     icon = QIcon(icon_path)
     ICON_CACHE[icon_name] = icon
     return icon
+
+STYLES_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles'))
+
+def load_stylesheet_content(filename: str) -> str:
+    css_path = os.path.join(STYLES_BASE_PATH, filename)
+    if not os.path.exists(css_path):
+        print(f"Advertencia: Stylesheet no encontrado en {css_path}")
+        return ""
+    try:
+        with open(css_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error al cargar stylesheet {filename}: {e}")
+        return ""
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -479,6 +484,14 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 def main():
     sys.excepthook = handle_exception
     app = QApplication(sys.argv)
+
+    # Cargar el stylesheet global
+    main_css_content = load_stylesheet_content("main.css")
+    if main_css_content:
+        app.setStyleSheet(main_css_content)
+    else:
+        print("No se pudo cargar main.css globalmente.")
+
 
     mainWindow = MainWindow()
     mainWindow.showMaximized()

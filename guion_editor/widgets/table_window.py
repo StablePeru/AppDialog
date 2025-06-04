@@ -11,7 +11,7 @@ from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, 
 from PyQt6.QtWidgets import (
     QWidget, QFileDialog, QAbstractItemView,
     QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
-    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu
+    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu, QSizePolicy
 )
 from PyQt6.QtGui import QUndoStack, QUndoCommand
 
@@ -153,9 +153,8 @@ class TableWindow(QWidget):
         main_layout.addWidget(self.toggle_header_button)
 
         self.header_details_widget = QWidget()
-        # --- INICIO CORRECCIÓN ---
-        self.header_form_layout = QFormLayout() # Crear el QFormLayout aquí
-        # --- FIN CORRECCIÓN ---
+        self.header_details_widget.setObjectName("header_details_container")
+        self.header_form_layout = QFormLayout() 
         self.header_details_widget.setLayout(self.header_form_layout) # Asignar el layout al widget
         
         self.setup_header_fields(self.header_form_layout) # Ahora self.header_form_layout existe
@@ -215,38 +214,75 @@ class TableWindow(QWidget):
         self._update_toggle_header_button_text_and_icon()
 
     def setup_buttons(self, layout: QVBoxLayout) -> None:
-        buttons_layout_top_row = QHBoxLayout()
-        icon_size = QSize(18, 18)
+        buttons_overall_container_layout = QHBoxLayout()
+        buttons_overall_container_layout.setSpacing(10)
+
+        self.table_actions_widget = QWidget()
+        self.table_actions_widget.setObjectName("table_actions_bar")
+
+        actions_bar_internal_layout = QHBoxLayout(self.table_actions_widget)
+        actions_bar_internal_layout.setContentsMargins(0, 0, 0, 0)
+        actions_bar_internal_layout.setSpacing(4) # Reducir espaciado entre botones de acción
+
+        # Tamaño estándar para los iconos dentro de los botones de esta barra
+        action_icon_size = QSize(16, 16)
+
         actions_map = [
-            # (texto, método, icono, solo_icono, nombre_accion_mainwindow)
-            (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False, "edit_add_row"),
-            (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, "edit_delete_row"),
-            ("", self.move_row_up, "move_up_icon.svg", True, "edit_move_up"),
-            ("", self.move_row_down, "move_down_icon.svg", True, "edit_move_down"),
-            (" Ajustar Diálogos", self.adjust_dialogs, "adjust_dialogs_icon.svg", False, "edit_adjust_dialogs"),
-            (" Separar", self.split_intervention, "split_intervention_icon.svg", False, "edit_split_intervention"),
-            (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False, "edit_merge_interventions"),
-            # NUEVO: Identificador para el botón de Copiar IN/OUT para control de estado
-            (" Copiar IN/OUT", self.copy_in_out_to_next, "copy_in_out_icon.svg", False, "edit_copy_in_out")
+            # (texto_del_boton, método_conectado, nombre_del_icono.svg, es_solo_icono, objectName_accion_mainwindow, tooltip_personalizado_opcional)
+            (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False, "edit_add_row", None),
+            (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, "edit_delete_row", None),
+            ("", self.move_row_up, "move_up_icon.svg", True, "edit_move_up", "Mover Fila Arriba"),
+            ("", self.move_row_down, "move_down_icon.svg", True, "edit_move_down", "Mover Fila Abajo"),
+            (" Ajustar Diálogos", self.adjust_dialogs, "adjust_dialogs_icon.svg", False, "edit_adjust_dialogs", None),
+            (" Separar", self.split_intervention, "split_intervention_icon.svg", False, "edit_split_intervention", None),
+            (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False, "edit_merge_interventions", None),
+            (" Copiar IN/OUT", self.copy_in_out_to_next, "copy_in_out_icon.svg", False, "edit_copy_in_out", "Copiar IN/OUT a Siguiente")
         ]
-        for text, method, icon_name, only_icon, action_obj_name in actions_map: # CAMBIO action_obj_name
-            button = QPushButton(text)
-            if self.get_icon and icon_name: button.setIcon(self.get_icon(icon_name)); button.setIconSize(icon_size)
-            if only_icon: button.setFixedSize(QSize(icon_size.width() + 16, icon_size.height() + 12)); button.setToolTip(text.strip() if text.strip() else method.__name__.replace("_", " ").title())
+
+        for btn_text, method, icon_name, is_only_icon, action_obj_name, tooltip_override in actions_map:
+            button = QPushButton() # Crear botón
+
+            if self.get_icon and icon_name:
+                button.setIcon(self.get_icon(icon_name))
+                button.setIconSize(action_icon_size) # Usar el tamaño de icono definido
+
+            final_tooltip = tooltip_override
+            if is_only_icon:
+                button.setProperty("iconOnlyButton", True) # Propiedad para selector CSS
+                if not final_tooltip: # Generar tooltip si no hay uno personalizado
+                    final_tooltip = method.__name__.replace("_", " ").title()
+                # No se establece texto, el CSS manejará el tamaño (width/height)
+            else:
+                button.setText(btn_text)
+                if not final_tooltip:
+                    final_tooltip = btn_text.strip()
+            
+            if final_tooltip:
+                button.setToolTip(final_tooltip)
+            
             button.clicked.connect(method)
-            buttons_layout_top_row.addWidget(button)
+            actions_bar_internal_layout.addWidget(button)
             self.action_buttons[action_obj_name] = button
+        
+        # No añadir stretch aquí para que los botones ocupen el espacio según su contenido y CSS,
+        # a menos que quieras que se agrupen a la izquierda si la barra es muy ancha.
+        # actions_bar_internal_layout.addStretch(1) 
+
+        buttons_overall_container_layout.addWidget(self.table_actions_widget)
+        buttons_overall_container_layout.addStretch(1) # Empuja los siguientes elementos a la derecha
 
         self.time_error_indicator_label = QLabel("")
         self.time_error_indicator_label.setObjectName("timeErrorIndicatorLabel")
-        buttons_layout_top_row.addWidget(self.time_error_indicator_label)
+        self.time_error_indicator_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        buttons_overall_container_layout.addWidget(self.time_error_indicator_label)
 
         self.link_out_in_checkbox = QCheckBox("OUT->IN")
         self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
         self.link_out_in_checkbox.setToolTip("Si está marcado, al definir un OUT también se definirá el IN de la siguiente fila.")
-        self.link_out_in_checkbox.stateChanged.connect(self.toggle_link_out_to_next_in_checkbox) # Renamed
-        buttons_layout_top_row.addWidget(self.link_out_in_checkbox)
-        layout.addLayout(buttons_layout_top_row)
+        self.link_out_in_checkbox.stateChanged.connect(self.toggle_link_out_to_next_in_checkbox)
+        buttons_overall_container_layout.addWidget(self.link_out_in_checkbox)
+
+        layout.addLayout(buttons_overall_container_layout)
 
     def _handle_model_change_for_time_errors(self, top_left: QModelIndex, bottom_right: QModelIndex, roles: list[int]):
         if not top_left.isValid(): return
@@ -367,16 +403,31 @@ class TableWindow(QWidget):
         if logical_index == self.COL_DIALOGUE_VIEW or logical_index == self.COL_EUSKERA_VIEW:
             self.request_resize_rows_to_contents_deferred()
 
-    def load_stylesheet(self) -> None: # No changes here
+    def load_stylesheet(self) -> None:
         try:
+            # Asume que table_window.py está en guion_editor/widgets/
+            # y styles/ está en guion_editor/styles/
             current_file_dir = os.path.dirname(os.path.abspath(__file__))
+            # Ir un nivel arriba (a guion_editor) y luego a styles
             css_path = os.path.join(current_file_dir, '..', 'styles', 'table_styles.css')
+            
             if not os.path.exists(css_path):
+                print(f"Advertencia: Stylesheet 'table_styles.css' no encontrado en {css_path}")
+                # Intenta una ruta alternativa si se ejecuta desde la raíz del proyecto
+                # y la estructura es proyecto_raiz/guion_editor/styles/
+                # Esto es más para el caso donde el __file__ no da el path esperado o
+                # si la función se mueve a un utils a nivel de guion_editor.
                 alt_css_path = os.path.join(os.path.dirname(current_file_dir), 'styles', 'table_styles.css')
-                if os.path.exists(alt_css_path): css_path = alt_css_path
-                else: print(f"Advertencia: Stylesheet no encontrado: {css_path}"); return
-            with open(css_path, 'r', encoding='utf-8') as f: self.table_view.setStyleSheet(f.read())
-        except Exception as e: QMessageBox.warning(self, "Error de Estilos", f"Error al cargar CSS para TableView: {str(e)}")
+                if os.path.exists(alt_css_path):
+                    css_path = alt_css_path
+                else:
+                    print(f"Advertencia: Stylesheet 'table_styles.css' tampoco encontrado en {alt_css_path}")
+                    return
+
+            with open(css_path, 'r', encoding='utf-8') as f:
+                self.table_view.setStyleSheet(f.read())
+        except Exception as e:
+            QMessageBox.warning(self, "Error de Estilos", f"Error al cargar CSS para TableView: {str(e)}")
 
     def update_key_listeners(self):
         # Called by ShortcutManager if shortcuts change.
@@ -1062,19 +1113,16 @@ class TableWindow(QWidget):
     def apply_font_size_to_dialogs(self, font_size: int) -> None:
         self.current_font_size = font_size
         if hasattr(self, 'dialog_delegate') and self.dialog_delegate:
-            self.dialog_delegate.setFontSize(font_size)
+            self.dialog_delegate.setFontSize(font_size) # Esto ahora llamará a update y request_resize
         
-        # Update font for the whole table (excluding delegate-rendered parts like dialog)
         table_font = self.table_view.font()
         table_font.setPointSize(font_size)
         self.table_view.setFont(table_font)
         
         header = self.table_view.horizontalHeader()
         header_font = header.font()
-        header_font.setPointSize(font_size) # Keep header font same as table or slightly larger
+        header_font.setPointSize(font_size) 
         header.setFont(header_font)
-
-        self.request_resize_rows_to_contents_deferred()
 
     def _check_header_fields_completeness(self) -> bool:
         """Verifica si los campos clave de la cabecera están rellenos."""

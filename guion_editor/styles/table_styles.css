@@ -1,67 +1,59 @@
 /* --- guion_editor/styles/table_styles.css --- */
-/* Estilos específicos para QTableView en TableWindow */
 
+/* Tabla más profesional con alternancia sutil */
 QTableView {
-    background-color: #2D2D2D; /* Fondo oscuro para la tabla */
-    color: #E0E0E0;             /* Color de texto por defecto para la tabla */
-    gridline-color: #404040;    /* Líneas de la cuadrícula un poco más oscuras */
-    border: 1px solid #3A3A3A;  /* Borde sutil para la tabla */
-    /* El tamaño de la fuente se maneja en Python para TableWindow */
-    selection-background-color: #0078D7; /* Para celdas seleccionadas */
-    selection-color: #FFFFFF;           /* Texto de celdas seleccionadas */
-    alternate-background-color: #383838; /* Color para filas alternas */
-}
-
-QTableView::item {
-    /* background-color: #3C3C3C; No es necesario si alternate-background-color está en QTableView */
-    /* y el fondo base de las celdas no alternas es #2D2D2D (heredado de QTableView) */
-    /* Si necesitas un color específico para filas no alternas, usa: background-color: #3C3C3C; */
-    color: #E0E0E0;             /* Texto blanco/gris claro para los items */
-    padding: 5px;               /* Padding dentro de las celdas */
-    border-bottom: 1px solid #404040; /* Separador de fila, mismo color que gridline */
-    border-right: 1px solid #404040;  /* Para completar la cuadrícula si gridline no lo hace */
-    /* Quitar border-right si gridline-color es suficiente */
-}
-
-/* QTableView::item:alternate se maneja con alternate-background-color en QTableView */
-
-QTableView::item:selected {
-    background-color: #0078D7; /* Azul brillante para la selección */
-    color: #FFFFFF;             /* Texto blanco para la selección */
-}
-QTableView::item:focus { /* Opcional: borde de foco sutil para la celda activa */
-    outline: none; /* Quitar outline por defecto si no te gusta */
-    /* border: 1px solid #0078D7; Descomentar si quieres un borde de foco en la celda */
-}
-
-
-/* Estilo para la cabecera de la tabla (ya cubierto en main.css, pero puede ser más específico aquí) */
-/* Si QHeaderView::section en main.css es suficiente, puedes omitir esto */
-QTableView QHeaderView::section {
-    background-color: #3C3C3C;
-    color: #E0E0E0;
-    padding: 6px;
-    border-top: 1px solid #4A4A4A;
-    border-left: 1px solid #4A4A4A;
-    border-right: 1px solid #4A4A4A;
-    border-bottom: 2px solid #2D2D2D; /* Borde inferior más fuerte */
-    /* font-weight: bold; */
-    min-height: 25px;
-}
-QTableView QHeaderView::section:hover {
-    background-color: #4A4A4A;
-}
-QTableView QHeaderView::section:pressed {
-    background-color: #0078D7;
-}
-
-/* Estilo para las QTextEdit dentro de la columna DIÁLOGO (y EUSKERA) */
-QTableView QTextEdit {
-    background-color: transparent; /* Hereda el fondo de la celda */
-    color: #E0E0E0;             /* Mismo color de texto que QTableView::item */
-    border: none;               /* Quitar el borde por defecto de QTextEdit */
-    padding: 2px;               /* Menor padding para QTextEdit */
-    /* El tamaño de fuente se establece en TableWindow/DialogDelegate */
-    selection-background-color: #0078D7; /* Para texto seleccionado dentro del QTextEdit */
+    background-color: #252525;
+    color: #D0D0D0;                    
+    border: none; /* Sin borde para el QTableView en sí, ya que está contenido */
+    border-radius: 8px;
+    gridline-color: rgba(255, 255, 255, 0.08); /* Líneas de grid un poco más sutiles */
+    alternate-background-color: #2A2A2A; 
+    selection-background-color: #0078D7;
     selection-color: #FFFFFF;
+    font-size: 9pt;
+}
+
+/* Celdas de la tabla */
+QTableView::item {
+    color: #E0E0E0;             
+    padding: 10px 12px; 
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* Borde inferior sutil para filas */
+    border-right: none; /* No necesitamos borde derecho en cada celda si la cabecera lo maneja */
+}
+QTableView::item:selected {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                stop: 0 #0078D7, stop: 1 #005BA1);
+    color: #FFFFFF;
+}
+QTableView::item:focus {
+    outline: 1px solid #006ABC; 
+}
+
+/* Cabeceras para QTableView (principal) */
+/* Heredará mucho de QHeaderView::section global de main.css */
+/* Aquí podemos hacer ajustes específicos si es necesario */
+QTableView QHeaderView::section {
+    /* Si queremos que sea idéntico al global, no necesitamos mucho aquí. */
+    /* Si queremos pequeñas diferencias, las ponemos: */
+    /* background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #353535, stop:1 #2B2B2B); */ /* Ejemplo de ligera variación */
+    border-right: 1px solid #4A4A4A; /* Asegurar separador visible */
+    border-bottom: 2px solid #0078D7; /* Línea azul inferior */
+}
+
+QTableView QHeaderView::section:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0078D7, stop:1 #005AA1);
+    color: white;
+    border-bottom-color: #005AA1;
+}
+
+
+/* Editor de Diálogo (QTextEdit) dentro de la tabla */
+QTableView QTextEdit {
+    background-color: #2D2D2D; 
+    color: #E0E0E0;            
+    border: none;               
+    padding: 3px;              
+    selection-background-color: #0078D7; 
+    selection-color: #FFFFFF;
+    font-size: inherit; 
 }
