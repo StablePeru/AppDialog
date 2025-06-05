@@ -13,15 +13,15 @@ QMainWindow, QDialog {
     font-weight: 400;
 }
 
-QWidget { 
-    background-color: transparent; 
+QWidget {
+    background-color: transparent;
     color: inherit;
     font-family: inherit;
     font-size: inherit;
 }
 
 /* --- Contenedores y Layouts Específicos --- */
-QFrame { 
+QFrame {
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                 stop: 0 #2A2A2A, stop: 1 #222222);
     border: 1px solid #333333;
@@ -53,7 +53,7 @@ QLabel {
     font-size: inherit;
 }
 
-QLabel#timeErrorIndicatorLabel { 
+QLabel#timeErrorIndicatorLabel {
     border-radius: 4px;
     padding: 6px 12px;
     font-weight: 600;
@@ -111,6 +111,40 @@ QComboBox QAbstractItemView {
     border-radius: 4px;
 }
 
+/* --- ESTILOS PARA EL POPUP DEL QCOMPLETER --- */
+/* El popup del QCompleter es un QListView. */
+QCompleter QListView { /* Usamos QListView explícitamente */
+    font-family: inherit;
+    font-size: inherit;
+    background-color: #2D2D2D; /* Fondo oscuro consistente */
+    border: 1px solid #4A4A4A;  /* Borde consistente para el popup */
+    border-radius: 4px;         /* Esquinas redondeadas para el popup */
+    padding: 2px;               /* Relleno alrededor de la lista de ítems */
+    outline: 0;                 /* Sin contorno de foco en el popup mismo */
+}
+
+/* Estiliza los ítems individuales dentro de la lista del popup de QCompleter */
+QCompleter QListView::item { /* Usamos QListView explícitamente */
+    color: #FFFFFF !important;    /* Texto BLANCO para los ítems, con !important para forzar */
+    background-color: transparent; /* Asegura que los ítems sean transparentes por defecto */
+    padding: 5px 8px;          /* Relleno dentro de cada ítem */
+    margin: 1px;               /* Pequeño margen alrededor de los ítems si es necesario */
+    border-radius: 3px;        /* Esquinas redondeadas para los estados hover/selected del ítem */
+}
+
+/* Estiliza el ítem seleccionado en la lista del popup de QCompleter */
+QCompleter QListView::item:selected { /* Usamos QListView explícitamente */
+    background-color: #0078D7; /* Fondo de selección azul estándar */
+    color: #FFFFFF !important;    /* El texto permanece blanco en la selección, con !important */
+}
+
+/* Opcional: Estiliza un ítem cuando el cursor pasa sobre él en la lista del popup de QCompleter */
+QCompleter QListView::item:hover { /* Usamos QListView explícitamente */
+    background-color: #3A3A3A; /* Fondo ligeramente más claro en hover */
+    color: #FFFFFF !important;    /* El texto permanece blanco en hover, con !important */
+}
+/* --- FIN DE ESTILOS PARA EL POPUP DEL QCOMPLETER --- */
+
 QSpinBox::up-button, QSpinBox::down-button {
     subcontrol-origin: border; /* Cambiado de padding a border para mejor alineación */
     background-color: #333333;
@@ -118,12 +152,12 @@ QSpinBox::up-button, QSpinBox::down-button {
     width: 20px; /* Un poco más ancho */
     /* No border-radius aquí para que se fusionen con el borde del QSpinBox */
 }
-QSpinBox::up-button { 
-    subcontrol-position: top right; 
+QSpinBox::up-button {
+    subcontrol-position: top right;
     /* border-top-right-radius: 3px; */ /* Quitar para que el borde sea continuo */
 }
-QSpinBox::down-button { 
-    subcontrol-position: bottom right; 
+QSpinBox::down-button {
+    subcontrol-position: bottom right;
     /* border-bottom-right-radius: 3px; */ /* Quitar para que el borde sea continuo */
 }
 QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #3A3A3A; }
@@ -141,7 +175,7 @@ QCheckBox::indicator {
     width: 16px; /* Un poco más grande */
     height: 16px; /* Un poco más grande */
     border: 1px solid #606060;
-    border-radius: 3px; 
+    border-radius: 3px;
     background-color: #2D2D2D;
 }
 QCheckBox::indicator:unchecked:hover {
@@ -383,14 +417,14 @@ QTableWidget::item:selected {
 }
 
 /* QHeaderView global, se aplica a QTableWidget y QTableView si no se anula */
-QHeaderView::section { 
+QHeaderView::section {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3A3A3A, stop:1 #303030); /* Cabecera más oscura */
     color: #F0F0F0; /* Texto de cabecera más brillante */
     padding: 10px 8px; /* Ajustar padding */
     border-top: none;
     border-left: none;
     border-right: 1px solid #454545; /* Separador de columna */
-    border-bottom: 2px solid #0078D7; 
+    border-bottom: 2px solid #0078D7;
     min-height: 32px; /* Un poco más de altura */
     font-weight: 600;
     font-size: 9pt;
@@ -400,11 +434,11 @@ QHeaderView::section {
 QHeaderView::section:last { /* Para que la última columna no tenga borde derecho si no se desea */
     border-right: none;
 }
-QHeaderView::section:hover { 
+QHeaderView::section:hover {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #404040, stop:1 #353535);
     color: #FFFFFF;
 }
-QHeaderView::section:pressed { 
+QHeaderView::section:pressed {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0078D7, stop:1 #005AA1);
     color: white;
     border-bottom-color: #005AA1;

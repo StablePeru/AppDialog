@@ -81,7 +81,7 @@ class ScriptTakeOptimizer:
             self.script_data = pd.read_excel(file_path)
             
             # Verificar columnas requeridas
-            required_columns = ['IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'SCENE']
+            required_columns = ['IN', 'OUT', 'PERSONAJE', 'EUSKERA', 'SCENE']
             for col in required_columns:
                 if col not in self.script_data.columns:
                     messagebox.showerror("Error", f"Columna requerida '{col}' no encontrada en el archivo.")
@@ -380,7 +380,7 @@ class ScriptTakeOptimizer:
             total_lines = 0
             for _, row in grupo.iterrows():
                 personaje = row["PERSONAJE"]
-                texto = str(row["DIÁLOGO"])
+                texto = str(row["EUSKERA"])
                 lines = self.expand_dialogue(texto)
                 dialogues.append({"personaje": personaje, "lines": lines})
                 total_lines += len(lines)
@@ -496,7 +496,7 @@ class ScriptTakeOptimizer:
                     "IN": fl["IN"],
                     "OUT": fl["OUT"],
                     "PERSONAJE": fl["personaje"],
-                    "DIÁLOGO": fl["texto"]
+                    "EUSKERA": fl["texto"]
                 })
         
         # Ordenamos por escena y por tiempo de IN

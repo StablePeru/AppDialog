@@ -16,7 +16,7 @@ QTableView {
 /* Celdas de la tabla */
 QTableView::item {
     color: #E0E0E0;             
-    padding: 10px 12px; 
+    padding: 10px 8px; /* MODIFICADO: de 12px a 8px de padding horizontal */
     border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* Borde inferior sutil para filas */
     border-right: none; /* No necesitamos borde derecho en cada celda si la cabecera lo maneja */
 }
