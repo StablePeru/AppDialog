@@ -454,6 +454,9 @@ class MainWindow(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+            
+    def get_icon_func_for_dialogs(self): # Helper method
+        return get_icon
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
