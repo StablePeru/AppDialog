@@ -834,7 +834,7 @@ class TableWindow(QWidget):
             
         confirm = QMessageBox.question(self, "Confirmar Eliminación", confirm_msg,
                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                    QMessageBox.StandardButton.No)
+                                    QMessageBox.StandardButton.Yes)
         if confirm == QMessageBox.StandardButton.Yes:
             # RemoveRowsCommand espera los índices de DataFrame, ordenados ascendentemente
             command = RemoveRowsCommand(self, df_indices_to_remove)
