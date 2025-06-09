@@ -101,7 +101,9 @@ class TableWindow(QWidget):
         else:
             self.icon_expand_less, self.icon_expand_more = QIcon(), QIcon()
 
-        self.time_error_indicator_label: Optional[QLabel] = None
+        self.time_error_indicator_button: Optional[QPushButton] = None
+        self.error_df_indices: List[int] = []
+        self._current_error_nav_idx: int = -1
 
         self._current_header_data_for_undo: Dict[str, Any] = {} # Para rastrear el estado anterior de la cabecera
         self._header_change_timer: Optional[QTimer] = None # Timer para agrupar cambios de cabecera
@@ -147,7 +149,7 @@ class TableWindow(QWidget):
         main_layout = QVBoxLayout(self)
         icon_size_header_toggle = QSize(20, 20)
         self.toggle_header_button = QPushButton()
-        self.toggle_header_button.setIconSize(icon_size_header_toggle) # Asegúrate que esto esté antes de setObjectName si CSS depende de ello
+        self.toggle_header_button.setIconSize(icon_size_header_toggle)
         self.toggle_header_button.setObjectName("toggle_header_button_css")
         self.toggle_header_button.clicked.connect(self.toggle_header_visibility)
         main_layout.addWidget(self.toggle_header_button)
@@ -155,9 +157,19 @@ class TableWindow(QWidget):
         self.header_details_widget = QWidget()
         self.header_details_widget.setObjectName("header_details_container")
         self.header_form_layout = QFormLayout() 
-        self.header_details_widget.setLayout(self.header_form_layout) # Asignar el layout al widget
+
+        self.header_form_layout.setContentsMargins(15, 15, 15, 15) # Slightly more padding inside the form
+        self.header_form_layout.setHorizontalSpacing(15) # Space between label and field
+        self.header_form_layout.setVerticalSpacing(10)  # Space between form rows
+        self.header_form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter) # Align labels left and vertically centered
         
-        self.setup_header_fields(self.header_form_layout) # Ahora self.header_form_layout existe
+        # This policy means fields will generally try to take up available space unless constrained.
+        # We will constrain them using setMaximumWidth or by making them not horizontally expanding.
+        self.header_form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+
+        self.header_details_widget.setLayout(self.header_form_layout)
+        
+        self.setup_header_fields(self.header_form_layout)
         main_layout.addWidget(self.header_details_widget)
 
         self.header_details_widget.setVisible(False) 
@@ -168,17 +180,40 @@ class TableWindow(QWidget):
         self.load_stylesheet()
 
     def setup_header_fields(self, form_layout: QFormLayout) -> None:
-        self.reference_edit = QLineEdit(); self.reference_edit.setValidator(QIntValidator(0, 999999, self))
-        self.reference_edit.setMaxLength(6); self.reference_edit.setPlaceholderText("Máximo 6 dígitos")
+        field_max_width = 200 # Define a common max width for smaller fields
+        product_field_min_width = 300 # Min width for the product name which can be longer
+
+        self.reference_edit = QLineEdit()
+        self.reference_edit.setValidator(QIntValidator(0, 999999, self))
+        self.reference_edit.setMaxLength(6)
+        self.reference_edit.setPlaceholderText("Máximo 6 dígitos")
+        self.reference_edit.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.reference_edit.setMaximumWidth(field_max_width) # Constrain width
+
+
+        self.product_edit = QLineEdit()
+        self.product_edit.setPlaceholderText("Nombre del producto")
+        # Allow this to expand, but give it a sensible minimum
+        self.product_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.product_edit.setMinimumWidth(product_field_min_width) 
+
+
+        self.chapter_edit = QLineEdit()
+        self.chapter_edit.setPlaceholderText("Número de capítulo")
+        self.chapter_edit.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.chapter_edit.setMaximumWidth(field_max_width) # Constrain width
+
+
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["Ficcion", "Animacion", "Documental"])
+        self.type_combo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.type_combo.setMaximumWidth(field_max_width) # Constrain width
+
         form_layout.addRow("Número de referencia:", self.reference_edit)
-        self.product_edit = QLineEdit(); self.product_edit.setPlaceholderText("Nombre del producto")
         form_layout.addRow("Nombre del Producto:", self.product_edit)
-        self.chapter_edit = QLineEdit(); self.chapter_edit.setPlaceholderText("Número de capítulo")
         form_layout.addRow("N.º Capítulo:", self.chapter_edit)
-        self.type_combo = QComboBox(); self.type_combo.addItems(["Ficcion", "Animacion", "Documental"])
         form_layout.addRow("Tipo:", self.type_combo)
         
-        # Conectar a _header_field_changed
         for widget in [self.reference_edit, self.product_edit, self.chapter_edit, self.type_combo]:
             if isinstance(widget, QLineEdit): 
                 widget.textChanged.connect(self._header_field_changed)
@@ -271,10 +306,13 @@ class TableWindow(QWidget):
         buttons_overall_container_layout.addWidget(self.table_actions_widget)
         buttons_overall_container_layout.addStretch(1) # Empuja los siguientes elementos a la derecha
 
-        self.time_error_indicator_label = QLabel("")
-        self.time_error_indicator_label.setObjectName("timeErrorIndicatorLabel")
-        self.time_error_indicator_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        buttons_overall_container_layout.addWidget(self.time_error_indicator_label)
+        self.time_error_indicator_button = QPushButton("") # NEW
+        self.time_error_indicator_button.setObjectName("timeErrorIndicatorButton")
+        self.time_error_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred) # Can adjust if needed
+        self.time_error_indicator_button.setFocusPolicy(Qt.FocusPolicy.NoFocus) # Prevent stealing focus
+        self.time_error_indicator_button.setVisible(False) # Start hidden
+        self.time_error_indicator_button.clicked.connect(self.go_to_first_time_error)
+        buttons_overall_container_layout.addWidget(self.time_error_indicator_button)
 
         self.link_out_in_checkbox = QCheckBox("OUT->IN")
         self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
@@ -302,33 +340,72 @@ class TableWindow(QWidget):
 
     def update_time_error_indicator(self):
         # La lógica interna de esta función permanece igual que antes,
-        # pero ahora se llama de forma diferida.
-        if not self.time_error_indicator_label or not hasattr(self.pandas_model, '_time_validation_status'):
+        # pero ahora se llama de forma diferida y actualiza un QPushButton.
+        if not hasattr(self, 'time_error_indicator_button') or self.time_error_indicator_button is None: # Check button exists
+            return
+        if not hasattr(self.pandas_model, '_time_validation_status'):
             return
 
         has_errors = False
-        error_rows_interventions = [] 
+        error_rows_interventions_str = [] 
+        old_error_count = len(self.error_df_indices)
+        self.error_df_indices.clear()
 
         if self.pandas_model.rowCount() > 0 and isinstance(self.pandas_model._time_validation_status, dict):
             # Iterar sobre una copia de los items si hay riesgo de modificación concurrente (poco probable aquí)
             for df_row_idx, is_valid in sorted(list(self.pandas_model._time_validation_status.items())):
                 if not is_valid:
                     has_errors = True
-                    error_rows_interventions.append(str(df_row_idx + 1))
-        
-        if has_errors:
-            self.time_error_indicator_label.setText("⚠️ TIEMPOS")
-            self.time_error_indicator_label.setStyleSheet("color: red; font-weight: bold;")
-            if error_rows_interventions:
-                tooltip_text = "Errores en intervenciones: " + ", ".join(error_rows_interventions)
-                self.time_error_indicator_label.setToolTip(tooltip_text)
-            else:
-                self.time_error_indicator_label.setToolTip("Se detectaron errores de tiempo, pero no se pudieron listar las filas afectadas.")
-        else:
-            self.time_error_indicator_label.setText("") 
-            self.time_error_indicator_label.setStyleSheet("") 
-            self.time_error_indicator_label.setToolTip("")
+                    self.error_df_indices.append(df_row_idx) # Store df_idx
+                    error_rows_interventions_str.append(str(df_row_idx + 1)) # For tooltip
+        if len(self.error_df_indices) != old_error_count or not self.error_df_indices:
+            self._current_error_nav_idx = -1 
+        elif self.error_df_indices and self._current_error_nav_idx >= len(self.error_df_indices):
+             self._current_error_nav_idx = len(self.error_df_indices) -1 # Adjust if current idx is out of bounds
 
+        if has_errors:
+            self.time_error_indicator_button.setText("⚠️ TIEMPOS")
+            self.time_error_indicator_button.setProperty("hasErrors", True)
+            
+            tooltip_text = "Errores de tiempo detectados. Pulse para ir al siguiente.\nFilas con errores: " + ", ".join(error_rows_interventions_str)
+            self.time_error_indicator_button.setToolTip(tooltip_text)
+            self.time_error_indicator_button.setVisible(True)
+            self.time_error_indicator_button.setEnabled(True)
+        else:
+            self.time_error_indicator_button.setText("") 
+            self.time_error_indicator_button.setProperty("hasErrors", False)
+            self.time_error_indicator_button.setToolTip("")
+            self.time_error_indicator_button.setVisible(False)
+            self.time_error_indicator_button.setEnabled(False)
+            self._current_error_nav_idx = -1 # Reset if no errors
+
+        if self.time_error_indicator_button.style() is not None:
+            self.time_error_indicator_button.style().unpolish(self.time_error_indicator_button)
+            self.time_error_indicator_button.style().polish(self.time_error_indicator_button)
+
+    def go_to_first_time_error(self): # Renamed in spirit, but let's call it go_to_next_time_error now
+        """Selects and scrolls to the next time error, cycling through them."""
+        if not self.error_df_indices: 
+            self._current_error_nav_idx = -1
+            return
+
+        # Increment and cycle the navigation index
+        self._current_error_nav_idx += 1
+        if self._current_error_nav_idx >= len(self.error_df_indices):
+            self._current_error_nav_idx = 0 # Cycle to the beginning
+        
+        if 0 <= self._current_error_nav_idx < len(self.error_df_indices):
+            target_df_idx = self.error_df_indices[self._current_error_nav_idx]
+            
+            if 0 <= target_df_idx < self.pandas_model.rowCount():
+                self.table_view.clearSelection() # Clear previous selection for clarity
+                self.table_view.selectRow(target_df_idx)
+                
+                col_to_focus = self.COL_IN_VIEW 
+                model_idx_to_scroll = self.pandas_model.index(target_df_idx, col_to_focus)
+                if model_idx_to_scroll.isValid():
+                    self.table_view.scrollTo(model_idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
+                self.table_view.setFocus()
     def setup_table_view(self, layout: QVBoxLayout) -> None:
         self.table_view = CustomTableView()
         self.table_view.setModel(self.pandas_model)
@@ -364,6 +441,23 @@ class TableWindow(QWidget):
         self.table_view.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.horizontalHeader().sectionResized.connect(self.handle_column_resized)
         self.table_view.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
+
+    def go_to_first_time_error(self):
+        """Selects and scrolls to the first row with a time error."""
+        if self.error_df_indices: # Check if list is not empty
+            # self.error_df_indices is already sorted by df_row_idx from update_time_error_indicator
+            first_error_df_idx = self.error_df_indices[0]
+            
+            if 0 <= first_error_df_idx < self.pandas_model.rowCount():
+                self.table_view.selectRow(first_error_df_idx)
+                
+                # Scroll to the IN cell of that row (or any visible column).
+                # A more advanced logic could try to determine if IN or OUT is the specific problem.
+                col_to_focus = self.COL_IN_VIEW 
+                model_idx_to_scroll = self.pandas_model.index(first_error_df_idx, col_to_focus)
+                if model_idx_to_scroll.isValid():
+                    self.table_view.scrollTo(model_idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
+                self.table_view.setFocus() # Give focus to the table for subsequent keyboard navigation
 
     def show_header_context_menu(self, position: QPoint) -> None: # CAMBIADO
         """Muestra un menú contextual para alternar la visibilidad de las columnas."""

@@ -53,25 +53,48 @@ QLabel {
     font-size: inherit;
 }
 
-QLabel#timeErrorIndicatorLabel {
-    border-radius: 4px;
+/* Style for the time error indicator BUTTON */
+QPushButton#timeErrorIndicatorButton {
     padding: 6px 12px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-size: 8pt;
+    border-radius: 4px;
+    text-align: center;
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: #E0E0E0; 
 }
+
+QPushButton#timeErrorIndicatorButton[hasErrors="true"] {
+    color: red;
+    border: 1px solid red;
+}
+
+QPushButton#timeErrorIndicatorButton[hasErrors="true"]:hover {
+    background-color: rgba(255, 0, 0, 0.1); 
+    border-color: darkred;
+    color: #FF4D4D; 
+}
+
+QPushButton#timeErrorIndicatorButton[hasErrors="true"]:pressed {
+    background-color: rgba(255, 0, 0, 0.2); 
+    border-color: #B22222; 
+    color: #FF6666; 
+}
+
 
 QLineEdit, QKeySequenceEdit, QTextEdit, QSpinBox, QComboBox {
     background-color: #2D2D2D;
     color: #E0E0E0;
     border: 1px solid #383838;
-    padding: 8px 10px; /* Aumentar padding para mejor apariencia */
+    padding: 8px 10px; 
     border-radius: 4px;
-    min-height: 26px; /* Ajustar altura mínima si es necesario */
+    min-height: 26px; 
     selection-background-color: #0078D7;
     selection-color: white;
-    font-family: inherit; /* Asegurar herencia de fuente */
+    font-family: inherit; 
     font-size: inherit;
 }
 QLineEdit:focus, QKeySequenceEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {
@@ -91,7 +114,7 @@ QLineEdit:disabled, QKeySequenceEdit:disabled, QTextEdit:disabled, QSpinBox:disa
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 22px; /* Un poco más ancho */
+    width: 22px; 
     border-left-width: 1px;
     border-left-color: #383838;
     border-left-style: solid;
@@ -112,68 +135,58 @@ QComboBox QAbstractItemView {
 }
 
 /* --- ESTILOS PARA EL POPUP DEL QCOMPLETER --- */
-/* El popup del QCompleter es un QListView. */
-QCompleter QListView { /* Usamos QListView explícitamente */
+QCompleter QListView { 
     font-family: inherit;
     font-size: inherit;
-    background-color: #2D2D2D; /* Fondo oscuro consistente */
-    border: 1px solid #4A4A4A;  /* Borde consistente para el popup */
-    border-radius: 4px;         /* Esquinas redondeadas para el popup */
-    padding: 2px;               /* Relleno alrededor de la lista de ítems */
-    outline: 0;                 /* Sin contorno de foco en el popup mismo */
+    background-color: #2D2D2D; 
+    border: 1px solid #4A4A4A;  
+    border-radius: 4px;         
+    padding: 2px;               
+    outline: 0;                 
 }
-
-/* Estiliza los ítems individuales dentro de la lista del popup de QCompleter */
-QCompleter QListView::item { /* Usamos QListView explícitamente */
-    color: #FFFFFF !important;    /* Texto BLANCO para los ítems, con !important para forzar */
-    background-color: transparent; /* Asegura que los ítems sean transparentes por defecto */
-    padding: 5px 8px;          /* Relleno dentro de cada ítem */
-    margin: 1px;               /* Pequeño margen alrededor de los ítems si es necesario */
-    border-radius: 3px;        /* Esquinas redondeadas para los estados hover/selected del ítem */
+QCompleter QListView::item { 
+    color: #FFFFFF !important;    
+    background-color: transparent; 
+    padding: 5px 8px;          
+    margin: 1px;               
+    border-radius: 3px;        
 }
-
-/* Estiliza el ítem seleccionado en la lista del popup de QCompleter */
-QCompleter QListView::item:selected { /* Usamos QListView explícitamente */
-    background-color: #0078D7; /* Fondo de selección azul estándar */
-    color: #FFFFFF !important;    /* El texto permanece blanco en la selección, con !important */
+QCompleter QListView::item:selected { 
+    background-color: #0078D7; 
+    color: #FFFFFF !important;    
 }
-
-/* Opcional: Estiliza un ítem cuando el cursor pasa sobre él en la lista del popup de QCompleter */
-QCompleter QListView::item:hover { /* Usamos QListView explícitamente */
-    background-color: #3A3A3A; /* Fondo ligeramente más claro en hover */
-    color: #FFFFFF !important;    /* El texto permanece blanco en hover, con !important */
+QCompleter QListView::item:hover { 
+    background-color: #3A3A3A; 
+    color: #FFFFFF !important;   
 }
 /* --- FIN DE ESTILOS PARA EL POPUP DEL QCOMPLETER --- */
 
 QSpinBox::up-button, QSpinBox::down-button {
-    subcontrol-origin: border; /* Cambiado de padding a border para mejor alineación */
+    subcontrol-origin: border; 
     background-color: #333333;
-    border-left: 1px solid #383838; /* Borde para separar del campo de texto */
-    width: 20px; /* Un poco más ancho */
-    /* No border-radius aquí para que se fusionen con el borde del QSpinBox */
+    border-left: 1px solid #383838; 
+    width: 20px; 
 }
 QSpinBox::up-button {
     subcontrol-position: top right;
-    /* border-top-right-radius: 3px; */ /* Quitar para que el borde sea continuo */
 }
 QSpinBox::down-button {
     subcontrol-position: bottom right;
-    /* border-bottom-right-radius: 3px; */ /* Quitar para que el borde sea continuo */
 }
 QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #3A3A3A; }
 QSpinBox::up-button:pressed, QSpinBox::down-button:pressed { background-color: #0078D7; }
 
 QCheckBox {
-    spacing: 8px; /* Más espacio entre indicador y texto */
+    spacing: 8px; 
     color: #E0E0E0;
     background-color: transparent;
-    padding: 4px 0px; /* Un poco más de padding */
+    padding: 4px 0px; 
     font-family: inherit;
     font-size: inherit;
 }
 QCheckBox::indicator {
-    width: 16px; /* Un poco más grande */
-    height: 16px; /* Un poco más grande */
+    width: 16px; 
+    height: 16px; 
     border: 1px solid #606060;
     border-radius: 3px;
     background-color: #2D2D2D;
@@ -184,8 +197,6 @@ QCheckBox::indicator:unchecked:hover {
 QCheckBox::indicator:checked {
     background-color: #0078D7;
     border-color: #0078D7;
-    /* Puedes añadir un icono de check aquí si lo deseas */
-    /* image: url(:/icons/check_icon.svg); */
 }
 QCheckBox::indicator:checked:hover {
     background-color: #0085E0;
@@ -232,12 +243,12 @@ QPushButton[iconOnlyButton="true"] {
 
 /* --- BARRA DE ACCIONES DE LA TABLA (TableWindow) --- */
 QWidget#table_actions_bar {
-    padding: 10px 12px; /* Ajustar padding */
+    padding: 10px 12px; 
     margin-bottom: 8px;
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                stop: 0 #2A2A2A, stop: 1 #242424); /* Fondo un poco más oscuro */
+                stop: 0 #2A2A2A, stop: 1 #242424); 
     border-radius: 8px;
-    border: 1px solid #383838; /* Borde sutil para definirla mejor */
+    border: 1px solid #383838; 
 }
 QWidget#table_actions_bar QPushButton {
     background-color: #333333;
@@ -267,8 +278,8 @@ QWidget#table_actions_bar QPushButton[iconOnlyButton="true"] {
 /* --- BARRA DE CONTROLES DEL VIDEO PLAYER (VideoPlayerWidget) --- */
 QWidget#video_controls_bar {
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                stop: 0 #2A2A2A, stop: 1 #242424); /* Fondo un poco más oscuro */
-    border-top: 1px solid #383838; /* Borde sutil para definirla mejor */
+                stop: 0 #2A2A2A, stop: 1 #242424); 
+    border-top: 1px solid #383838; 
     padding: 8px;
     border-radius: 0 0 8px 8px;
 }
@@ -320,47 +331,52 @@ QSlider#volume_slider_vertical::handle:vertical { background: #0078D7; border: 1
 /* --- Formulario de Detalles del Guion (TableWindow) --- */
 QWidget#header_details_container {
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                stop: 0 #262626, stop: 1 #202020); /* Ligeramente más oscuro y menos contraste */
-    border: 1px solid #333333; /* Borde más sutil */
-    border-radius: 6px; /* Menos redondeado */
-    padding: 15px; /* Reducir padding si es mucho */
-    margin: 12px 0; /* Reducir margen superior/inferior */
+                stop: 0 #2C2C2C, stop: 1 #262626); 
+    border: 1px solid #383838;
+    border-radius: 6px;
+    margin: 10px 0; 
 }
 
-/* Estilos para los QLineEdit y QComboBox dentro del header_details_container */
+/* Labels within the header form */
+QWidget#header_details_container QLabel {
+    color: #C0C0C0; 
+    font-weight: 400; 
+    padding-top: 4px; 
+}
+
+/* Input fields (QLineEdit, QComboBox) within the header form */
 QWidget#header_details_container QLineEdit,
 QWidget#header_details_container QComboBox {
-    background-color: #252525; /* Fondo un poco más oscuro para los campos */
-    border: 1px solid #303030; /* Borde muy sutil */
-    padding: 6px 8px; /* Ajustar padding */
-    min-height: 24px; /* Ajustar altura */
+    font-size: 9pt; 
 }
+
+/* Placeholder text style for QLineEdit within the header */
+QWidget#header_details_container QLineEdit::placeholder {
+    color: #666666; 
+    font-style: italic;
+}
+
 QWidget#header_details_container QLineEdit:focus,
 QWidget#header_details_container QComboBox:focus {
-    border: 1px solid #0078D7; /* Mantener borde de foco */
+    /* Standard focus border is inherited, which is fine */
 }
-QWidget#header_details_container QLabel {
-    padding: 4px 0px; /* Ajustar padding de labels si es necesario */
-    color: #B0B0B0; /* Color de label un poco más suave */
-}
-
 
 QPushButton#toggle_header_button_css {
-    font-size: 10pt; /* Un poco más pequeño */
+    font-size: 10pt; 
     font-weight: 500;
-    color: #C0C0C0; /* Un poco más claro */
-    padding: 8px 10px; /* Ajustar padding */
+    color: #C0C0C0; 
+    padding: 8px 10px; 
     text-align: left;
-    border-radius: 4px; /* Menos redondeado */
+    border-radius: 4px; 
     background: transparent;
     border: none;
 }
 QPushButton#toggle_header_button_css:hover {
-    background-color: rgba(0, 120, 215, 0.15); /* Un poco más de opacidad en hover */
-    color: #0085E0; /* Azul un poco más brillante en hover */
+    background-color: rgba(0, 120, 215, 0.15); 
+    color: #0085E0; 
 }
 QPushButton#toggle_header_button_css:pressed {
-    background-color: #383838; /* Más oscuro al presionar */
+    background-color: #383838; 
     color: #E0E0E0;
 }
 
@@ -395,21 +411,21 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; border: no
 
 /* --- QTableWidget (para CastWindow, etc.) y QHeaderView Global --- */
 QTableWidget {
-    background-color: #282828; /* Fondo de tabla ligeramente más claro que el QTableView principal */
+    background-color: #282828; 
     color: #E0E0E0;
-    gridline-color: #3A3A3A; /* Líneas de grid un poco más visibles */
-    border: 1px solid #3A3A3A; /* Borde general de la tabla */
+    gridline-color: #3A3A3A; 
+    border: 1px solid #3A3A3A; 
     selection-background-color: #0078D7;
     selection-color: #FFFFFF;
-    alternate-background-color: #2D2D2D; /* Color alterno un poco más diferenciado */
+    alternate-background-color: #2D2D2D; 
     font-size: 9pt;
-    border-radius: 6px; /* Menos redondeado */
+    border-radius: 6px; 
 }
 QTableWidget::item {
     color: #D0D0D0;
-    padding: 8px 10px; /* Más padding */
-    border-bottom: 1px solid #3A3A3A; /* Coincidir con gridline-color */
-    border-right: 1px solid #3A3A3A; /* Coincidir con gridline-color */
+    padding: 8px 10px; 
+    border-bottom: 1px solid #3A3A3A; 
+    border-right: 1px solid #3A3A3A; 
 }
 QTableWidget::item:selected {
     background-color: #0078D7;
@@ -418,20 +434,20 @@ QTableWidget::item:selected {
 
 /* QHeaderView global, se aplica a QTableWidget y QTableView si no se anula */
 QHeaderView::section {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3A3A3A, stop:1 #303030); /* Cabecera más oscura */
-    color: #F0F0F0; /* Texto de cabecera más brillante */
-    padding: 10px 8px; /* Ajustar padding */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3A3A3A, stop:1 #303030); 
+    color: #F0F0F0; 
+    padding: 10px 8px; 
     border-top: none;
     border-left: none;
-    border-right: 1px solid #454545; /* Separador de columna */
+    border-right: 1px solid #454545; 
     border-bottom: 2px solid #0078D7;
-    min-height: 32px; /* Un poco más de altura */
+    min-height: 32px; 
     font-weight: 600;
     font-size: 9pt;
     text-transform: uppercase;
-    letter-spacing: 0.5px; /* Menos letter-spacing */
+    letter-spacing: 0.5px; 
 }
-QHeaderView::section:last { /* Para que la última columna no tenga borde derecho si no se desea */
+QHeaderView::section:last { 
     border-right: none;
 }
 QHeaderView::section:hover {
