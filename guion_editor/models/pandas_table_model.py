@@ -30,11 +30,11 @@ class PandasTableModel(QAbstractTableModel):
             if df_name != ROW_NUMBER_COL_IDENTIFIER
         }
         self._time_validation_status: Dict[int, bool] = {}
+        self._scene_validation_status: Dict[int, bool] = {} # NEW
 
     def _ensure_df_structure(self, df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         target_df = df if df is not None else self._dataframe
 
-        # self.df_column_order ya contiene los nombres de columna del DF en el orden deseado
         for df_col_name in self.df_column_order:
             if df_col_name not in target_df.columns:
                 if df_col_name == 'ID':
@@ -51,14 +51,11 @@ class PandasTableModel(QAbstractTableModel):
         if 'SCENE' in target_df.columns:
              target_df['SCENE'] = target_df['SCENE'].astype(str)
         
-        # Reordenar las columnas del DataFrame para que coincidan con self.df_column_order,
-        # manteniendo cualquier columna extra al final.
         cols_in_df_ordered = [col for col in self.df_column_order if col in target_df.columns]
         other_cols = [col for col in target_df.columns if col not in self.df_column_order]
         
         final_df = target_df[cols_in_df_ordered + other_cols]
         
-        # Si estamos modificando self._dataframe directamente, actualizarlo
         if df is None:
             self._dataframe = final_df
         
@@ -76,8 +73,10 @@ class PandasTableModel(QAbstractTableModel):
             self._dataframe = self._ensure_df_structure(self._dataframe)
         
         self._time_validation_status.clear()
+        self._scene_validation_status.clear() # NEW
         for i in range(len(self._dataframe)):
             self._validate_in_out_for_row(i)
+            self._validate_scene_for_row(i) # NEW
         self.endResetModel()
         self.layoutChangedSignal.emit()
 
@@ -94,14 +93,11 @@ class PandasTableModel(QAbstractTableModel):
         df_row_idx = index.row()
         view_col_idx = index.column()
         
-        # Obtener el identificador de la columna desde el column_map
-        # (puede ser un nombre de columna del DF o un identificador especial)
         col_identifier = self.column_map.get(view_col_idx)
 
-        if col_identifier is None: # No debería ocurrir si column_map está bien definido
+        if col_identifier is None: 
             return None
 
-        # Manejar la columna de número de fila visual
         if col_identifier == ROW_NUMBER_COL_IDENTIFIER:
             if role == Qt.ItemDataRole.DisplayRole:
                 return str(df_row_idx + 1)
@@ -109,7 +105,6 @@ class PandasTableModel(QAbstractTableModel):
                 return Qt.AlignmentFlag.AlignCenter
             return None
 
-        # Para columnas reales del DataFrame
         df_col_name = col_identifier
         if df_row_idx >= len(self._dataframe) or df_col_name not in self._dataframe.columns:
             return None
@@ -127,6 +122,9 @@ class PandasTableModel(QAbstractTableModel):
             if df_col_name in ["IN", "OUT"]:
                 is_valid = self._time_validation_status.get(df_row_idx, True)
                 return QBrush(VALID_TIME_BG_COLOR if is_valid else INVALID_TIME_BG_COLOR)
+            elif df_col_name == "SCENE": # NEW
+                is_valid = self._scene_validation_status.get(df_row_idx, True)
+                return QBrush(VALID_TIME_BG_COLOR if is_valid else INVALID_TIME_BG_COLOR)
         return None
 
     def setData(self, index: QModelIndex, value: Any, role=Qt.ItemDataRole.EditRole):
@@ -140,7 +138,7 @@ class PandasTableModel(QAbstractTableModel):
         if col_identifier is None: return False
 
         if col_identifier == ROW_NUMBER_COL_IDENTIFIER:
-            return False # La columna de número de fila no es editable
+            return False 
 
         df_col_name = col_identifier
         if df_row_idx >= len(self._dataframe) or df_col_name not in self._dataframe.columns:
@@ -152,12 +150,8 @@ class PandasTableModel(QAbstractTableModel):
             str_value = str(value)
             if df_col_name == 'ID': return False 
             elif df_col_name == 'SCENE':
-                new_typed_value = str_value.strip()
-                if new_typed_value: # Permitir que esté vacío para resetear o si el usuario borra
-                    try:
-                        int(new_typed_value) # Validar si es un número, pero se guarda como str
-                    except ValueError:
-                        pass # Permitir "1A", etc. pero se guardará como str.
+                new_typed_value = str_value # Scene can be "1A", etc. Keep as string.
+                                            # Validation of empty/nan happens in _validate_scene_for_row
             elif df_col_name in ['IN', 'OUT']:
                 parts = str_value.split(':')
                 if len(parts) == 4 and all(len(p) == 2 and p.isdigit() for p in parts):
@@ -169,9 +163,10 @@ class PandasTableModel(QAbstractTableModel):
             return False
 
         current_df_value = self._dataframe.iat[df_row_idx, df_actual_col_idx]
-        if pd.isna(current_df_value) and new_typed_value == "":
-            pass
-        elif str(current_df_value) == new_typed_value:
+        # Handle cases where current value is NaN
+        current_value_str = "" if pd.isna(current_df_value) else str(current_df_value)
+
+        if current_value_str == new_typed_value:
             return True
 
         self._dataframe.iat[df_row_idx, df_actual_col_idx] = new_typed_value
@@ -193,6 +188,13 @@ class PandasTableModel(QAbstractTableModel):
                 if out_view_col is not None:
                     out_idx = self.index(df_row_idx, out_view_col)
                     self.dataChanged.emit(out_idx, out_idx, [Qt.ItemDataRole.BackgroundRole])
+        elif df_col_name == 'SCENE': # NEW
+            old_validation_status = self._scene_validation_status.get(df_row_idx, True)
+            self._validate_scene_for_row(df_row_idx)
+            new_validation_status = self._scene_validation_status.get(df_row_idx, True)
+            if old_validation_status != new_validation_status:
+                roles_changed_for_current_cell.append(Qt.ItemDataRole.BackgroundRole)
+                # No need to emit for other cells, just the SCENE cell background changed
             
         self.dataChanged.emit(index, index, roles_changed_for_current_cell)
         return True
@@ -217,22 +219,21 @@ class PandasTableModel(QAbstractTableModel):
     def insert_row_data(self, df_row_idx_to_insert_at: int, row_data_dict: Dict[str, Any]) -> bool:
         self.beginInsertRows(QModelIndex(), df_row_idx_to_insert_at, df_row_idx_to_insert_at)
         
-        # self.df_column_order ya contiene los nombres de columnas del DF
         new_row_series = pd.Series(index=self.df_column_order, dtype=object)
         for col_name, value in row_data_dict.items():
-            if col_name in self.df_column_order: # Solo procesar columnas que existen en el DF
+            if col_name in self.df_column_order: 
                 if col_name == 'ID' and pd.notna(value): new_row_series[col_name] = int(value)
                 elif col_name == 'SCENE': new_row_series[col_name] = str(value)
                 else: new_row_series[col_name] = value
         
-        for col_name in self.df_column_order: # Iterar sobre las columnas *reales* del DF
+        for col_name in self.df_column_order: 
             if col_name not in new_row_series or pd.isna(new_row_series[col_name]):
                 if col_name == 'ID': new_row_series[col_name] = self.get_next_id()
                 elif col_name in ['IN', 'OUT']: new_row_series[col_name] = "00:00:00:00"
-                elif col_name == 'SCENE': new_row_series[col_name] = "1" # O lógica más compleja si es necesario
+                elif col_name == 'SCENE': new_row_series[col_name] = "1" 
+                elif col_name == 'EUSKERA': new_row_series[col_name] = "" # Ensure EUSKERA is empty string
                 else: new_row_series[col_name] = ""
 
-        # Crear un DataFrame de una sola fila para la concatenación
         new_row_df = pd.DataFrame([new_row_series])
 
         if df_row_idx_to_insert_at >= len(self._dataframe):
@@ -242,12 +243,12 @@ class PandasTableModel(QAbstractTableModel):
             df_part2 = self._dataframe.iloc[df_row_idx_to_insert_at:]
             self._dataframe = pd.concat([df_part1, new_row_df, df_part2], ignore_index=True)
         
-        # _ensure_df_structure aquí podría ser redundante si la nueva fila ya está bien formada
-        # y el DataFrame principal también. Pero es seguro mantenerlo.
         self._dataframe = self._ensure_df_structure(self._dataframe) 
         
         self._rebuild_time_validation_after_insert(df_row_idx_to_insert_at)
         self._validate_in_out_for_row(df_row_idx_to_insert_at)
+        self._rebuild_scene_validation_after_insert(df_row_idx_to_insert_at) # NEW
+        self._validate_scene_for_row(df_row_idx_to_insert_at) # NEW
         
         self.endInsertRows()
         return True
@@ -257,10 +258,19 @@ class PandasTableModel(QAbstractTableModel):
         for old_idx, is_valid in self._time_validation_status.items():
             if old_idx < inserted_df_idx:
                 new_status[old_idx] = is_valid
-            else: # old_idx >= inserted_df_idx
+            else: 
                 new_status[old_idx + 1] = is_valid
         self._time_validation_status = new_status
-        # La nueva fila (con índice inserted_df_idx) se validará por separado
+
+    def _rebuild_scene_validation_after_insert(self, inserted_df_idx: int): # NEW
+        new_status = {}
+        for old_idx, is_valid in self._scene_validation_status.items():
+            if old_idx < inserted_df_idx:
+                new_status[old_idx] = is_valid
+            else:
+                new_status[old_idx + 1] = is_valid
+        self._scene_validation_status = new_status
+
 
     def remove_row_by_df_index(self, df_row_idx: int) -> Optional[pd.Series]:
         if 0 <= df_row_idx < len(self._dataframe):
@@ -269,6 +279,7 @@ class PandasTableModel(QAbstractTableModel):
             self._dataframe.drop(index=df_row_idx, inplace=True)
             self._dataframe.reset_index(drop=True, inplace=True)
             self._rebuild_time_validation_after_remove(df_row_idx)
+            self._rebuild_scene_validation_after_remove(df_row_idx) # NEW
             self.endRemoveRows()
             return removed_row_data
         return None
@@ -278,10 +289,19 @@ class PandasTableModel(QAbstractTableModel):
         for old_idx, is_valid in self._time_validation_status.items():
             if old_idx < removed_df_idx:
                 new_status[old_idx] = is_valid
-            elif old_idx > removed_df_idx: # El índice era mayor que el eliminado
+            elif old_idx > removed_df_idx: 
                 new_status[old_idx - 1] = is_valid
-            # El estado para el índice eliminado simplemente se omite
         self._time_validation_status = new_status
+
+    def _rebuild_scene_validation_after_remove(self, removed_df_idx: int): # NEW
+        new_status = {}
+        for old_idx, is_valid in self._scene_validation_status.items():
+            if old_idx < removed_df_idx:
+                new_status[old_idx] = is_valid
+            elif old_idx > removed_df_idx:
+                new_status[old_idx - 1] = is_valid
+        self._scene_validation_status = new_status
+
 
     def move_df_row(self, source_df_idx: int, target_df_idx: int) -> bool:
         if not (0 <= source_df_idx < len(self._dataframe)): return False
@@ -293,19 +313,15 @@ class PandasTableModel(QAbstractTableModel):
         if not self.beginMoveRows(QModelIndex(), source_df_idx, source_df_idx, QModelIndex(), qt_target_row):
              return False
         try:
-            # Mover en el DataFrame
             temp_df_list = self._dataframe.to_dict(orient='records')
             moved_item_data = temp_df_list.pop(source_df_idx)
             temp_df_list.insert(target_df_idx, moved_item_data)
             self._dataframe = pd.DataFrame(temp_df_list, columns=self.df_column_order)
             self._dataframe = self._ensure_df_structure(self._dataframe)
 
-            # Reconstruir _time_validation_status después del movimiento.
-            # Es la forma más sencilla y robusta, aunque no la más eficiente para muchos movimientos.
             new_time_validation_status = {}
+            new_scene_validation_status = {} # NEW
             for i in range(len(self._dataframe)):
-                # Validar cada fila en su nueva posición.
-                # La validación depende solo de los datos de la propia fila (IN vs OUT).
                 in_tc = str(self._dataframe.at[i, 'IN'])
                 out_tc = str(self._dataframe.at[i, 'OUT'])
                 in_ms = self._convert_tc_to_ms(in_tc)
@@ -314,10 +330,15 @@ class PandasTableModel(QAbstractTableModel):
                     new_time_validation_status[i] = (out_ms >= in_ms)
                 else:
                     new_time_validation_status[i] = False
+                
+                scene_val = str(self._dataframe.at[i, 'SCENE']) # NEW
+                new_scene_validation_status[i] = not (scene_val.strip() == "" or scene_val.strip().lower() == "nan") # NEW
+
             self._time_validation_status = new_time_validation_status
+            self._scene_validation_status = new_scene_validation_status # NEW
 
         except Exception as e:
-            self.endMoveRows() # Asegurarse de llamar a endMoveRows en caso de error
+            self.endMoveRows() 
             return False
         
         self.endMoveRows()
@@ -325,13 +346,12 @@ class PandasTableModel(QAbstractTableModel):
 
     def get_next_id(self) -> int:
         if self._dataframe.empty or 'ID' not in self._dataframe.columns or self._dataframe['ID'].isna().all():
-            return 0 # O 1 si prefieres que los IDs comiencen en 1
+            return 0 
         
-        # Filtrar NaNs antes de max()
         numeric_ids = pd.to_numeric(self._dataframe['ID'], errors='coerce').dropna()
         if not numeric_ids.empty:
             return int(numeric_ids.max()) + 1
-        return 0 # O 1
+        return 0 
 
     def find_df_index_by_id(self, id_value: int) -> Optional[int]:
         if 'ID' not in self._dataframe.columns or self._dataframe.empty:
@@ -341,13 +361,12 @@ class PandasTableModel(QAbstractTableModel):
         return matches[0] if matches else None
 
     def get_view_column_index(self, df_column_name: str) -> Optional[int]:
-        # df_col_to_view_col ya está filtrado para no incluir ROW_NUMBER_COL_IDENTIFIER
         return self.df_col_to_view_col.get(df_column_name)
 
     def get_df_column_name(self, view_column_index: int) -> Optional[str]:
         col_identifier = self.column_map.get(view_column_index)
         if col_identifier == ROW_NUMBER_COL_IDENTIFIER:
-            return None # No es una columna del DF
+            return None 
         return col_identifier
 
     def _convert_tc_to_ms(self, time_code: str) -> Optional[int]:
@@ -355,9 +374,9 @@ class PandasTableModel(QAbstractTableModel):
             parts = time_code.split(':')
             if len(parts) != 4: return None
             h, m, s, f = map(int, parts)
-            if not (0 <= h < 100 and 0 <= m < 60 and 0 <= s < 60 and 0 <= f < 100): # Frames pueden ser hasta 99, FPS dependiente
-                 return None # Validación básica de rangos
-            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / 25.0) * 1000.0)) # Asume 25 FPS
+            if not (0 <= h < 100 and 0 <= m < 60 and 0 <= s < 60 and 0 <= f < 100): 
+                 return None 
+            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / 25.0) * 1000.0)) 
         except (ValueError, TypeError):
             return None
 
@@ -373,8 +392,18 @@ class PandasTableModel(QAbstractTableModel):
                 self._time_validation_status[df_row_idx] = (out_ms >= in_ms)
             else:
                 self._time_validation_status[df_row_idx] = False
-        elif df_row_idx in self._time_validation_status: # Si la fila ya no existe
+        elif df_row_idx in self._time_validation_status: 
                  del self._time_validation_status[df_row_idx]
+
+    def _validate_scene_for_row(self, df_row_idx: int): # NEW
+        if 0 <= df_row_idx < len(self._dataframe):
+            scene_value = str(self._dataframe.at[df_row_idx, 'SCENE'])
+            # Una escena es inválida si está vacía o es "nan" (ignorando mayúsculas/minúsculas y espacios)
+            is_valid = not (scene_value.strip() == "" or scene_value.strip().lower() == "nan")
+            self._scene_validation_status[df_row_idx] = is_valid
+        elif df_row_idx in self._scene_validation_status:
+            del self._scene_validation_status[df_row_idx]
+
 
     def force_time_validation_update_for_row(self, df_row_idx: int):
         if 0 <= df_row_idx < len(self._dataframe):
@@ -382,7 +411,7 @@ class PandasTableModel(QAbstractTableModel):
             self._validate_in_out_for_row(df_row_idx)
             new_status = self._time_validation_status.get(df_row_idx, True)
 
-            if old_status != new_status: # Solo emitir si el estado de validación cambió
+            if old_status != new_status: 
                 in_view_col = self.get_view_column_index('IN')
                 out_view_col = self.get_view_column_index('OUT')
                 if in_view_col is not None:
@@ -391,3 +420,15 @@ class PandasTableModel(QAbstractTableModel):
                 if out_view_col is not None:
                     out_idx = self.index(df_row_idx, out_view_col)
                     self.dataChanged.emit(out_idx, out_idx, [Qt.ItemDataRole.BackgroundRole])
+
+    def force_scene_validation_update_for_row(self, df_row_idx: int): # NEW
+        if 0 <= df_row_idx < len(self._dataframe):
+            old_status = self._scene_validation_status.get(df_row_idx, True)
+            self._validate_scene_for_row(df_row_idx)
+            new_status = self._scene_validation_status.get(df_row_idx, True)
+
+            if old_status != new_status:
+                scene_view_col = self.get_view_column_index('SCENE')
+                if scene_view_col is not None:
+                    scene_idx = self.index(df_row_idx, scene_view_col)
+                    self.dataChanged.emit(scene_idx, scene_idx, [Qt.ItemDataRole.BackgroundRole])
