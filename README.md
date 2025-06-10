@@ -67,6 +67,8 @@ AppDialog es una aplicación de escritorio diseñada para la edición de guiones
     Asegúrate de tener pip actualizado. Puedes crear un archivo `requirements.txt` con el siguiente contenido y luego instalarlo:
     ```
     PyQt6
+    PyQt6-Qt6
+    PyQt6-sip
     pandas
     python-docx
     openpyxl
@@ -77,7 +79,7 @@ AppDialog es una aplicación de escritorio diseñada para la edición de guiones
     ```
     O instala los paquetes individualmente:
     ```bash
-    pip install PyQt6 pandas python-docx openpyxl
+    pip install PyQt6 PyQt6-Qt6 PyQt6-sip pandas python-docx openpyxl
     ```
 
 4.  **Ejecutar la Aplicación**:

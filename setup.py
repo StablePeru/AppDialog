@@ -43,7 +43,7 @@ executables = [
 setup(
     name="DialogAppIngeos",
     version=VERSION,
-    description="Aplicación de edición de guiones con PyQt5",
+    description="Aplicación de edición de guiones con PyQt6",
     options={"build_exe": build_exe_options},
     executables=executables
 )
