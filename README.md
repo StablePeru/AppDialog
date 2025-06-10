@@ -129,8 +129,7 @@ bajo los términos de la Licencia Pública General **GNU** publicada por
 la Fundación para el Software Libre, ya sea la versión 3 de la Licencia,
 o (a su elección) cualquier versión posterior.
 Este programa se distribuye con la esperanza de que sea útil, pero
-**SIN GARANTÍA ALGUNA**; ni siquiera la garantía implícita **MERCANTIL** o
-de A**PTITUD PARA UN PROPÓSITO DETERMINADO**. Consulte los
+**SIN GARANTÍA ALGUNA**; ni siquiera la garantía implícita **MERCANTIL** o de **APTITUD PARA UN PROPÓSITO DETERMINADO**. Consulte los
 detalles de la Licencia Pública General **GNU** para obtener una información más detallada.
 Usted debería haber recibido una copia de la Licencia Pública General **GNU**
 junto con este programa. En caso contrario, consulte [https://www.gnu.org/licenses](https://www.gnu.org/licenses).
