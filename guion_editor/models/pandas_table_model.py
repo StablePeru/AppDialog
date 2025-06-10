@@ -435,3 +435,4 @@ class PandasTableModel(QAbstractTableModel):
                 if scene_view_col is not None:
                     scene_idx = self.index(df_row_idx, scene_view_col)
                     self.dataChanged.emit(scene_idx, scene_idx, [Qt.ItemDataRole.BackgroundRole])
+        return None
