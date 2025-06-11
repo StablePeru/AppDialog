@@ -1,12 +1,12 @@
 # Takeo/takeo_mainwindow.py
 import sys
 import os
-import pandas as pd # Solo para guardar DataFrames, no para lógica principal aquí
+import pandas as pd 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout,
     QPushButton, QLabel, QLineEdit, QCheckBox, QGroupBox, QFileDialog, QMessageBox,
     QScrollArea, QSizePolicy, QSpacerItem, QTextEdit, QDialog, QTableWidget, QTableWidgetItem,
-    QHeaderView
+    QHeaderView, QProgressDialog # Añadido QProgressDialog
 )
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QIcon, QIntValidator, QFont
@@ -22,12 +22,12 @@ class ProblemReportDialog(QDialog):
         layout = QVBoxLayout(self)
         
         self.table_widget = QTableWidget()
-        self.table_widget.setColumnCount(7) # SCENE, PERSONAJE, IN, OUT, TIPO, DETALLE, TEXTO
+        self.table_widget.setColumnCount(7) 
         self.table_widget.setHorizontalHeaderLabels(["Fila Excel", "Escena", "Personaje", "IN", "OUT", "Tipo Problema", "Detalle"])
         self.table_widget.setAlternatingRowColors(True)
         self.table_widget.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table_widget.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents) # Detalle
+        self.table_widget.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents) 
         
         self.table_widget.setRowCount(len(problems_list))
         for row_idx, problem in enumerate(problems_list):
@@ -38,12 +38,11 @@ class ProblemReportDialog(QDialog):
             self.table_widget.setItem(row_idx, 4, QTableWidgetItem(problem.get("OUT", "N/A")))
             self.table_widget.setItem(row_idx, 5, QTableWidgetItem(problem.get("PROBLEMA_TIPO", "N/A")))
             self.table_widget.setItem(row_idx, 6, QTableWidgetItem(problem.get("DETALLE", "N/A")))
-            # Podríamos añadir EUSKERA_Snippet como tooltip o en una columna más si es necesario
 
         layout.addWidget(self.table_widget)
         
         save_button = QPushButton("Guardar Reporte Completo en Excel")
-        save_button.clicked.connect(lambda: self.parent().save_problem_report_to_file(problems_list)) # Llama al método de la main window
+        save_button.clicked.connect(lambda: self.parent().save_problem_report_to_file(problems_list)) 
         close_button = QPushButton("Cerrar")
         close_button.clicked.connect(self.accept)
         
@@ -60,34 +59,30 @@ class TakeoMainWindow(QMainWindow):
         self.optimizer_logic = ScriptOptimizerLogic()
         self.characters_checkboxes = {} 
         self.current_script_path = None
-        self.problematic_interventions_cache = [] # Para guardar el reporte y no tener que regenerarlo
+        self.problematic_interventions_cache = [] 
 
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle("Optimizador de Takes para Guiones v1.0 (PyQt6)")
-        self.setGeometry(100, 100, 850, 700) 
-        # self.setWindowIcon(QIcon("path/to/your/app_icon.png"))
+        self.setWindowTitle("Optimizador de Takes para Guiones v1.2 (PyQt6)") # Version bump
+        self.setGeometry(100, 100, 850, 750) 
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setSpacing(10) # Espaciado entre widgets principales
-        main_layout.setContentsMargins(10, 10, 10, 10) # Márgenes de la ventana
+        main_layout.setSpacing(10) 
+        main_layout.setContentsMargins(10, 10, 10, 10) 
 
-        # --- Sección Cargar Guion ---
         load_layout = QHBoxLayout()
         self.load_button = QPushButton(" Cargar Guion (Excel)")
-        # self.load_button.setIcon(QIcon("path/to/load_icon.png"))
         self.load_button.setMinimumHeight(30)
         self.load_button.clicked.connect(self.handle_load_script)
         self.loaded_script_label = QLabel("Ningún guion cargado.")
         self.loaded_script_label.setStyleSheet("font-style: italic;")
         load_layout.addWidget(self.load_button)
-        load_layout.addWidget(self.loaded_script_label, 1) # El '1' da más espacio al label
+        load_layout.addWidget(self.loaded_script_label, 1) 
         main_layout.addLayout(load_layout)
 
-        # --- Grupo de Configuración ---
         config_groupbox = QGroupBox("Configuración de Takes")
         config_groupbox.setStyleSheet("QGroupBox { font-weight: bold; }")
         config_layout = QFormLayout(config_groupbox)
@@ -97,7 +92,7 @@ class TakeoMainWindow(QMainWindow):
         default_font.setPointSize(10)
         config_groupbox.setFont(default_font)
 
-        validator = QIntValidator(1, 9999) # Validador común
+        validator = QIntValidator(1, 9999) 
 
         self.max_duration_edit = QLineEdit(str(self.optimizer_logic.max_duration))
         self.max_duration_edit.setValidator(validator)
@@ -119,9 +114,13 @@ class TakeoMainWindow(QMainWindow):
         self.max_chars_line_edit.setToolTip("Máximo de caracteres efectivos por línea de diálogo (paréntesis cuentan como 1).")
         config_layout.addRow("Máximo de caracteres por línea (diálogo):", self.max_chars_line_edit)
         
+        self.frame_rate_edit = QLineEdit(str(getattr(self.optimizer_logic, 'frame_rate', 25)))
+        self.frame_rate_edit.setValidator(validator) 
+        self.frame_rate_edit.setToolTip("Frame rate (FPS) para interpretar tiempos con frames (e.g., HH:MM:SS:FF).")
+        config_layout.addRow("Frame Rate (FPS):", self.frame_rate_edit)
+        
         main_layout.addWidget(config_groupbox)
 
-        # --- Grupo de Selección de Personajes ---
         characters_groupbox = QGroupBox("Selección de Personajes")
         characters_groupbox.setStyleSheet("QGroupBox { font-weight: bold; }")
         characters_groupbox.setFont(default_font)
@@ -129,7 +128,7 @@ class TakeoMainWindow(QMainWindow):
 
         self.characters_scroll_area = QScrollArea()
         self.characters_scroll_area.setWidgetResizable(True)
-        self.characters_scroll_area.setMinimumHeight(200) # Altura mínima
+        self.characters_scroll_area.setMinimumHeight(200) 
         characters_scroll_content_widget = QWidget()
         self.characters_grid_layout = QGridLayout(characters_scroll_content_widget)
         self.characters_grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
@@ -150,11 +149,9 @@ class TakeoMainWindow(QMainWindow):
         main_layout.addWidget(characters_groupbox)
         main_layout.setStretchFactor(characters_groupbox, 1)
 
-        # --- Botones de Acción (Procesar) ---
         action_layout = QHBoxLayout()
         action_layout.addStretch() 
         self.process_button = QPushButton(" Procesar Guion")
-        # self.process_button.setIcon(QIcon("path/to/process_icon.png"))
         self.process_button.setMinimumHeight(35)
         self.process_button.setStyleSheet("QPushButton { font-size: 11pt; font-weight: bold; }")
         self.process_button.setEnabled(False)
@@ -171,6 +168,7 @@ class TakeoMainWindow(QMainWindow):
             'max_lines_per_take': self.max_lines_take_edit.text(),
             'max_consecutive_lines_per_character': self.max_consecutive_edit.text(),
             'max_chars_per_line': self.max_chars_line_edit.text(),
+            'frame_rate': self.frame_rate_edit.text(), 
         }
 
     @pyqtSlot()
@@ -178,7 +176,7 @@ class TakeoMainWindow(QMainWindow):
         self.statusBar().showMessage("Abriendo diálogo para cargar guion...")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Seleccionar archivo Excel del guion", 
-            self.current_script_path if self.current_script_path else os.path.expanduser("~"), # Directorio inicial
+            self.current_script_path if self.current_script_path else os.path.expanduser("~"), 
             "Excel files (*.xlsx *.xls)"
         )
 
@@ -189,14 +187,24 @@ class TakeoMainWindow(QMainWindow):
         self.current_script_path = file_path
         self.loaded_script_label.setText(f"Guion: {os.path.basename(file_path)}")
         self.statusBar().showMessage(f"Cargando '{os.path.basename(file_path)}'...")
-        QApplication.processEvents() # Para que se actualice la UI
+        QApplication.processEvents() 
+
+        progress_dialog = QProgressDialog("Cargando guion...", "Cancelar", 0, 0, self)
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0) # Show immediately
+        progress_dialog.setValue(0) # For indeterminate mode
+        progress_dialog.show()
+        QApplication.processEvents()
 
         try:
             current_config = self._get_current_config_from_ui()
-            self.optimizer_logic.set_configuration(current_config) # Pasa la config ANTES de cargar
+            self.optimizer_logic.set_configuration(current_config) 
 
             characters, time_msg, problematic_interv, line_count = self.optimizer_logic.load_script_data(file_path)
-            self.problematic_interventions_cache = problematic_interv # Guardar para posible reporte
+            
+            progress_dialog.close() # Close before showing message boxes
+
+            self.problematic_interventions_cache = problematic_interv 
             
             QMessageBox.information(self, "Formato de Tiempo Detectado", time_msg)
             
@@ -207,16 +215,21 @@ class TakeoMainWindow(QMainWindow):
             if self.problematic_interventions_cache:
                 QMessageBox.warning(self, "Intervenciones Problemáticas",
                                     f"Se encontraron {len(self.problematic_interventions_cache)} intervenciones individuales "
-                                    f"que podrían no cumplir las normas.\n"
+                                    f"que podrían no cumplir las normas o tener errores de formato.\n"
                                     "Puede ver el detalle y guardarlo desde un diálogo que se abrirá.")
                 self.show_problematic_interventions_dialog(self.problematic_interventions_cache)
 
         except Exception as e:
+            if progress_dialog.isVisible():
+                progress_dialog.close()
             QMessageBox.critical(self, "Error al Cargar Guion", str(e))
             self.process_button.setEnabled(False)
             self.loaded_script_label.setText("Error al cargar. Intente de nuevo.")
             self.statusBar().showMessage(f"Error al cargar guion: {e}")
-            self.clear_character_checkboxes() # Limpiar si falla la carga
+            self.clear_character_checkboxes() 
+        finally:
+            if progress_dialog.isVisible(): # Ensure it's closed in all paths
+                progress_dialog.close()
 
 
     def populate_character_checkboxes(self, characters):
@@ -230,7 +243,6 @@ class TakeoMainWindow(QMainWindow):
             col = i % num_cols
             self.characters_grid_layout.addWidget(checkbox, row, col)
         
-        # Añadir espaciador para que no se colapsen si hay pocos
         if characters:
              self.characters_grid_layout.addItem(QSpacerItem(20, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding),
                                             (len(characters) -1) // num_cols + 1, 0, 1, num_cols)
@@ -242,8 +254,8 @@ class TakeoMainWindow(QMainWindow):
             if widget_item:
                 widget = widget_item.widget()
                 if widget:
-                    widget.deleteLater() # Más seguro que setParent(None)
-                else: # Podría ser un SpacerItem
+                    widget.deleteLater() 
+                else: 
                     self.characters_grid_layout.removeItem(widget_item)
         self.characters_checkboxes.clear()
 
@@ -259,9 +271,9 @@ class TakeoMainWindow(QMainWindow):
 
     def show_problematic_interventions_dialog(self, problems_list):
         dialog = ProblemReportDialog(problems_list, self)
-        dialog.exec() # Modal
+        dialog.exec() 
 
-    def save_problem_report_to_file(self, problems_list): # Llamado desde el diálogo
+    def save_problem_report_to_file(self, problems_list): 
         if not problems_list: return
 
         suggested_name = "reporte_intervenciones_problematicas.xlsx"
@@ -301,12 +313,21 @@ class TakeoMainWindow(QMainWindow):
             self.statusBar().showMessage("Seleccione personajes y vuelva a intentarlo.")
             return
 
+        progress_dialog = QProgressDialog("Procesando guion...", "Cancelar", 0, 0, self)
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0) # Show immediately
+        progress_dialog.setValue(0) # For indeterminate mode
+        progress_dialog.show()
+        QApplication.processEvents()
+
         try:
             current_config = self._get_current_config_from_ui()
-            self.optimizer_logic.set_configuration(current_config) # Asegurar que la lógica tiene la config de la UI
+            self.optimizer_logic.set_configuration(current_config) 
 
             detail_df, summary_df, stats = self.optimizer_logic.process_script_logic(selected_chars)
             
+            progress_dialog.close() # Close before showing message boxes or file dialogs
+
             self.statusBar().showMessage("Procesamiento completado. Seleccione dónde guardar los resultados...")
             save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar directorio para guardar resultados",
                                                         os.path.dirname(self.current_script_path) if self.current_script_path else os.path.expanduser("~"))
@@ -323,7 +344,6 @@ class TakeoMainWindow(QMainWindow):
             detail_path = os.path.join(save_dir, f"{base_name}_detalle_takes.xlsx")
             summary_path = os.path.join(save_dir, f"{base_name}_resumen_takes.xlsx")
             
-            # Guardar DataFrames
             empty_detail_msg = ""
             if not detail_df.empty:
                 detail_df.to_excel(detail_path, index=False)
@@ -347,7 +367,11 @@ class TakeoMainWindow(QMainWindow):
             self.statusBar().showMessage(f"Proceso completado. Resultados guardados en {save_dir}")
 
         except Exception as e:
+            if progress_dialog.isVisible():
+                progress_dialog.close()
             QMessageBox.critical(self, "Error Durante el Procesamiento", str(e))
             self.statusBar().showMessage(f"Error durante el procesamiento: {e}")
         finally:
+            if progress_dialog.isVisible(): # Ensure it's closed
+                progress_dialog.close()
             self.process_button.setEnabled(True)
