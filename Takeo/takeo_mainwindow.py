@@ -6,12 +6,16 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout,
     QPushButton, QLabel, QLineEdit, QCheckBox, QGroupBox, QFileDialog, QMessageBox,
     QScrollArea, QSizePolicy, QSpacerItem, QTextEdit, QDialog, QTableWidget, QTableWidgetItem,
-    QHeaderView, QProgressDialog # Añadido QProgressDialog
+    QHeaderView, QProgressDialog
 )
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QIcon, QIntValidator, QFont
+from PyQt6.QtCore import Qt, pyqtSlot, QSettings # Añadido QSettings
+from PyQt6.QtGui import QIcon, QIntValidator, QFont, QCloseEvent # Añadido QCloseEvent
 
 from script_optimizer_logic import ScriptOptimizerLogic
+
+# Constantes para QSettings
+ORGANIZATION_NAME = "MiEmpresa" # Cambia esto
+APPLICATION_NAME = "TakeoScriptOptimizer"
 
 class ProblemReportDialog(QDialog):
     def __init__(self, problems_list, parent=None):
@@ -60,11 +64,13 @@ class TakeoMainWindow(QMainWindow):
         self.characters_checkboxes = {} 
         self.current_script_path = None
         self.problematic_interventions_cache = [] 
+        self.last_used_directory = os.path.expanduser("~") # Default al home del usuario
 
         self.init_ui()
+        self.load_settings() # Cargar configuración al inicio
 
     def init_ui(self):
-        self.setWindowTitle("Optimizador de Takes para Guiones v1.2 (PyQt6)") # Version bump
+        self.setWindowTitle(f"Optimizador de Takes para Guiones v1.3 (PyQt6) - {APPLICATION_NAME}") # Version bump
         self.setGeometry(100, 100, 850, 750) 
 
         central_widget = QWidget()
@@ -94,6 +100,7 @@ class TakeoMainWindow(QMainWindow):
 
         validator = QIntValidator(1, 9999) 
 
+        # Los valores iniciales se establecen aquí, pero load_settings() los sobrescribirá si hay guardados
         self.max_duration_edit = QLineEdit(str(self.optimizer_logic.max_duration))
         self.max_duration_edit.setValidator(validator)
         self.max_duration_edit.setToolTip("Duración máxima en segundos que puede tener un take.")
@@ -162,6 +169,48 @@ class TakeoMainWindow(QMainWindow):
         self.statusBar().showMessage("Listo. Cargue un guion para comenzar.")
         self.show()
 
+    def load_settings(self):
+        settings = QSettings(ORGANIZATION_NAME, APPLICATION_NAME)
+        
+        self.max_duration_edit.setText(settings.value("max_duration", self.optimizer_logic.max_duration, type=str))
+        self.max_lines_take_edit.setText(settings.value("max_lines_per_take", self.optimizer_logic.max_lines_per_take, type=str))
+        self.max_consecutive_edit.setText(settings.value("max_consecutive_lines_per_character", self.optimizer_logic.max_consecutive_lines_per_character, type=str))
+        self.max_chars_line_edit.setText(settings.value("max_chars_per_line", self.optimizer_logic.max_chars_per_line, type=str))
+        self.frame_rate_edit.setText(settings.value("frame_rate", getattr(self.optimizer_logic, 'frame_rate', 25), type=str))
+        
+        self.last_used_directory = settings.value("last_used_directory", os.path.expanduser("~"), type=str)
+        # Asegurarse que el directorio existe, si no, volver al home
+        if not os.path.isdir(self.last_used_directory):
+            self.last_used_directory = os.path.expanduser("~")
+
+        # Restaurar la geometría de la ventana
+        geometry = settings.value("geometry")
+        if geometry:
+            self.restoreGeometry(geometry) # QByteArray
+
+        self.statusBar().showMessage("Configuración cargada.")
+
+
+    def save_settings(self):
+        settings = QSettings(ORGANIZATION_NAME, APPLICATION_NAME)
+        
+        settings.setValue("max_duration", self.max_duration_edit.text())
+        settings.setValue("max_lines_per_take", self.max_lines_take_edit.text())
+        settings.setValue("max_consecutive_lines_per_character", self.max_consecutive_edit.text())
+        settings.setValue("max_chars_per_line", self.max_chars_line_edit.text())
+        settings.setValue("frame_rate", self.frame_rate_edit.text())
+        
+        settings.setValue("last_used_directory", self.last_used_directory)
+        settings.setValue("geometry", self.saveGeometry()) # QByteArray
+
+        self.statusBar().showMessage("Configuración guardada.")
+
+    def closeEvent(self, event: QCloseEvent):
+        """Sobrescribir para guardar la configuración al cerrar."""
+        self.save_settings()
+        event.accept()
+
+
     def _get_current_config_from_ui(self):
         return {
             'max_duration': self.max_duration_edit.text(),
@@ -176,7 +225,7 @@ class TakeoMainWindow(QMainWindow):
         self.statusBar().showMessage("Abriendo diálogo para cargar guion...")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Seleccionar archivo Excel del guion", 
-            self.current_script_path if self.current_script_path else os.path.expanduser("~"), 
+            self.last_used_directory, # Usar el último directorio guardado
             "Excel files (*.xlsx *.xls)"
         )
 
@@ -185,14 +234,15 @@ class TakeoMainWindow(QMainWindow):
             return
 
         self.current_script_path = file_path
+        self.last_used_directory = os.path.dirname(file_path) # Actualizar último directorio
         self.loaded_script_label.setText(f"Guion: {os.path.basename(file_path)}")
         self.statusBar().showMessage(f"Cargando '{os.path.basename(file_path)}'...")
         QApplication.processEvents() 
 
         progress_dialog = QProgressDialog("Cargando guion...", "Cancelar", 0, 0, self)
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0) # Show immediately
-        progress_dialog.setValue(0) # For indeterminate mode
+        progress_dialog.setMinimumDuration(0) 
+        progress_dialog.setValue(0) 
         progress_dialog.show()
         QApplication.processEvents()
 
@@ -202,7 +252,7 @@ class TakeoMainWindow(QMainWindow):
 
             characters, time_msg, problematic_interv, line_count = self.optimizer_logic.load_script_data(file_path)
             
-            progress_dialog.close() # Close before showing message boxes
+            progress_dialog.close() 
 
             self.problematic_interventions_cache = problematic_interv 
             
@@ -228,7 +278,7 @@ class TakeoMainWindow(QMainWindow):
             self.statusBar().showMessage(f"Error al cargar guion: {e}")
             self.clear_character_checkboxes() 
         finally:
-            if progress_dialog.isVisible(): # Ensure it's closed in all paths
+            if progress_dialog.isVisible(): 
                 progress_dialog.close()
 
 
@@ -283,7 +333,7 @@ class TakeoMainWindow(QMainWindow):
         
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Guardar Reporte de Problemas", 
-            os.path.join(os.path.dirname(self.current_script_path) if self.current_script_path else os.path.expanduser("~"), suggested_name),
+            os.path.join(self.last_used_directory, suggested_name), # Usar último directorio
             "Excel Files (*.xlsx)"
         )
         
@@ -291,6 +341,7 @@ class TakeoMainWindow(QMainWindow):
             self.statusBar().showMessage("Guardado de reporte de problemas cancelado.")
             return
         
+        self.last_used_directory = os.path.dirname(save_path) # Actualizar último directorio
         try:
             df_report = pd.DataFrame(problems_list)
             df_report.to_excel(save_path, index=False)
@@ -315,8 +366,8 @@ class TakeoMainWindow(QMainWindow):
 
         progress_dialog = QProgressDialog("Procesando guion...", "Cancelar", 0, 0, self)
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0) # Show immediately
-        progress_dialog.setValue(0) # For indeterminate mode
+        progress_dialog.setMinimumDuration(0) 
+        progress_dialog.setValue(0) 
         progress_dialog.show()
         QApplication.processEvents()
 
@@ -326,16 +377,18 @@ class TakeoMainWindow(QMainWindow):
 
             detail_df, summary_df, stats = self.optimizer_logic.process_script_logic(selected_chars)
             
-            progress_dialog.close() # Close before showing message boxes or file dialogs
+            progress_dialog.close() 
 
             self.statusBar().showMessage("Procesamiento completado. Seleccione dónde guardar los resultados...")
             save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar directorio para guardar resultados",
-                                                        os.path.dirname(self.current_script_path) if self.current_script_path else os.path.expanduser("~"))
+                                                        self.last_used_directory) # Usar último directorio
             if not save_dir:
                 QMessageBox.information(self, "Guardado Cancelado", "El proceso de optimización se completó, pero el guardado de resultados fue cancelado.")
                 self.statusBar().showMessage("Resultados no guardados (cancelado por usuario).")
                 self.process_button.setEnabled(True)
                 return
+
+            self.last_used_directory = save_dir # Actualizar último directorio
 
             base_name = "resultados"
             if self.current_script_path:
@@ -372,6 +425,6 @@ class TakeoMainWindow(QMainWindow):
             QMessageBox.critical(self, "Error Durante el Procesamiento", str(e))
             self.statusBar().showMessage(f"Error durante el procesamiento: {e}")
         finally:
-            if progress_dialog.isVisible(): # Ensure it's closed
+            if progress_dialog.isVisible(): 
                 progress_dialog.close()
             self.process_button.setEnabled(True)
