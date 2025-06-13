@@ -3,8 +3,7 @@ import os
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QSlider, QLabel,
-    QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox,
-    QGridLayout # Import QGridLayout
+    QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -12,7 +11,6 @@ from PyQt6.QtCore import QUrl, Qt, QTimer, pyqtSignal, QSize, QKeyCombination
 from PyQt6.QtGui import QKeySequence, QFont, QIcon, QKeyEvent, QFontMetrics, QMouseEvent
 
 from .time_code_edit import TimeCodeEdit
-# Asegúrate que TableWindow pueda ser importado para type hinting si es necesario
 # from .table_window import TableWindow # Opcional para type hint
 
 class VideoPlayerWidget(QWidget):
@@ -34,9 +32,8 @@ class VideoPlayerWidget(QWidget):
         self.use_me_audio = False
         self.user_volume_float = 1.0
 
-        # Referencia a TableWindow para subtítulos
         self.table_window_ref = None
-        self.current_subtitle_df_idx = -1 # Para optimizar búsqueda de subtítulos
+        self.current_subtitle_df_idx = -1 
 
         if self.get_icon:
             self.play_icon = self.get_icon("play_icon.svg")
@@ -58,13 +55,11 @@ class VideoPlayerWidget(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def set_table_window_reference(self, table_window): # table_window: TableWindow
-        """Establece la referencia a TableWindow para acceder a los datos del guion."""
         self.table_window_ref = table_window
         if self.table_window_ref and hasattr(self.table_window_ref, 'pandas_model'):
-            # Conectar a cambios en el modelo para actualizar subtítulos si el guion cambia
             self.table_window_ref.pandas_model.modelReset.connect(self._reset_and_update_subtitle_display)
             self.table_window_ref.pandas_model.layoutChanged.connect(self._reset_and_update_subtitle_display)
-            # dataChanged es más granular, podría ser demasiado frecuente.
+            # Conectar a dataChanged podría ser útil si un solo diálogo cambia, pero más complejo de optimizar
             # self.table_window_ref.pandas_model.dataChanged.connect(self._update_subtitle_on_data_change)
 
 
@@ -91,17 +86,15 @@ class VideoPlayerWidget(QWidget):
         self.video_widget.setObjectName("video_widget")
         self.media_player.setVideoOutput(self.video_widget)
 
-        # QLabel para mostrar subtítulos
-        self.subtitle_display_label = QLabel(self.video_widget) # Hacerlo hijo del video_widget
+        self.subtitle_display_label = QLabel(self.video_widget) 
         self.subtitle_display_label.setObjectName("subtitle_display_label")
         self.subtitle_display_label.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
         self.subtitle_display_label.setWordWrap(True)
-        self.subtitle_display_label.setVisible(False) # Inicialmente oculto
-        # El estilo se aplicará desde main.css
+        self.subtitle_display_label.setVisible(False) 
 
         self.media_player.playbackStateChanged.connect(self.update_play_button_icon)
         self.media_player.positionChanged.connect(self.update_slider_position)
-        self.media_player.positionChanged.connect(self._trigger_subtitle_update) # Conectar para subtítulos
+        self.media_player.positionChanged.connect(self._trigger_subtitle_update) 
         self.media_player.durationChanged.connect(self.update_slider_range)
         self.media_player.mediaStatusChanged.connect(self.on_media_status_changed)
         self.media_player.errorOccurred.connect(self.on_media_error)
@@ -199,7 +192,6 @@ class VideoPlayerWidget(QWidget):
         self.me_toggle_checkbox.stateChanged.connect(self.toggle_me_audio_source)
         self.me_toggle_checkbox.setEnabled(False)
 
-        # Checkbox para subtítulos
         self.subtitle_toggle_checkbox = QCheckBox("Subtítulos")
         self.subtitle_toggle_checkbox.setObjectName("subtitle_toggle_checkbox")
         self.subtitle_toggle_checkbox.setToolTip("Mostrar/Ocultar subtítulos del guion")
@@ -219,11 +211,6 @@ class VideoPlayerWidget(QWidget):
         top_info_layout_container.setLayout(self.time_code_display_stack)
         
         layout.addWidget(top_info_layout_container)
-
-        # Contenedor para el video y el subtítulo superpuesto
-        # QVideoWidget no se puede poner en un QStackedLayout directamente para superposición fácil.
-        # En su lugar, haremos que subtitle_display_label sea hijo de video_widget y lo posicionaremos
-        # en el evento resize del VideoPlayerWidget.
         layout.addWidget(self.video_widget, 1)
         layout.addWidget(self.slider) 
 
@@ -241,7 +228,7 @@ class VideoPlayerWidget(QWidget):
         video_buttons_internal_layout.addWidget(self.in_button)
         video_buttons_internal_layout.addWidget(self.out_button)
         video_buttons_internal_layout.addWidget(self.me_toggle_checkbox) 
-        video_buttons_internal_layout.addWidget(self.subtitle_toggle_checkbox) # Añadir checkbox de subtítulos
+        video_buttons_internal_layout.addWidget(self.subtitle_toggle_checkbox)
         video_buttons_internal_layout.addStretch(1) 
         video_buttons_internal_layout.addWidget(self.volume_button)
         video_buttons_internal_layout.addWidget(self.volume_slider_vertical)
@@ -250,92 +237,117 @@ class VideoPlayerWidget(QWidget):
         self.setLayout(layout)
 
     def resizeEvent(self, event):
-        """Ajusta la posición y tamaño del label de subtítulos cuando la ventana cambia de tamaño."""
-        super().resizeEvent(event)
-        if hasattr(self, 'subtitle_display_label') and self.video_widget:
-            # Posicionar en la parte inferior del video_widget
-            label_height = self.subtitle_display_label.fontMetrics().height() * 3 # Altura para ~2-3 líneas
-            label_width = self.video_widget.width() - 20 # Un poco de margen
-            
-            x = (self.video_widget.width() - label_width) // 2
-            y = self.video_widget.height() - label_height - 10 # 10px desde abajo
-            
-            self.subtitle_display_label.setGeometry(x, y, label_width, label_height)
-
+            super().resizeEvent(event)
+            if hasattr(self, 'subtitle_display_label') and self.video_widget:
+                # ... (cálculos de geometría como antes) ...
+                label_height = self.subtitle_display_label.fontMetrics().height() * 3 
+                label_width = self.video_widget.width() - 40 
+                
+                x = (self.video_widget.width() - label_width) // 2
+                y = self.video_widget.height() - label_height - 15 
+                
+                self.subtitle_display_label.setGeometry(x, y, label_width, label_height)
+                
+                # if self.subtitle_display_label.isVisible(): # Solo imprimir si debería estar visible
+                #     print(f"DEBUG: ResizeEvent - Subtitle Label Geo: {self.subtitle_display_label.geometry()}, Text: '{self.subtitle_display_label.text()}'")
 
     def _reset_and_update_subtitle_display(self):
-        """Llamado cuando el modelo del guion cambia."""
         self.current_subtitle_df_idx = -1
         self._trigger_subtitle_update(self.media_player.position())
 
-    # def _update_subtitle_on_data_change(self, topLeft, bottomRight, roles):
-    #     """Llamado cuando datos específicos del guion cambian.
-    #        Podría ser más eficiente si solo una línea cambia.
-    #     """
-    #     # Por ahora, un reseteo completo es más simple
-    #     self._reset_and_update_subtitle_display()
-
-
     def _handle_subtitle_toggle(self, state: int):
-        is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
-        self.subtitle_display_label.setVisible(is_checked)
-        if is_checked:
-            self._trigger_subtitle_update(self.media_player.position())
-        else:
-            self.subtitle_display_label.setText("") # Limpiar si se desactiva
+            is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
+            
+            if is_checked:
+                print("DEBUG: Subtitles toggled ON.") # DEBUG
+                self.subtitle_display_label.setVisible(True) # Asegurar visibilidad
+                # Forzar un estilo de depuración muy obvio:
+                self.subtitle_display_label.setStyleSheet("background-color: magenta; color: yellow; font-size: 20pt; border: 2px solid lime;")
+                self.subtitle_display_label.setText("ACTIVADO - ESPERANDO DATOS") # Texto inicial
+                self._trigger_subtitle_update(self.media_player.position())
+            else:
+                print("DEBUG: Subtitles toggled OFF.") # DEBUG
+                self.subtitle_display_label.setText("")
+                self.subtitle_display_label.setVisible(False)
+                self.subtitle_display_label.setStyleSheet("") # Limpiar estilo de depuración
+            
+            # Forzar un repintado del video_widget y su hijo (el label)
+            if self.video_widget:
+                self.video_widget.update()
+            self.update()
 
     def _trigger_subtitle_update(self, position_ms: int):
-        """Busca y muestra el subtítulo apropiado para la posición dada."""
-        if not self.subtitle_toggle_checkbox.isChecked() or not self.table_window_ref:
-            self.subtitle_display_label.setText("")
-            return
+            # --- INICIO DE _trigger_subtitle_update ---
+            # print(f"DEBUG: _trigger_subtitle_update CALLED with position_ms: {position_ms}") 
 
-        model = self.table_window_ref.pandas_model
-        if model is None or model.rowCount() == 0:
-            self.subtitle_display_label.setText("")
-            return
+            if not self.subtitle_toggle_checkbox.isChecked():
+                if self.subtitle_display_label.text(): self.subtitle_display_label.setText("")
+                return
 
-        found_text = ""
-        found_idx = -1
+            if not self.table_window_ref:
+                if self.subtitle_display_label.text(): self.subtitle_display_label.setText("")
+                return
 
-        # Intento de optimización: verificar el subtítulo actual primero
-        if self.current_subtitle_df_idx != -1 and 0 <= self.current_subtitle_df_idx < model.rowCount():
-            try:
-                row_in_tc = str(model.dataframe().at[self.current_subtitle_df_idx, 'IN'])
-                row_out_tc = str(model.dataframe().at[self.current_subtitle_df_idx, 'OUT'])
-                dialogue_text = str(model.dataframe().at[self.current_subtitle_df_idx, 'DIÁLOGO'])
+            model = self.table_window_ref.pandas_model
+            if model is None or model.rowCount() == 0:
+                if self.subtitle_display_label.text(): self.subtitle_display_label.setText("")
+                return
+            
+            # print(f"DEBUG: Updating subtitle for position: {position_ms} ms. Model has {model.rowCount()} rows.")
 
-                row_in_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_in_tc)
-                row_out_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_out_tc)
+            found_text = ""
+            found_idx = -1
 
-                if row_in_ms <= position_ms < row_out_ms:
-                    found_text = dialogue_text
-                    found_idx = self.current_subtitle_df_idx
-            except Exception as e:
-                print(f"Error al procesar subtítulo actual (idx {self.current_subtitle_df_idx}): {e}")
-                self.current_subtitle_df_idx = -1 # Resetear si hay error
-
-        if not found_text: # Si el actual no es, buscar en todo el dataframe
-            for i in range(model.rowCount()):
+            # Optimización: comprobar índice actual (la dejamos como estaba, el problema parece estar en el bucle principal)
+            if self.current_subtitle_df_idx != -1 and 0 <= self.current_subtitle_df_idx < model.rowCount():
                 try:
-                    row_in_tc = str(model.dataframe().at[i, 'IN'])
-                    row_out_tc = str(model.dataframe().at[i, 'OUT'])
-                    dialogue_text = str(model.dataframe().at[i, 'DIÁLOGO'])
+                    row_in_tc = str(model.dataframe().at[self.current_subtitle_df_idx, 'IN'])
+                    row_out_tc = str(model.dataframe().at[self.current_subtitle_df_idx, 'OUT'])
+                    dialogue_text = str(model.dataframe().at[self.current_subtitle_df_idx, 'DIÁLOGO'])
 
                     row_in_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_in_tc)
                     row_out_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_out_tc)
 
                     if row_in_ms <= position_ms < row_out_ms:
                         found_text = dialogue_text
-                        found_idx = i
-                        break 
+                        found_idx = self.current_subtitle_df_idx
                 except Exception as e:
-                    print(f"Error al procesar fila {i} para subtítulos: {e}")
-                    continue # Saltar a la siguiente fila
+                    # print(f"DEBUG: Error procesando subtítulo actual (idx {self.current_subtitle_df_idx}): {e}")
+                    self.current_subtitle_df_idx = -1 
 
-        self.subtitle_display_label.setText(found_text)
-        self.current_subtitle_df_idx = found_idx
+            if not found_text: 
+                for i in range(model.rowCount()):
+                    try:
+                        row_in_tc = str(model.dataframe().at[i, 'IN'])
+                        row_out_tc = str(model.dataframe().at[i, 'OUT'])
+                        dialogue_text = str(model.dataframe().at[i, 'DIÁLOGO']).strip() # Añadido .strip() al texto del diálogo
 
+                        row_in_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_in_tc)
+                        row_out_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_out_tc)
+                        
+                        # IMPRIMIR LOS VALORES JUSTO ANTES DE LA CONDICIÓN
+                        print(f"  DEBUG: Row {i}: IN={row_in_ms}ms, POS={position_ms}ms, OUT={row_out_ms}ms. Condition: ({row_in_ms} <= {position_ms} < {row_out_ms})")
+
+                        if row_in_ms <= position_ms < row_out_ms:
+                            print(f"    DEBUG: !!! MATCH FOUND for row {i} !!! DIALOGUE: '{dialogue_text[:50]}...'") # MÁS OBVIO
+                            found_text = dialogue_text
+                            found_idx = i
+                            break 
+                    except KeyError as ke: 
+                        print(f"DEBUG: KeyError al acceder a datos de la fila {i} para subtítulos: {ke}.")
+                        continue
+                    except Exception as e:
+                        print(f"DEBUG: Error procesando fila {i} para subtítulos: {e}")
+                        continue
+            
+            # print(f"DEBUG: Final check - Found text: '{found_text[:30]}', Found index: {found_idx}")
+            
+            current_label_text = self.subtitle_display_label.text()
+            if current_label_text != found_text:
+                self.subtitle_display_label.setText(found_text)
+                print(f"DEBUG: Subtitle Label SET to: '{found_text[:70]}...' (Visibility: {self.subtitle_display_label.isVisible()})") # PRINT DESPUÉS DE SETTEXT
+            
+            self.current_subtitle_df_idx = found_idx
 
     def update_key_listeners(self):
         pass
@@ -435,6 +447,9 @@ class VideoPlayerWidget(QWidget):
         self.media_player.setPosition(new_position)
         if self.me_player and not self.me_player.source().isEmpty():
             self.me_player.setPosition(new_position)
+        # Al cambiar la posición, actualizar subtítulos
+        self._trigger_subtitle_update(new_position)
+
 
     def set_position_from_slider_move(self, position: int) -> None:
         if self.media_player.duration() <= 0 and position > 0:
@@ -447,6 +462,9 @@ class VideoPlayerWidget(QWidget):
             self.media_player.setPosition(position)
             if self.me_player and not self.me_player.source().isEmpty():
                 self.me_player.setPosition(position)
+            # Al cambiar la posición desde el slider, actualizar subtítulos
+            self._trigger_subtitle_update(position)
+
 
     def set_volume_from_slider_value(self, volume_percent: int) -> None:
         self.user_volume_float = volume_percent / 100.0
@@ -523,9 +541,8 @@ class VideoPlayerWidget(QWidget):
 
             self._update_audio_outputs() 
             self.media_player.play()
-            # Al cargar video nuevo, resetear índice de subtítulo
             self.current_subtitle_df_idx = -1
-            self._trigger_subtitle_update(0) # Intentar mostrar subtítulo inicial si aplica
+            self._trigger_subtitle_update(0) 
         except Exception as e: QMessageBox.critical(self, "Error Crítico", f"Error crítico al cargar el video: {str(e)}")
 
     def load_me_file(self, audio_path: str) -> None:
@@ -604,7 +621,6 @@ class VideoPlayerWidget(QWidget):
             self._update_audio_outputs() 
             if self.media_player.audioOutput():
                 self.volume_slider_vertical.setValue(int(self.user_volume_float * 100))
-            # Al cargar nuevo medio, resetear subtítulos
             self.current_subtitle_df_idx = -1
             self._trigger_subtitle_update(0)
 
@@ -615,7 +631,7 @@ class VideoPlayerWidget(QWidget):
             if self.me_player and not self.me_player.source().isEmpty():
                 self.me_player.setPosition(0)
                 self.me_player.pause()
-            self.subtitle_display_label.setText("") # Limpiar subtítulo al final
+            self.subtitle_display_label.setText("") 
             self.current_subtitle_df_idx = -1
         elif status == QMediaPlayer.MediaStatus.InvalidMedia:
             QMessageBox.warning(self, "Error de Medio", "El archivo de video es inválido o no soportado.")
@@ -629,7 +645,7 @@ class VideoPlayerWidget(QWidget):
             self.me_toggle_checkbox.setEnabled(False)
             self.me_toggle_checkbox.setChecked(False)
             self.use_me_audio = False
-            self.subtitle_display_label.setText("") # Limpiar subtítulo
+            self.subtitle_display_label.setText("") 
             self.current_subtitle_df_idx = -1
             self._update_audio_outputs()
 
@@ -653,7 +669,6 @@ class VideoPlayerWidget(QWidget):
             self.media_player.setPosition(new_pos)
             if self.me_player and not self.me_player.source().isEmpty():
                 self.me_player.setPosition(new_pos)
-            # Al cambiar posición externamente, actualizar subtítulo
             self._trigger_subtitle_update(new_pos)
         except Exception as e: QMessageBox.warning(self, "Error", f"Error al establecer la posición del video: {str(e)}")
         
@@ -665,7 +680,6 @@ class VideoPlayerWidget(QWidget):
 
     def update_fonts(self, font_size: int) -> None:
         base_font = QFont(); base_font.setPointSize(font_size)
-        # Lista de nombres de atributos de botones
         button_attribute_names = [
             "play_button", "rewind_button", "forward_button", "detach_button",
             "in_button", "out_button", "volume_button"
@@ -690,12 +704,10 @@ class VideoPlayerWidget(QWidget):
 
         if hasattr(self, 'subtitle_display_label'):
              subtitle_font = QFont()
-             # Ajusta el tamaño base de los subtítulos según `font_size` si es necesario
-             # Por ejemplo, un poco más grande que el tamaño de la tabla.
-             subtitle_font.setPointSize(max(font_size + 3, 12)) 
+             subtitle_font.setPointSize(max(font_size + 3, 14)) # Ajustado tamaño base (ej. 14)
              subtitle_font.setBold(True)
              self.subtitle_display_label.setFont(subtitle_font)
-             self.resizeEvent(None) # Forzar reposicionamiento/redimensionamiento del label de subtítulo
+             self.resizeEvent(None) 
 
     def edit_time_code_label(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -736,7 +748,7 @@ class VideoPlayerWidget(QWidget):
                     self.me_player.setPosition(target_msecs)
                 position_changed = True
             
-            if position_changed: # Actualizar subtítulos si la posición cambió
+            if position_changed: 
                 self._trigger_subtitle_update(target_msecs)
 
 

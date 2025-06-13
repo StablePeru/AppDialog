@@ -479,6 +479,18 @@ QLabel#subtitle_display_label {
     /* qproperty-alignment: 'AlignBottom | AlignHCenter'; /* Esto se setea en código */
 }
 
+QLabel#subtitle_display_label {
+    background-color: rgba(0, 0, 0, 0.65); /* Fondo semi-transparente para legibilidad */
+    color: white;
+    /* font-size: 16pt;  El tamaño se gestiona en update_fonts */
+    /* font-weight: bold; El peso se gestiona en update_fonts */
+    padding: 8px 15px; /* Padding ajustado */
+    border-radius: 6px;
+    margin: 0px 20px 15px 20px; /* Margen: 0 arriba, 20 L/R, 15 abajo */
+    text-align: center; /* Asegurar que el texto dentro del label esté centrado si el label es más ancho */
+    border: 1px solid rgba(255, 255, 255, 0.1); /* Borde sutil opcional */
+}
+
 QStatusBar { background-color: #2A2A2A; color: #A0A0A0; border-top: 1px solid #383838; padding: 4px 8px; font-size: 8.5pt; }
 QStatusBar::item { border: none; }
 

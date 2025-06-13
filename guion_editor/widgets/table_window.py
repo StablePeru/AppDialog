@@ -1050,19 +1050,41 @@ class TableWindow(QWidget):
         dialog_curr = str(current_df.at[df_idx_curr, 'DIÁLOGO'])
         dialog_next = str(current_df.at[df_idx_next, 'DIÁLOGO'])
         merged_dialog = f"{dialog_curr.strip()} {dialog_next.strip()}".strip()
+
+        euskera_curr = str(current_df.at[df_idx_curr, 'EUSKERA'])
+        euskera_next = str(current_df.at[df_idx_next, 'EUSKERA'])
+        merged_euskera = f"{euskera_curr.strip()} {euskera_next.strip()}".strip()
+
         original_out_first = str(current_df.at[df_idx_curr, 'OUT'])
 
-        command = MergeInterventionsCommand(self, df_idx_curr, merged_dialog, df_idx_next, original_out_first)
+        command = MergeInterventionsCommand(
+            self,                         # for tw
+            df_idx_curr,                  # for df_idx_first_row
+            merged_dialog,                # for merged_dialog_text
+            merged_euskera,               # <--- ADD THIS ARGUMENT HERE
+            df_idx_next,                  # for df_idx_second_row_original
+            original_out_first            # for original_out_time_first_row
+        )
         self.undo_stack.push(command)
 
     def convert_time_code_to_milliseconds(self, time_code: str) -> int:
         try:
             parts = time_code.split(':'); h, m, s, f = map(int, parts)
-            if len(parts) != 4 or not all(0 <= x < 100 for x in [h,m,s]) or not (0 <= f < 60): 
+            if len(parts) != 4 or not all(0 <= x < 100 for x in [h,m,s]) or not (0 <= f < 60): # Originalmente f < 60, debería ser FPS_RATE
+                # print(f"DEBUG: Invalid timecode format or range in TableWindow: {time_code}")
                 raise ValueError("Formato de Timecode inválido")
-            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / 25.0) * 1000.0)) 
-        except ValueError: return 0 
-        except Exception as e: self.handle_exception(e, f"Error convirtiendo '{time_code}' a milisegundos"); return 0
+            # Usar FPS_RATE de VideoPlayerWidget sería mejor, pero no es directamente accesible aquí.
+            # Usaremos un valor fijo o asumiremos 25 como en PandasTableModel.
+            # Idealmente, FPS_RATE debería ser una constante global o parte de la configuración.
+            FPS_RATE = 25.0 
+            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / FPS_RATE) * 1000.0)) 
+        except ValueError:
+            # print(f"DEBUG: ValueError converting TC to MS in TableWindow: {time_code}")
+            return 0 
+        except Exception as e:
+            # print(f"DEBUG: General Exception converting TC to MS in TableWindow: {time_code}, Error: {e}")
+            self.handle_exception(e, f"Error convirtiendo '{time_code}' a milisegundos")
+            return 0
 
     def convert_milliseconds_to_time_code(self, ms: int) -> str:
         try:
@@ -1404,6 +1426,13 @@ class SplitInterventionCommand(QUndoCommand):
         # Set the 'after_text' into the correct column for the new row
         new_row_full_data[self.df_column_name_to_split] = self.after_txt
         
+        if self.df_column_name_to_split == 'DIÁLOGO':
+            if 'EUSKERA' in new_row_full_data:
+                new_row_full_data['EUSKERA'] = ""
+        elif self.df_column_name_to_split == 'EUSKERA':
+            if 'DIÁLOGO' in new_row_full_data:
+                new_row_full_data['DIÁLOGO'] = ""
+
         # Insert the new row below the original one
         self.tw.pandas_model.insert_row_data(self.df_idx_split + 1, new_row_full_data)
         
@@ -1462,46 +1491,105 @@ class SplitInterventionCommand(QUndoCommand):
         
         self.tw.request_resize_rows_to_contents_deferred()
 
-class MergeInterventionsCommand(QUndoCommand): 
-    def __init__(self, tw: TableWindow, df_idx1: int, merged_dlg: str, df_idx2_removed_orig: int, orig_out1: str):
-        super().__init__(); self.tw = tw
-        self.df_idx1, self.merged_dlg, self.df_idx2_rem_orig, self.orig_out1 = df_idx1, merged_dlg, df_idx2_removed_orig, orig_out1
-        self.orig_dlg1: Optional[str] = None; self.data_df_idx2: Optional[pd.Series] = None
-        self.setText(f"Juntar filas {df_idx1 + 1} y {df_idx1 + 2}")
+class MergeInterventionsCommand(QUndoCommand):
+    def __init__(self, tw: TableWindow, df_idx_first_row: int,
+                 merged_dialog_text: str, merged_euskera_text: str, # Added merged_euskera_text
+                 df_idx_second_row_original: int, original_out_time_first_row: str):
+        super().__init__()
+        self.tw = tw
+        self.df_idx1 = df_idx_first_row
+        self.merged_dlg = merged_dialog_text
+        self.merged_eusk = merged_euskera_text # Store merged Euskera
+        self.df_idx2_rem_orig = df_idx_second_row_original # Original index of 2nd row
+        self.orig_out1 = original_out_time_first_row
+
+        # For undo:
+        self.orig_dlg1: Optional[str] = None
+        self.orig_eusk1: Optional[str] = None # Store original Euskera of first row
+        self.data_df_idx2: Optional[pd.Series] = None # Full data of the second row
+
+        self.setText(f"Juntar filas {df_idx_first_row + 1} y {df_idx_first_row + 2}")
+
     def redo(self):
         current_df = self.tw.pandas_model.dataframe()
-        df_idx_actual_second_row_to_merge = self.df_idx1 + 1 
-        if not (0 <= self.df_idx1 < len(current_df) and 0 <= df_idx_actual_second_row_to_merge < len(current_df)): return
-        
-        if self.orig_dlg1 is None: self.orig_dlg1 = str(current_df.at[self.df_idx1, 'DIÁLOGO'])
-        if self.data_df_idx2 is None: self.data_df_idx2 = current_df.iloc[df_idx_actual_second_row_to_merge].copy()
-        
-        view_col_dlg = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
-        view_col_out = self.tw.pandas_model.get_view_column_index('OUT')
-        if view_col_dlg is None or view_col_out is None: return
+        # The actual index of the second row to merge/remove in the *current* state of the DataFrame
+        df_idx_actual_second_row_to_merge = self.df_idx1 + 1
 
+        if not (0 <= self.df_idx1 < len(current_df) and \
+                0 <= df_idx_actual_second_row_to_merge < len(current_df)):
+            print(f"MergeCommand.redo: Indices out of bounds. df_idx1={self.df_idx1}, actual_second_idx={df_idx_actual_second_row_to_merge}, df_len={len(current_df)}")
+            return
+
+        # Capture original data of the first row (for undo)
+        # Only capture if not already captured (e.g., first time redo is called)
+        if self.orig_dlg1 is None:
+            self.orig_dlg1 = str(current_df.at[self.df_idx1, 'DIÁLOGO'])
+        if self.orig_eusk1 is None: # Capture original Euskera of first row
+            self.orig_eusk1 = str(current_df.at[self.df_idx1, 'EUSKERA'])
+        # self.orig_out1 is already captured in __init__
+
+        # Capture full data of the second row (the one to be removed)
+        if self.data_df_idx2 is None:
+            self.data_df_idx2 = current_df.iloc[df_idx_actual_second_row_to_merge].copy()
+
+        view_col_dlg = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
+        view_col_eusk = self.tw.pandas_model.get_view_column_index('EUSKERA') # Get Euskera view col
+        view_col_out = self.tw.pandas_model.get_view_column_index('OUT')
+
+        if view_col_dlg is None or view_col_out is None or view_col_eusk is None:
+            print("MergeCommand.redo: One or more critical column view indices not found.")
+            return
+
+        # Update the first row
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.merged_dlg, Qt.ItemDataRole.EditRole)
-        if 'OUT' in self.data_df_idx2 and pd.notna(self.data_df_idx2['OUT']):
-             self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.data_df_idx2['OUT'], Qt.ItemDataRole.EditRole)
-        
-        self.tw.pandas_model.remove_row_by_df_index(df_idx_actual_second_row_to_merge) 
-        self.tw.set_unsaved_changes(True); self.tw.update_character_completer_and_notify()
-        self.tw.table_view.selectRow(self.df_idx1)
-        idx_to_scroll = self.tw.pandas_model.index(self.df_idx1, 0)
-        if idx_to_scroll.isValid(): self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
-    def undo(self):
-        if self.orig_dlg1 is None or self.data_df_idx2 is None: return
-        view_col_dlg = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
-        view_col_out = self.tw.pandas_model.get_view_column_index('OUT')
-        if view_col_dlg is None or view_col_out is None: return
+        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_eusk), self.merged_eusk, Qt.ItemDataRole.EditRole) # Set merged Euskera
 
-        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.orig_dlg1, Qt.ItemDataRole.EditRole)
-        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.orig_out1, Qt.ItemDataRole.EditRole)
-        self.tw.pandas_model.insert_row_data(self.df_idx2_rem_orig, self.data_df_idx2.to_dict()) 
-        self.tw.set_unsaved_changes(True); self.tw.update_character_completer_and_notify()
+        # Set the OUT time of the first row to be the OUT time of the second row
+        if self.data_df_idx2 is not None and 'OUT' in self.data_df_idx2 and pd.notna(self.data_df_idx2['OUT']):
+             self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.data_df_idx2['OUT'], Qt.ItemDataRole.EditRole)
+
+        # Remove the second row
+        self.tw.pandas_model.remove_row_by_df_index(df_idx_actual_second_row_to_merge)
+
+        self.tw.set_unsaved_changes(True)
+        self.tw.update_character_completer_and_notify()
         self.tw.table_view.selectRow(self.df_idx1)
         idx_to_scroll = self.tw.pandas_model.index(self.df_idx1, 0)
-        if idx_to_scroll.isValid(): self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
+        if idx_to_scroll.isValid():
+            self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
+        self.tw.request_resize_rows_to_contents_deferred()
+
+
+    def undo(self):
+        if self.orig_dlg1 is None or self.data_df_idx2 is None or self.orig_eusk1 is None:
+            print("MergeCommand.undo: Original data for undo not available.")
+            return
+
+        view_col_dlg = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
+        view_col_eusk = self.tw.pandas_model.get_view_column_index('EUSKERA')
+        view_col_out = self.tw.pandas_model.get_view_column_index('OUT')
+
+        if view_col_dlg is None or view_col_out is None or view_col_eusk is None:
+            print("MergeCommand.undo: One or more critical column view indices not found.")
+            return
+
+        # Restore first row's original DIÁLOGO, EUSKERA, and OUT
+        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.orig_dlg1, Qt.ItemDataRole.EditRole)
+        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_eusk), self.orig_eusk1, Qt.ItemDataRole.EditRole)
+        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.orig_out1, Qt.ItemDataRole.EditRole)
+
+        # Re-insert the second row at its original position (or what would be its original position)
+        # self.df_idx2_rem_orig was the original index of the second row. If the first row is df_idx1,
+        # then the second row was at df_idx1 + 1 before removal.
+        self.tw.pandas_model.insert_row_data(self.df_idx1 + 1, self.data_df_idx2.to_dict())
+
+        self.tw.set_unsaved_changes(True)
+        self.tw.update_character_completer_and_notify()
+        self.tw.table_view.selectRow(self.df_idx1) # Or perhaps select both rows? For now, just the first.
+        idx_to_scroll = self.tw.pandas_model.index(self.df_idx1, 0)
+        if idx_to_scroll.isValid():
+            self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
+        self.tw.request_resize_rows_to_contents_deferred()
 
 class ChangeSceneCommand(QUndoCommand): 
     def __init__(self, table_window: TableWindow, df_start_idx: int):
