@@ -468,6 +468,17 @@ QHeaderView::section:pressed {
     border-bottom-color: #005AA1;
 }
 
+QLabel#subtitle_display_label {
+    background-color: rgba(0, 0, 0, 0.6); /* Fondo semi-transparente para legibilidad */
+    color: white;
+    font-size: 16pt; /* Ajusta según necesidad */
+    font-weight: bold;
+    padding: 8px 12px;
+    border-radius: 5px;
+    margin: 10px; /* Margen para que no esté pegado a los bordes del video_widget */
+    /* qproperty-alignment: 'AlignBottom | AlignHCenter'; /* Esto se setea en código */
+}
+
 QStatusBar { background-color: #2A2A2A; color: #A0A0A0; border-top: 1px solid #383838; padding: 4px 8px; font-size: 8.5pt; }
 QStatusBar::item { border: none; }
 

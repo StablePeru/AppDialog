@@ -955,37 +955,75 @@ class TableWindow(QWidget):
         self.last_focused_dialog_index = index_edited
 
     def split_intervention(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: QMessageBox.warning(self, "Separar", "Seleccione una fila para separar la intervención."); return
-        current_row_index = selected_indexes[0].row()
-        dialog_col_view_idx = self.pandas_model.get_view_column_index('DIÁLOGO')
-        if dialog_col_view_idx is None: QMessageBox.warning(self, "Error", "No se pudo encontrar la columna de diálogo."); return
-        dialog_cell_to_split_index = self.pandas_model.index(current_row_index, dialog_col_view_idx)
-        
-        cursor_pos = -1; text_that_was_split = None
-        if self.last_focused_dialog_index and \
-           self.last_focused_dialog_index.row() == dialog_cell_to_split_index.row() and \
-           self.last_focused_dialog_index.column() == dialog_cell_to_split_index.column() and \
-           self.last_focused_dialog_cursor_pos != -1:
-            cursor_pos = self.last_focused_dialog_cursor_pos
-            text_that_was_split = self.last_focused_dialog_text
-        else:
-            QMessageBox.information(self, "Separar Intervención",
-                                    "Por favor, edite la celda de diálogo y coloque el cursor\n"
-                                    "en el punto de división deseado antes de usar 'Separar'.\n"
-                                    "(Asegúrese de que la celda pierda el foco después de editar y antes de separar).")
-            self.last_focused_dialog_index = None; self.last_focused_dialog_cursor_pos = -1
+        # Get the currently focused cell in the table view
+        current_model_index = self.table_view.currentIndex()
+        if not current_model_index.isValid():
+            QMessageBox.warning(self, "Separar", "Seleccione una celda en la columna 'DIÁLOGO' o 'EUSKERA' para separar.")
             return
-        self.last_focused_dialog_index = None; self.last_focused_dialog_cursor_pos = -1 
-        if text_that_was_split is None: QMessageBox.warning(self, "Error Interno", "No se pudo obtener el texto para dividir."); return
-        if not text_that_was_split.strip(): QMessageBox.information(self, "Separar", "No hay texto significativo para dividir."); return
+
+        current_row_index = current_model_index.row()
+        current_view_col_idx = current_model_index.column()
+        df_column_name_to_split = self.pandas_model.get_df_column_name(current_view_col_idx)
+
+        if df_column_name_to_split not in ['DIÁLOGO', 'EUSKERA']:
+            QMessageBox.warning(self, "Separar", "Por favor, seleccione una celda en la columna 'DIÁLOGO' o 'EUSKERA'.")
+            return
+        
+        # This is the QModelIndex of the cell the user intends to split
+        cell_to_split_qmodelindex = self.pandas_model.index(current_row_index, current_view_col_idx)
+
+        cursor_pos = -1
+        text_that_was_split = None
+        
+        # Check if the last focused/edited cell (where cursor position was stored)
+        # is the same as the cell currently selected for splitting.
+        if self.last_focused_dialog_index and \
+           self.last_focused_dialog_index.row() == cell_to_split_qmodelindex.row() and \
+           self.last_focused_dialog_index.column() == cell_to_split_qmodelindex.column() and \
+           self.last_focused_dialog_cursor_pos != -1:
+            
+            cursor_pos = self.last_focused_dialog_cursor_pos
+            text_that_was_split = self.last_focused_dialog_text # This is the text from the last edit of *this* cell
+        else:
+            # If the last edit context doesn't match the current cell, or no valid cursor pos.
+            QMessageBox.information(self, "Separar Intervención",
+                                    f"Por favor, edite la celda '{df_column_name_to_split}' (fila {current_row_index + 1}) "
+                                    "y coloque el cursor en el punto de división deseado.\n\n"
+                                    "Luego, asegúrese de que la celda pierda el foco (ej. haciendo clic fuera o presionando Enter) "
+                                    "antes de intentar 'Separar'.")
+            # Clear any potentially stale state to avoid misuse
+            self.last_focused_dialog_index = None
+            self.last_focused_dialog_cursor_pos = -1
+            return
+        
+        # Clear the state *after* successfully retrieving it for this operation
+        self.last_focused_dialog_index = None
+        self.last_focused_dialog_cursor_pos = -1
+        
+        if text_that_was_split is None: # Should be caught by above, but as a safeguard
+            QMessageBox.warning(self, "Error Interno", f"No se pudo obtener el texto de la celda '{df_column_name_to_split}' para dividir.")
+            return
+        
+        if not text_that_was_split.strip():
+            QMessageBox.information(self, "Separar", f"No hay texto significativo en la celda '{df_column_name_to_split}' para dividir.")
+            return
+            
         if not (0 <= cursor_pos <= len(text_that_was_split)):
-            QMessageBox.information(self, "Separar", f"Posición de cursor inválida ({cursor_pos}). Debe estar entre 0 y {len(text_that_was_split)}."); return
+            QMessageBox.information(self, "Separar", 
+                                    f"Posición de cursor inválida ({cursor_pos}) para el texto actual. "
+                                    f"Debe estar entre 0 y {len(text_that_was_split)}.")
+            return
         
-        before_text = text_that_was_split[:cursor_pos].strip(); after_text = text_that_was_split[cursor_pos:].strip()
-        if not after_text: QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después de la posición del cursor."); return
+        before_text = text_that_was_split[:cursor_pos].strip()
+        after_text = text_that_was_split[cursor_pos:].strip()
         
-        command = SplitInterventionCommand(self, current_row_index, before_text, after_text, text_that_was_split)
+        if not after_text: # If cursor is at the end, or only whitespace after.
+            QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después de la posición del cursor.")
+            return
+        
+        command = SplitInterventionCommand(self, current_row_index, 
+                                           before_text, after_text, 
+                                           text_that_was_split, df_column_name_to_split)
         self.undo_stack.push(command)
 
     def merge_interventions(self) -> None:
@@ -1325,41 +1363,103 @@ class MoveRowCommand(QUndoCommand):
     def redo(self): self._move(self.df_source_idx, self.df_target_idx)
 
 class SplitInterventionCommand(QUndoCommand): 
-    def __init__(self, table_window: TableWindow, df_idx_split: int, before_txt: str, after_txt: str, text_before_split: str):
-        super().__init__(); self.tw = table_window; self.df_idx_split = df_idx_split
-        self.before_txt, self.after_txt, self.text_that_was_split = before_txt, after_txt, text_before_split
-        self.new_row_id = -1; self.setText(f"Separar intervención en fila {df_idx_split + 1}")
+    def __init__(self, table_window: TableWindow, df_idx_split: int, 
+                 before_txt: str, after_txt: str, text_before_split: str,
+                 df_column_name_to_split: str): # Added df_column_name_to_split
+        super().__init__()
+        self.tw = table_window
+        self.df_idx_split = df_idx_split
+        self.before_txt = before_txt
+        self.after_txt = after_txt
+        self.text_that_was_split = text_before_split
+        self.df_column_name_to_split = df_column_name_to_split # Store the target column
+        self.new_row_id = -1
+        self.setText(f"Separar '{self.df_column_name_to_split}' en fila {df_idx_split + 1}")
+
     def redo(self):
         current_df = self.tw.pandas_model.dataframe()
-        if not (0 <= self.df_idx_split < len(current_df)): return
+        if not (0 <= self.df_idx_split < len(current_df)): 
+            print(f"SplitInterventionCommand.redo: df_idx_split ({self.df_idx_split}) out of bounds for df len ({len(current_df)})")
+            return
+            
         self.new_row_id = self.tw.pandas_model.get_next_id()
-        view_col_dialog = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
-        if view_col_dialog is None: return
+        
+        target_col_view_idx = self.tw.pandas_model.get_view_column_index(self.df_column_name_to_split)
+        if target_col_view_idx is None:
+            print(f"SplitInterventionCommand.redo: Columna '{self.df_column_name_to_split}' no encontrada en el mapeo del modelo.")
+            return
 
+        # Get all data from the original row to copy to the new row
         original_row_data_for_new_row = current_df.iloc[self.df_idx_split].copy().to_dict()
-        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx_split, view_col_dialog), self.before_txt, Qt.ItemDataRole.EditRole)
-        new_row_full_data = {**original_row_data_for_new_row, 'ID': self.new_row_id, 'DIÁLOGO': self.after_txt}
+        
+        # Update the target column in the original (split) row with 'before_text'
+        self.tw.pandas_model.setData(
+            self.tw.pandas_model.index(self.df_idx_split, target_col_view_idx), 
+            self.before_txt, 
+            Qt.ItemDataRole.EditRole
+        )
+        
+        # Prepare the full data for the new row
+        new_row_full_data = {**original_row_data_for_new_row, 'ID': self.new_row_id}
+        # Set the 'after_text' into the correct column for the new row
+        new_row_full_data[self.df_column_name_to_split] = self.after_txt
+        
+        # Insert the new row below the original one
         self.tw.pandas_model.insert_row_data(self.df_idx_split + 1, new_row_full_data)
-        self.tw.set_unsaved_changes(True); self.tw.update_character_completer_and_notify()
+        
+        self.tw.set_unsaved_changes(True)
+        self.tw.update_character_completer_and_notify() # If PERSONAJE was part of new_row_full_data
+        
+        # Select and scroll to the new row
         self.tw.table_view.selectRow(self.df_idx_split + 1)
         idx_to_scroll = self.tw.pandas_model.index(self.df_idx_split + 1, 0)
-        if idx_to_scroll.isValid(): self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
-        self.tw.request_resize_rows_to_contents_deferred()
-    def undo(self):
-        if self.new_row_id == -1: return
-        view_col_dialog = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
-        if view_col_dialog is None: return
-        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx_split, view_col_dialog), self.text_that_was_split, Qt.ItemDataRole.EditRole)
+        if idx_to_scroll.isValid(): 
+            self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
         
+        self.tw.request_resize_rows_to_contents_deferred()
+
+    def undo(self):
+        if self.new_row_id == -1: return # Redo was not successful or not called
+        
+        target_col_view_idx = self.tw.pandas_model.get_view_column_index(self.df_column_name_to_split)
+        if target_col_view_idx is None:
+            print(f"SplitInterventionCommand.undo: Columna '{self.df_column_name_to_split}' no encontrada.")
+            return
+            
+        # Restore the original full text to the target column of the original row
+        self.tw.pandas_model.setData(
+            self.tw.pandas_model.index(self.df_idx_split, target_col_view_idx), 
+            self.text_that_was_split, 
+            Qt.ItemDataRole.EditRole
+        )
+        
+        # Find and remove the row that was added
+        # It should be at df_idx_split + 1 if no other structural changes happened,
+        # but finding by ID is safer if available and reliable.
+        # Let's assume remove_row_by_df_index handles the actual removal given an index.
+        # The key is to find the correct index of the row with self.new_row_id.
         idx_to_remove = self.tw.pandas_model.find_df_index_by_id(self.new_row_id)
-        if idx_to_remove is None: idx_to_remove = self.df_idx_split + 1 
+        if idx_to_remove is None: 
+            # Fallback if ID search fails (e.g., ID was not unique or some issue)
+            # This assumes the row is still at df_idx_split + 1
+            idx_to_remove = self.df_idx_split + 1 
+            print(f"SplitInterventionCommand.undo: Could not find row by ID {self.new_row_id}, attempting to remove at index {idx_to_remove}.")
+
         if idx_to_remove is not None and 0 <= idx_to_remove < self.tw.pandas_model.rowCount():
             self.tw.pandas_model.remove_row_by_df_index(idx_to_remove)
+        else:
+            print(f"SplitInterventionCommand.undo: Row to remove (ID {self.new_row_id} or index {idx_to_remove}) not found or index invalid.")
 
-        self.tw.set_unsaved_changes(True); self.tw.update_character_completer_and_notify()
+
+        self.tw.set_unsaved_changes(True)
+        self.tw.update_character_completer_and_notify()
+        
+        # Select and scroll back to the original row
         self.tw.table_view.selectRow(self.df_idx_split)
         idx_to_scroll = self.tw.pandas_model.index(self.df_idx_split, 0)
-        if idx_to_scroll.isValid(): self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
+        if idx_to_scroll.isValid(): 
+            self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
+        
         self.tw.request_resize_rows_to_contents_deferred()
 
 class MergeInterventionsCommand(QUndoCommand): 

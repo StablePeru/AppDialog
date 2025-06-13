@@ -3,7 +3,8 @@ import os
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QSlider, QLabel,
-    QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox
+    QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox,
+    QGridLayout # Import QGridLayout
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -11,13 +12,15 @@ from PyQt6.QtCore import QUrl, Qt, QTimer, pyqtSignal, QSize, QKeyCombination
 from PyQt6.QtGui import QKeySequence, QFont, QIcon, QKeyEvent, QFontMetrics, QMouseEvent
 
 from .time_code_edit import TimeCodeEdit
+# Asegúrate que TableWindow pueda ser importado para type hinting si es necesario
+# from .table_window import TableWindow # Opcional para type hint
 
 class VideoPlayerWidget(QWidget):
     in_out_signal = pyqtSignal(str, int)
     out_released = pyqtSignal()
     detach_requested = pyqtSignal(QWidget)
 
-    FPS_RATE = 25.0 # Definir como atributo de clase o instancia para consistencia
+    FPS_RATE = 25.0
 
     def __init__(self, get_icon_func=None, main_window=None):
         super().__init__()
@@ -26,18 +29,21 @@ class VideoPlayerWidget(QWidget):
         self.main_window = main_window
         self.f6_key_pressed_internally = False
 
-        self._me_audio_output_handler = None # For M+E audio
-        self.me_player = None # Player for M+E
-        self.use_me_audio = False # Flag to indicate M+E usage
-        self.user_volume_float = 1.0 # Store user's desired volume (0.0 to 1.0)
+        self._me_audio_output_handler = None
+        self.me_player = None
+        self.use_me_audio = False
+        self.user_volume_float = 1.0
+
+        # Referencia a TableWindow para subtítulos
+        self.table_window_ref = None
+        self.current_subtitle_df_idx = -1 # Para optimizar búsqueda de subtítulos
 
         if self.get_icon:
             self.play_icon = self.get_icon("play_icon.svg")
             self.pause_icon = self.get_icon("pause_icon.svg")
             self.volume_up_icon = self.get_icon("volume_up_icon.svg")
             self.volume_off_icon = self.get_icon("volume_off_icon.svg")
-            self.load_audio_icon = self.get_icon("load_audio_icon.svg") # New icon
-
+            self.load_audio_icon = self.get_icon("load_audio_icon.svg")
         else:
             self.play_icon, self.pause_icon, self.volume_up_icon, self.volume_off_icon, self.load_audio_icon = QIcon(), QIcon(), QIcon(), QIcon(), QIcon()
 
@@ -51,6 +57,17 @@ class VideoPlayerWidget(QWidget):
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
+    def set_table_window_reference(self, table_window): # table_window: TableWindow
+        """Establece la referencia a TableWindow para acceder a los datos del guion."""
+        self.table_window_ref = table_window
+        if self.table_window_ref and hasattr(self.table_window_ref, 'pandas_model'):
+            # Conectar a cambios en el modelo para actualizar subtítulos si el guion cambia
+            self.table_window_ref.pandas_model.modelReset.connect(self._reset_and_update_subtitle_display)
+            self.table_window_ref.pandas_model.layoutChanged.connect(self._reset_and_update_subtitle_display)
+            # dataChanged es más granular, podría ser demasiado frecuente.
+            # self.table_window_ref.pandas_model.dataChanged.connect(self._update_subtitle_on_data_change)
+
+
     def init_ui(self) -> None:
         self.media_player = QMediaPlayer()
         if not self.media_player.audioOutput():
@@ -61,7 +78,6 @@ class VideoPlayerWidget(QWidget):
 
         audio_output = self.media_player.audioOutput()
         if audio_output:
-            # Make sure this connection is only made once or is robust to multiple calls
             if not getattr(audio_output, '_volume_signal_connected_vpw', False):
                 audio_output.volumeChanged.connect(self.update_volume_slider_display)
                 setattr(audio_output, '_volume_signal_connected_vpw', True)
@@ -75,33 +91,38 @@ class VideoPlayerWidget(QWidget):
         self.video_widget.setObjectName("video_widget")
         self.media_player.setVideoOutput(self.video_widget)
 
+        # QLabel para mostrar subtítulos
+        self.subtitle_display_label = QLabel(self.video_widget) # Hacerlo hijo del video_widget
+        self.subtitle_display_label.setObjectName("subtitle_display_label")
+        self.subtitle_display_label.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
+        self.subtitle_display_label.setWordWrap(True)
+        self.subtitle_display_label.setVisible(False) # Inicialmente oculto
+        # El estilo se aplicará desde main.css
+
         self.media_player.playbackStateChanged.connect(self.update_play_button_icon)
         self.media_player.positionChanged.connect(self.update_slider_position)
+        self.media_player.positionChanged.connect(self._trigger_subtitle_update) # Conectar para subtítulos
         self.media_player.durationChanged.connect(self.update_slider_range)
         self.media_player.mediaStatusChanged.connect(self.on_media_status_changed)
         self.media_player.errorOccurred.connect(self.on_media_error)
 
         self.setup_layouts()
-        # self.setup_timers() # Movido a __init__ para asegurar que display_update_timer se cree antes
+
 
     def setup_controls(self) -> None:
-        # Tamaño estándar para los iconos dentro de los botones del reproductor
-        player_icon_size = QSize(20, 20) # Mantener el tamaño original o ajustarlo
-        # La altura objetivo para los botones será definida en CSS, ej: 36px
+        player_icon_size = QSize(20, 20)
 
         self.play_button = QPushButton() 
-        if self.get_icon: self.play_button.setIcon(self.play_icon) # play_icon ya debería estar cargado
+        if self.get_icon: self.play_button.setIcon(self.play_icon)
         self.play_button.setIconSize(player_icon_size)
-        # self.play_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
         self.play_button.setObjectName("play_button")
         self.play_button.setToolTip("Reproducir/Pausar (Ver Shortcuts)")
         self.play_button.clicked.connect(self.toggle_play)
-        self.play_button.setProperty("iconOnlyButton", True) # Indicar que es solo icono
+        self.play_button.setProperty("iconOnlyButton", True)
 
         self.rewind_button = QPushButton() 
         if self.get_icon: self.rewind_button.setIcon(self.get_icon("rewind_icon.svg"))
         self.rewind_button.setIconSize(player_icon_size)
-        # self.rewind_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
         self.rewind_button.setObjectName("rewind_button")
         self.rewind_button.setToolTip("Retroceder (Ver Shortcuts)")
         self.rewind_button.clicked.connect(lambda: self.change_position(-5000))
@@ -110,28 +131,25 @@ class VideoPlayerWidget(QWidget):
         self.forward_button = QPushButton() 
         if self.get_icon: self.forward_button.setIcon(self.get_icon("forward_icon.svg"))
         self.forward_button.setIconSize(player_icon_size)
-        # self.forward_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
         self.forward_button.setObjectName("forward_button")
         self.forward_button.setToolTip("Avanzar (Ver Shortcuts)")
         self.forward_button.clicked.connect(lambda: self.change_position(5000))
         self.forward_button.setProperty("iconOnlyButton", True)
 
-        self.detach_button = QPushButton(" Separar") # Este tiene texto
+        self.detach_button = QPushButton(" Separar")
         if self.get_icon: self.detach_button.setIcon(self.get_icon("detach_video_icon.svg"))
-        self.detach_button.setIconSize(player_icon_size) # El icono es 20x20
+        self.detach_button.setIconSize(player_icon_size)
         self.detach_button.setObjectName("detach_button")
         self.detach_button.setToolTip("Separar/Adjuntar Video")
         self.detach_button.clicked.connect(self.detach_widget)
-        # No necesita setProperty("iconOnlyButton", True)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setObjectName("position_slider")
         self.slider.sliderMoved.connect(self.set_position_from_slider_move)
 
         self.volume_button = QPushButton() 
-        if self.get_icon: self.volume_button.setIcon(self.volume_up_icon) # volume_up_icon ya cargado
+        if self.get_icon: self.volume_button.setIcon(self.volume_up_icon)
         self.volume_button.setIconSize(player_icon_size)
-        # self.volume_button.setFixedSize(icon_only_button_size) # <--- ELIMINAR
         self.volume_button.setObjectName("volume_button")
         self.volume_button.setToolTip("Volumen")
         self.volume_button.clicked.connect(self.toggle_volume_slider_visibility)
@@ -146,7 +164,7 @@ class VideoPlayerWidget(QWidget):
         self.time_code_label = QLabel("00:00:00:00")
         self.time_code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.time_code_label.setObjectName("time_code_label")
-        time_code_font = QFont("Arial", 18, QFont.Weight.Bold) # Definir la fuente una vez
+        time_code_font = QFont("Arial", 18, QFont.Weight.Bold)
         self.time_code_label.setFont(time_code_font)
         
         font_metrics_height = QFontMetrics(time_code_font).height()
@@ -160,14 +178,14 @@ class VideoPlayerWidget(QWidget):
         self.time_code_editor.setVisible(False)
         self.time_code_editor.editingFinished.connect(self.finish_edit_time_code)
 
-        self.in_button = QPushButton(" IN") # Tiene texto
+        self.in_button = QPushButton(" IN")
         if self.get_icon: self.in_button.setIcon(self.get_icon("mark_in_icon.svg"))
         self.in_button.setIconSize(player_icon_size)
         self.in_button.setObjectName("in_button")
         self.in_button.setToolTip("Marcar IN (Ver Shortcuts)")
         self.in_button.clicked.connect(self.mark_in)
 
-        self.out_button = QPushButton(" OUT") # Tiene texto
+        self.out_button = QPushButton(" OUT")
         if self.get_icon: self.out_button.setIcon(self.get_icon("mark_out_icon.svg"))
         self.out_button.setIconSize(player_icon_size)
         self.out_button.setObjectName("out_button")
@@ -179,7 +197,13 @@ class VideoPlayerWidget(QWidget):
         self.me_toggle_checkbox.setObjectName("me_toggle_checkbox")
         self.me_toggle_checkbox.setToolTip("Alternar entre audio original (V.O.) y Música+Efectos (M+E)")
         self.me_toggle_checkbox.stateChanged.connect(self.toggle_me_audio_source)
-        self.me_toggle_checkbox.setEnabled(False) # Disabled until M+E is loaded
+        self.me_toggle_checkbox.setEnabled(False)
+
+        # Checkbox para subtítulos
+        self.subtitle_toggle_checkbox = QCheckBox("Subtítulos")
+        self.subtitle_toggle_checkbox.setObjectName("subtitle_toggle_checkbox")
+        self.subtitle_toggle_checkbox.setToolTip("Mostrar/Ocultar subtítulos del guion")
+        self.subtitle_toggle_checkbox.stateChanged.connect(self._handle_subtitle_toggle)
     
     def setup_layouts(self) -> None:
         layout = QVBoxLayout()
@@ -195,19 +219,21 @@ class VideoPlayerWidget(QWidget):
         top_info_layout_container.setLayout(self.time_code_display_stack)
         
         layout.addWidget(top_info_layout_container)
-        layout.addWidget(self.video_widget, 1) # video_widget ocupa el espacio sobrante
+
+        # Contenedor para el video y el subtítulo superpuesto
+        # QVideoWidget no se puede poner en un QStackedLayout directamente para superposición fácil.
+        # En su lugar, haremos que subtitle_display_label sea hijo de video_widget y lo posicionaremos
+        # en el evento resize del VideoPlayerWidget.
+        layout.addWidget(self.video_widget, 1)
         layout.addWidget(self.slider) 
 
-        # --- Crear el QWidget contenedor para los controles del video ---
         self.video_controls_bar_widget = QWidget()
-        self.video_controls_bar_widget.setObjectName("video_controls_bar") # Para el CSS
+        self.video_controls_bar_widget.setObjectName("video_controls_bar") 
 
-        # Layout para *dentro* de video_controls_bar_widget
         video_buttons_internal_layout = QHBoxLayout(self.video_controls_bar_widget)
         video_buttons_internal_layout.setContentsMargins(0, 0, 0, 0)
-        video_buttons_internal_layout.setSpacing(6) # Espacio entre botones del reproductor
+        video_buttons_internal_layout.setSpacing(6) 
 
-        # Añadir botones al layout interno
         video_buttons_internal_layout.addWidget(self.detach_button)
         video_buttons_internal_layout.addWidget(self.play_button)
         video_buttons_internal_layout.addWidget(self.rewind_button)
@@ -215,13 +241,100 @@ class VideoPlayerWidget(QWidget):
         video_buttons_internal_layout.addWidget(self.in_button)
         video_buttons_internal_layout.addWidget(self.out_button)
         video_buttons_internal_layout.addWidget(self.me_toggle_checkbox) 
-        video_buttons_internal_layout.addStretch(1) # Empuja el botón de volumen a la derecha
+        video_buttons_internal_layout.addWidget(self.subtitle_toggle_checkbox) # Añadir checkbox de subtítulos
+        video_buttons_internal_layout.addStretch(1) 
         video_buttons_internal_layout.addWidget(self.volume_button)
-        video_buttons_internal_layout.addWidget(self.volume_slider_vertical) # Este se muestra/oculta
+        video_buttons_internal_layout.addWidget(self.volume_slider_vertical)
 
-        # Añadir el widget contenedor al layout principal
         layout.addWidget(self.video_controls_bar_widget)
         self.setLayout(layout)
+
+    def resizeEvent(self, event):
+        """Ajusta la posición y tamaño del label de subtítulos cuando la ventana cambia de tamaño."""
+        super().resizeEvent(event)
+        if hasattr(self, 'subtitle_display_label') and self.video_widget:
+            # Posicionar en la parte inferior del video_widget
+            label_height = self.subtitle_display_label.fontMetrics().height() * 3 # Altura para ~2-3 líneas
+            label_width = self.video_widget.width() - 20 # Un poco de margen
+            
+            x = (self.video_widget.width() - label_width) // 2
+            y = self.video_widget.height() - label_height - 10 # 10px desde abajo
+            
+            self.subtitle_display_label.setGeometry(x, y, label_width, label_height)
+
+
+    def _reset_and_update_subtitle_display(self):
+        """Llamado cuando el modelo del guion cambia."""
+        self.current_subtitle_df_idx = -1
+        self._trigger_subtitle_update(self.media_player.position())
+
+    # def _update_subtitle_on_data_change(self, topLeft, bottomRight, roles):
+    #     """Llamado cuando datos específicos del guion cambian.
+    #        Podría ser más eficiente si solo una línea cambia.
+    #     """
+    #     # Por ahora, un reseteo completo es más simple
+    #     self._reset_and_update_subtitle_display()
+
+
+    def _handle_subtitle_toggle(self, state: int):
+        is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
+        self.subtitle_display_label.setVisible(is_checked)
+        if is_checked:
+            self._trigger_subtitle_update(self.media_player.position())
+        else:
+            self.subtitle_display_label.setText("") # Limpiar si se desactiva
+
+    def _trigger_subtitle_update(self, position_ms: int):
+        """Busca y muestra el subtítulo apropiado para la posición dada."""
+        if not self.subtitle_toggle_checkbox.isChecked() or not self.table_window_ref:
+            self.subtitle_display_label.setText("")
+            return
+
+        model = self.table_window_ref.pandas_model
+        if model is None or model.rowCount() == 0:
+            self.subtitle_display_label.setText("")
+            return
+
+        found_text = ""
+        found_idx = -1
+
+        # Intento de optimización: verificar el subtítulo actual primero
+        if self.current_subtitle_df_idx != -1 and 0 <= self.current_subtitle_df_idx < model.rowCount():
+            try:
+                row_in_tc = str(model.dataframe().at[self.current_subtitle_df_idx, 'IN'])
+                row_out_tc = str(model.dataframe().at[self.current_subtitle_df_idx, 'OUT'])
+                dialogue_text = str(model.dataframe().at[self.current_subtitle_df_idx, 'DIÁLOGO'])
+
+                row_in_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_in_tc)
+                row_out_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_out_tc)
+
+                if row_in_ms <= position_ms < row_out_ms:
+                    found_text = dialogue_text
+                    found_idx = self.current_subtitle_df_idx
+            except Exception as e:
+                print(f"Error al procesar subtítulo actual (idx {self.current_subtitle_df_idx}): {e}")
+                self.current_subtitle_df_idx = -1 # Resetear si hay error
+
+        if not found_text: # Si el actual no es, buscar en todo el dataframe
+            for i in range(model.rowCount()):
+                try:
+                    row_in_tc = str(model.dataframe().at[i, 'IN'])
+                    row_out_tc = str(model.dataframe().at[i, 'OUT'])
+                    dialogue_text = str(model.dataframe().at[i, 'DIÁLOGO'])
+
+                    row_in_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_in_tc)
+                    row_out_ms = self.table_window_ref.convert_time_code_to_milliseconds(row_out_tc)
+
+                    if row_in_ms <= position_ms < row_out_ms:
+                        found_text = dialogue_text
+                        found_idx = i
+                        break 
+                except Exception as e:
+                    print(f"Error al procesar fila {i} para subtítulos: {e}")
+                    continue # Saltar a la siguiente fila
+
+        self.subtitle_display_label.setText(found_text)
+        self.current_subtitle_df_idx = found_idx
 
 
     def update_key_listeners(self):
@@ -308,7 +421,7 @@ class VideoPlayerWidget(QWidget):
             self.media_player.play()
             if self.me_player and not self.me_player.source().isEmpty() and self.use_me_audio:
                 self.me_player.play()
-                self.me_player.setPosition(self.media_player.position()) # Ensure sync
+                self.me_player.setPosition(self.media_player.position())
 
     def change_position(self, change_ms: int) -> None:
         if self.media_player.duration() <= 0 and self.media_player.source().isEmpty(): return
@@ -405,12 +518,14 @@ class VideoPlayerWidget(QWidget):
                 if not getattr(audio_out, '_volume_signal_connected_vpw', False):
                     audio_out.volumeChanged.connect(self.update_volume_slider_display)
                     setattr(audio_out, '_volume_signal_connected_vpw', True)
-                # self.user_volume_float is the master, audio_out.volume() reflects it after _update_audio_outputs
                 self.volume_slider_vertical.setValue(int(self.user_volume_float * 100))
 
 
-            self._update_audio_outputs() # Ensure correct volume/mute applied
+            self._update_audio_outputs() 
             self.media_player.play()
+            # Al cargar video nuevo, resetear índice de subtítulo
+            self.current_subtitle_df_idx = -1
+            self._trigger_subtitle_update(0) # Intentar mostrar subtítulo inicial si aplica
         except Exception as e: QMessageBox.critical(self, "Error Crítico", f"Error crítico al cargar el video: {str(e)}")
 
     def load_me_file(self, audio_path: str) -> None:
@@ -455,10 +570,9 @@ class VideoPlayerWidget(QWidget):
 
     def _update_audio_outputs(self) -> None:
         main_audio = self.media_player.audioOutput()
-        if not main_audio: # Si la salida de audio principal no está lista, no podemos hacer nada.
+        if not main_audio: 
             return
 
-        # Determinar si el reproductor M+E está listo para usarse (tiene fuente y salida de audio)
         me_player_ready_for_audio = (
             self.me_player is not None and
             not self.me_player.source().isEmpty() and
@@ -467,12 +581,10 @@ class VideoPlayerWidget(QWidget):
         me_audio = self.me_player.audioOutput() if me_player_ready_for_audio else None
 
         if self.use_me_audio and me_player_ready_for_audio and me_audio:
-            # Modo M+E activo y reproductor M+E listo.
             main_audio.setMuted(True)
             me_audio.setMuted(False)
             me_audio.setVolume(self.user_volume_float)
 
-            # Sincronizar estado de reproducción
             if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 self.me_player.play()
                 self.me_player.setPosition(self.media_player.position())
@@ -480,24 +592,22 @@ class VideoPlayerWidget(QWidget):
                 self.me_player.pause()
                 self.me_player.setPosition(self.media_player.position())
         else:
-            # Modo V.O. (audio original) o M+E seleccionado pero no listo.
             main_audio.setMuted(False)
-            main_audio.setVolume(self.user_volume_float) # Aplicar volumen al principal
+            main_audio.setVolume(self.user_volume_float)
 
-            # Si el reproductor M+E está listo, asegurarse de que esté silenciado y pausado.
             if me_player_ready_for_audio and me_audio:
                 me_audio.setMuted(True)
-                self.me_player.pause() # Pausar ya que tiene fuente.
-                # Opcional: mantener sincronizada la posición del M+E.
-                # self.me_player.setPosition(self.media_player.position())
-
+                self.me_player.pause()
+                
     def on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
         if status == QMediaPlayer.MediaStatus.LoadedMedia:
-            # Cuando un nuevo medio se carga en media_player, actualizamos el volumen
-            # y la interfaz del slider para reflejar self.user_volume_float.
-            self._update_audio_outputs() # Asegura que el volumen correcto se aplique
+            self._update_audio_outputs() 
             if self.media_player.audioOutput():
                 self.volume_slider_vertical.setValue(int(self.user_volume_float * 100))
+            # Al cargar nuevo medio, resetear subtítulos
+            self.current_subtitle_df_idx = -1
+            self._trigger_subtitle_update(0)
+
 
         elif status == QMediaPlayer.MediaStatus.EndOfMedia:
             self.media_player.setPosition(0)
@@ -505,8 +615,12 @@ class VideoPlayerWidget(QWidget):
             if self.me_player and not self.me_player.source().isEmpty():
                 self.me_player.setPosition(0)
                 self.me_player.pause()
+            self.subtitle_display_label.setText("") # Limpiar subtítulo al final
+            self.current_subtitle_df_idx = -1
         elif status == QMediaPlayer.MediaStatus.InvalidMedia:
             QMessageBox.warning(self, "Error de Medio", "El archivo de video es inválido o no soportado.")
+            self.subtitle_display_label.setText("")
+            self.current_subtitle_df_idx = -1
         elif status == QMediaPlayer.MediaStatus.NoMedia: 
             self.time_code_label.setText("00:00:00:00")
             self.slider.setValue(0)
@@ -515,7 +629,8 @@ class VideoPlayerWidget(QWidget):
             self.me_toggle_checkbox.setEnabled(False)
             self.me_toggle_checkbox.setChecked(False)
             self.use_me_audio = False
-            # Asegurarse que el volumen del reproductor principal (ahora sin medio) esté bien
+            self.subtitle_display_label.setText("") # Limpiar subtítulo
+            self.current_subtitle_df_idx = -1
             self._update_audio_outputs()
 
 
@@ -538,6 +653,8 @@ class VideoPlayerWidget(QWidget):
             self.media_player.setPosition(new_pos)
             if self.me_player and not self.me_player.source().isEmpty():
                 self.me_player.setPosition(new_pos)
+            # Al cambiar posición externamente, actualizar subtítulo
+            self._trigger_subtitle_update(new_pos)
         except Exception as e: QMessageBox.warning(self, "Error", f"Error al establecer la posición del video: {str(e)}")
         
     def detach_widget(self) -> None:
@@ -548,11 +665,15 @@ class VideoPlayerWidget(QWidget):
 
     def update_fonts(self, font_size: int) -> None:
         base_font = QFont(); base_font.setPointSize(font_size)
-        controls_to_update = [ self.play_button, self.rewind_button, self.forward_button, self.detach_button, self.in_button, self.out_button, self.volume_button ]
-        for control_name_str in controls_to_update: # Iterar por nombres de atributo si son QPushButton
-            control = getattr(self, control_name_str.objectName(), None) if hasattr(control_name_str, 'objectName') else getattr(self, control_name_str, None)
-
-            if isinstance(control, QPushButton): # Asegurarse que es un botón
+        # Lista de nombres de atributos de botones
+        button_attribute_names = [
+            "play_button", "rewind_button", "forward_button", "detach_button",
+            "in_button", "out_button", "volume_button"
+        ]
+        controls_to_update = [getattr(self, name) for name in button_attribute_names if hasattr(self, name)]
+        
+        for control in controls_to_update:
+            if isinstance(control, QPushButton):
                  control.setFont(base_font)
         
         if hasattr(self, 'time_code_label') and self.time_code_label:
@@ -566,6 +687,15 @@ class VideoPlayerWidget(QWidget):
             self.time_code_label.setFixedHeight(target_height)
             if hasattr(self, 'time_code_editor') and self.time_code_editor:
                 self.time_code_editor.setFixedHeight(target_height)
+
+        if hasattr(self, 'subtitle_display_label'):
+             subtitle_font = QFont()
+             # Ajusta el tamaño base de los subtítulos según `font_size` si es necesario
+             # Por ejemplo, un poco más grande que el tamaño de la tabla.
+             subtitle_font.setPointSize(max(font_size + 3, 12)) 
+             subtitle_font.setBold(True)
+             self.subtitle_display_label.setFont(subtitle_font)
+             self.resizeEvent(None) # Forzar reposicionamiento/redimensionamiento del label de subtítulo
 
     def edit_time_code_label(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -594,6 +724,7 @@ class VideoPlayerWidget(QWidget):
 
             duration_msecs = self.media_player.duration()
 
+            position_changed = False
             if duration_msecs > 0 and (target_msecs < 0 or target_msecs > duration_msecs):
                 QMessageBox.warning(self, "Tiempo Inválido",
                                     f"El tiempo '{new_tc_str}' está fuera del rango del vídeo (00:00:00:00 a {self.convert_milliseconds_to_time_code_str(duration_msecs)}).")
@@ -603,7 +734,11 @@ class VideoPlayerWidget(QWidget):
                 self.media_player.setPosition(target_msecs)
                 if self.me_player and not self.me_player.source().isEmpty():
                     self.me_player.setPosition(target_msecs)
-            # Eliminado el else que mostraba "No Modificable" incorrectamente. Si es seekable, se hace. Si no, ya se advirtió.
+                position_changed = True
+            
+            if position_changed: # Actualizar subtítulos si la posición cambió
+                self._trigger_subtitle_update(target_msecs)
+
 
         except ValueError as e:
             QMessageBox.warning(self, "Formato Inválido", str(e))
