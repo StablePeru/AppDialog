@@ -1593,9 +1593,12 @@ class MergeInterventionsCommand(QUndoCommand):
 
 class ChangeSceneCommand(QUndoCommand): 
     def __init__(self, table_window: TableWindow, df_start_idx: int):
-        super().__init__(); self.tw = table_window; self.df_start_idx = df_start_idx
-        self.old_scenes_map: Dict[int, str] = {}; self.new_scene_base_val: Optional[str] = None
+        super().__init__()
+        self.tw = table_window
+        self.df_start_idx = df_start_idx
+        self.old_scenes_map: Dict[int, str] = {}
         self.setText(f"Incrementar escena desde fila {df_start_idx + 1}")
+
     def _apply_scenes(self, scene_map: Dict[int, str], select_row: Optional[int]):
         view_col_scene = self.tw.pandas_model.get_view_column_index('SCENE')
         if view_col_scene is None: return
@@ -1607,29 +1610,48 @@ class ChangeSceneCommand(QUndoCommand):
             idx_to_scroll = self.tw.pandas_model.index(select_row, 0)
             if idx_to_scroll.isValid(): self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
         self.tw.set_unsaved_changes(True)
+
     def redo(self):
         current_df = self.tw.pandas_model.dataframe()
-        if not (0 <= self.df_start_idx < len(current_df)): self.setText(f"Incrementar escena (fila {self.df_start_idx+1} inválida)"); return
-        
-        self.old_scenes_map.clear(); new_scenes_map_for_redo: Dict[int, str] = {}
-        scene_val_at_start_str = str(current_df.at[self.df_start_idx, 'SCENE']).strip()
-        
-        try:
-            scene_val_at_start_num = int(scene_val_at_start_str) if scene_val_at_start_str.isdigit() else 0
-        except ValueError: 
-            QMessageBox.warning(self.tw, "Cambiar Escena", f"El valor de escena en la fila {self.df_start_idx + 1} ('{scene_val_at_start_str}') no es un número simple. No se puede autoincrementar.")
-            self.setText("Incrementar escena (base no numérica simple)")
-            return 
-            
-        self.new_scene_base_val = str(scene_val_at_start_num + 1)
+        if not (0 <= self.df_start_idx < len(current_df)):
+            self.setText(f"Incrementar escena (fila {self.df_start_idx+1} inválida)")
+            return
+
+        # Pre-check loop to ensure all subsequent scenes are simple numeric strings
         for df_idx in range(self.df_start_idx, len(current_df)):
-            self.old_scenes_map[df_idx] = str(current_df.at[df_idx, 'SCENE'])
-            new_scenes_map_for_redo[df_idx] = self.new_scene_base_val
+            scene_val_str = str(current_df.at[df_idx, 'SCENE']).strip()
+            try:
+                # We don't need the value, just to check if it's convertible to an int
+                int(scene_val_str)
+            except ValueError:
+                QMessageBox.warning(self.tw, "Cambiar Escena",
+                                    f"El valor de escena en la fila {df_idx + 1} ('{scene_val_str}') "
+                                    "no es un número simple. No se puede autoincrementar en bloque. "
+                                    "Todas las escenas desde la seleccionada deben ser numéricas.")
+                self.setText("Incrementar escena (escena no numérica encontrada)")
+                return # Abort the operation
+
+        # If pre-check passes, proceed with the changes
+        self.old_scenes_map.clear()
+        new_scenes_map_for_redo: Dict[int, str] = {}
         
+        # Main loop to calculate and store changes
+        for df_idx in range(self.df_start_idx, len(current_df)):
+            original_scene_str = str(current_df.at[df_idx, 'SCENE'])
+            self.old_scenes_map[df_idx] = original_scene_str
+            
+            # We know it's convertible from the pre-check
+            scene_num = int(original_scene_str.strip())
+            new_scene_val = str(scene_num + 1)
+            new_scenes_map_for_redo[df_idx] = new_scene_val
+
         self._apply_scenes(new_scenes_map_for_redo, self.df_start_idx)
-        self.setText(f"Incrementar escena a '{self.new_scene_base_val}' desde fila {self.df_start_idx + 1}")
+        self.setText(f"Incrementar escenas desde fila {self.df_start_idx + 1}")
+
     def undo(self):
-        if not self.old_scenes_map: self.setText(f"Incrementar escena (sin datos para undo)"); return 
+        if not self.old_scenes_map:
+            self.setText(f"Incrementar escena (sin datos para undo)")
+            return 
         self._apply_scenes(self.old_scenes_map, self.df_start_idx)
 
 class HeaderEditCommand(QUndoCommand):

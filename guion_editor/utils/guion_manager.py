@@ -26,13 +26,11 @@ class GuionManager:
 
         has_scene_numbers = False
         if 'SCENE' not in df.columns:
-            # Determinar posición de inserción. Después de 'ID', antes de 'IN'.
-            # Si 'ID' existe, insertar después. Sino, al principio (posición 0).
             insert_idx_for_scene = 0
             if 'ID' in df.columns:
                 try:
                     insert_idx_for_scene = df.columns.get_loc('ID') + 1
-                except KeyError: # ID podría estar en df.columns pero no ser localizable si el df es raro
+                except KeyError: 
                     pass 
             
             df.insert(insert_idx_for_scene, 'SCENE', "1")
@@ -40,7 +38,14 @@ class GuionManager:
         else:
             df['SCENE'] = df['SCENE'].astype(str)
 
-            # Normalizar valores como "1.0" a "1"
+            # --- MODIFICACIÓN: Propagar el número de escena a filas vacías ---
+            # Reemplazar strings vacíos y varios tipos de 'nan' con pd.NA para que ffill funcione
+            df['SCENE'] = df['SCENE'].str.strip()
+            df['SCENE'].replace(['', 'nan', 'none', 'NaN', 'None'], pd.NA, inplace=True)
+            df['SCENE'].ffill(inplace=True) # Rellenar hacia adelante (forward fill)
+            df['SCENE'].fillna("1", inplace=True) # Rellenar los que queden (el/los primero/s) con "1"
+            # --- FIN DE LA MODIFICACIÓN ---
+
             def normalize_scene_value(scene_str: str) -> str:
                 scene_str_stripped = scene_str.strip()
                 if scene_str_stripped.endswith(".0"):
@@ -48,16 +53,14 @@ class GuionManager:
                     try:
                         val_int = int(potential_int_part)
                         val_float_original = float(scene_str_stripped)
-                        if val_int == val_float_original: # ej. int("1") == float("1.0")
-                            return potential_int_part # Devolver "1"
+                        if val_int == val_float_original:
+                            return potential_int_part
                     except ValueError:
-                        # o potential_int_part no era int, o scene_str_stripped no era float.
-                        pass # Devolver original stripped
+                        pass
                 return scene_str_stripped
             
             df['SCENE'] = df['SCENE'].apply(normalize_scene_value)
 
-            # Determinar has_scene_numbers basado en los datos normalizados
             non_empty_scenes = [s for s in df['SCENE'].tolist() if s.strip() and s.strip().lower() != 'nan']
             
             if not non_empty_scenes: 
@@ -70,14 +73,11 @@ class GuionManager:
                 elif len(unique_meaningful_scenes) == 1:
                     single_scene_val = list(unique_meaningful_scenes)[0]
                     if single_scene_val == "1":
-                        # Si todas las escenas significativas son "1", asegurarse que todas las filas
-                        # (incluyendo las que eran vacías/nan) se establezcan a "1".
                         df['SCENE'] = "1"
                         has_scene_numbers = False
                     else:
-                        # Hay una única escena significativa, pero no es "1" (ej. "1A", "2")
                         has_scene_numbers = True 
-                else: # Esto no debería alcanzarse si non_empty_scenes tiene elementos.
+                else:
                     df['SCENE'] = "1"
                     has_scene_numbers = False
         
@@ -85,7 +85,6 @@ class GuionManager:
             insert_pos = -1
             if 'DIÁLOGO' in df.columns:
                 insert_pos = df.columns.get_loc('DIÁLOGO') + 1
-            # No es necesario el elif self.BASE_COLUMNS[-1]... ya que es DIÁLOGO
             
             if insert_pos != -1 and insert_pos <= len(df.columns):
                 df.insert(insert_pos, 'EUSKERA', "")
@@ -124,6 +123,18 @@ class GuionManager:
         try:
             with pd.ExcelWriter(path, engine='openpyxl') as writer:
                 df_to_save = dataframe.copy()
+
+                def replace_if_empty(value):
+                    if pd.isna(value) or str(value).strip() == '':
+                        return '"Nan"'
+                    return value
+
+                if 'DIÁLOGO' in df_to_save.columns:
+                    df_to_save['DIÁLOGO'] = df_to_save['DIÁLOGO'].apply(replace_if_empty)
+                
+                if 'EUSKERA' in df_to_save.columns:
+                    df_to_save['EUSKERA'] = df_to_save['EUSKERA'].apply(replace_if_empty)
+
                 df_to_save.to_excel(writer, sheet_name='Guion', index=False)
 
                 if header_data:
@@ -166,9 +177,6 @@ class GuionManager:
 
             header_data = {}
             df_processed, _ = self._verify_and_prepare_df(df, file_source=path)
-            # Para DOCX, siempre forzamos has_scenes a False porque el formato DOCX no
-            # suele tener números de escena explícitos que queramos conservar inicialmente.
-            # _verify_and_prepare_df pondrá "1" en la columna SCENE.
             return df_processed, header_data, False 
         except Exception as e:
             raise

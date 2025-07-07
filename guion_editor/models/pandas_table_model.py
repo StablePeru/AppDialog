@@ -382,6 +382,7 @@ class PandasTableModel(QAbstractTableModel):
             return None
 
     def _validate_in_out_for_row(self, df_row_idx: int):
+        # --- MODIFICACIÓN: Añadir comprobación para IN/OUT ambos en cero ---
         if 0 <= df_row_idx < len(self._dataframe):
             in_tc = str(self._dataframe.at[df_row_idx, 'IN'])
             out_tc = str(self._dataframe.at[df_row_idx, 'OUT'])
@@ -389,15 +390,22 @@ class PandasTableModel(QAbstractTableModel):
             in_ms = self._convert_tc_to_ms(in_tc)
             out_ms = self._convert_tc_to_ms(out_tc)
 
-            is_valid = False
+            is_valid = False # Asumir inválido por defecto
             if in_ms is not None and out_ms is not None:
-                duration_ms = out_ms - in_ms
-                # Condición: OUT debe ser >= IN Y la duración debe ser <= MAX_INTERVENTION_DURATION_MS
-                if duration_ms >= 0 and duration_ms <= MAX_INTERVENTION_DURATION_MS:
-                    is_valid = True
+                # Condición 1: No pueden ser ambos 00:00:00:00. Si lo son, es inválido.
+                if in_ms == 0 and out_ms == 0:
+                    is_valid = False
+                else:
+                    # Condición 2: Duración debe ser positiva y no exceder el máximo
+                    duration_ms = out_ms - in_ms
+                    if duration_ms >= 0 and duration_ms <= MAX_INTERVENTION_DURATION_MS:
+                        is_valid = True
+            # Si in_ms o out_ms son None (formato inválido), is_valid permanece False
+            
             self._time_validation_status[df_row_idx] = is_valid
         elif df_row_idx in self._time_validation_status:
                  del self._time_validation_status[df_row_idx]
+        # --- FIN DE LA MODIFICACIÓN ---
 
     def _validate_scene_for_row(self, df_row_idx: int):
         if 0 <= df_row_idx < len(self._dataframe):
