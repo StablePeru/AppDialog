@@ -1,9 +1,9 @@
 import re
 from docx import Document
 
-def ajustar_dialogo(dialogo):
+def ajustar_dialogo(dialogo, max_chars=60): # -> MODIFICADO
     """
-    Ajusta el texto del diálogo para que cada línea tenga un máximo de 60 caracteres.
+    Ajusta el texto del diálogo para que cada línea tenga un máximo de caracteres.
     """
     palabras = dialogo.split()
     linea_actual = ""
@@ -11,7 +11,7 @@ def ajustar_dialogo(dialogo):
 
     for palabra in palabras:
         test_linea = linea_actual + (" " if linea_actual else "") + palabra
-        if contar_caracteres(test_linea) > 60:
+        if contar_caracteres(test_linea) > max_chars: # -> MODIFICADO
             lineas_ajustadas.append(linea_actual)
             linea_actual = palabra
         else:
@@ -126,4 +126,3 @@ def guardar_dialogo(guion, personaje, dialogo_acumulado):
         'PERSONAJE': personaje,
         'DIÁLOGO': dialogo_ajustado
     })
-

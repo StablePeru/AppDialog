@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
 
         self.trim_value = 0
         self.font_size = 9
+        self.line_length = 60
         self.guion_manager = GuionManager()
         self.actions = {} 
 
@@ -72,7 +73,6 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.tableWindow)
         layout.addWidget(self.splitter)
 
-        # Establecer referencia de TableWindow en VideoPlayerWidget para subtítulos
         self.videoPlayerWidget.set_table_window_reference(self.tableWindow)
 
 
@@ -107,17 +107,17 @@ class MainWindow(QMainWindow):
         self.add_managed_action("Exportar Guion a Excel", self.tableWindow.export_to_excel_dialog, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
         self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
         self.add_managed_action("Guardar Guion como JSON", self.tableWindow.save_to_json_dialog, "Ctrl+S", "save_json_icon.svg", "file_save_json")
-        self.add_managed_action("Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg", "file_load_json") # Nota: Ctrl+L estaba en shortcut_manager, lo cambio a Ctrl+D para evitar conflicto con abrir recientes o algo así
+        self.add_managed_action("Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg", "file_load_json")
 
         # Edit Menu Actions
         self.add_managed_action("Deshacer", self.undo_action, "Ctrl+Z", "undo_icon.svg", "edit_undo")
-        self.add_managed_action("Rehacer", self.redo_action, "Ctrl+Y", "redo_icon.svg", "edit_redo") # Ctrl+Y es más común para rehacer
+        self.add_managed_action("Rehacer", self.redo_action, "Ctrl+Y", "redo_icon.svg", "edit_redo")
 
         self.add_managed_action("Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N", "add_row_icon.svg", "edit_add_row")
         self.add_managed_action("Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del", "delete_row_icon.svg", "edit_delete_row")
         self.add_managed_action("Mover Arriba", self.tableWindow.move_row_up, "Alt+Up", "move_up_icon.svg", "edit_move_up")
         self.add_managed_action("Mover Abajo", self.tableWindow.move_row_down, "Alt+Down", "move_down_icon.svg", "edit_move_down")
-        self.add_managed_action("Ajustar Diálogos", self.tableWindow.adjust_dialogs, None, "adjust_dialogs_icon.svg", "edit_adjust_dialogs")
+        self.add_managed_action("Ajustar Diálogos", self.call_adjust_dialogs, None, "adjust_dialogs_icon.svg", "edit_adjust_dialogs")
         self.add_managed_action("Separar Intervención", self.tableWindow.split_intervention, "Alt+S", "split_intervention_icon.svg", "edit_split_intervention")
         self.add_managed_action("Juntar Intervenciones", self.tableWindow.merge_interventions, "Alt+M", "merge_intervention_icon.svg", "edit_merge_interventions")
         self.add_managed_action("Ver Reparto Completo", self.open_cast_window, None, "view_cast_icon.svg", "edit_view_cast")
@@ -139,12 +139,12 @@ class MainWindow(QMainWindow):
 
         action_mark_out_hold = QAction("Video: Marcar OUT (Mantener)", self)
         action_mark_out_hold.setObjectName("video_mark_out_hold")
-        action_mark_out_hold.setShortcut(QKeySequence("F6")) # Default, pero gestionado por ShortcutManager
+        action_mark_out_hold.setShortcut(QKeySequence("F6"))
         self.actions["video_mark_out_hold"] = action_mark_out_hold
-        self.addAction(action_mark_out_hold) # Necesario para que el shortcut global funcione
+        self.addAction(action_mark_out_hold)
 
     def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
-        if not object_name: # Generar object_name si no se provee
+        if not object_name:
             object_name = text.lower().replace("&", "").replace(" ", "_").replace("/", "_").replace(":", "").replace("(", "").replace(")", "")
 
         action = QAction(text, self)
@@ -152,26 +152,29 @@ class MainWindow(QMainWindow):
         if icon_name:
             action.setIcon(get_icon(icon_name))
         
-        # El shortcut se establecerá por ShortcutManager, pero podemos tener un default visual aquí
         if default_shortcut: 
-            action.setShortcut(QKeySequence(default_shortcut)) # Será sobrescrito por ShortcutManager
+            action.setShortcut(QKeySequence(default_shortcut))
 
         if slot:
             action.triggered.connect(slot)
 
         self.actions[object_name] = action
-        # self.addAction(action) # No agregar directamente a QMainWindow si es para menús, se añaden a los menús.
-                                # Pero si son shortcuts globales sin menú, sí es necesario.
-                                # Para "video_mark_out_hold" se hizo, para otros no porque están en menús.
-                                # Por consistencia y para que los shortcuts siempre funcionen incluso si el menú no está visible,
-                                # es buena práctica añadir todas las acciones que tienen shortcuts a la ventana.
-        if default_shortcut: # Solo añadir a la ventana si tiene shortcut y no es solo de menú
+        if default_shortcut:
             self.addAction(action)
         return action
+    
+    # ----> MODIFICACIÓN CLAVE AQUÍ <----
+    def call_adjust_dialogs(self, checked=None):
+        """
+        Llama al ajuste de diálogos en TableWindow pasándole la longitud de línea configurada.
+        Acepta un argumento 'checked' del signal 'clicked' pero no lo usa.
+        """
+        if self.tableWindow:
+            self.tableWindow.adjust_dialogs(self.line_length)
 
     def create_menu_bar(self, exclude_shortcuts=False):
         menuBar = self.menuBar()
-        menuBar.clear() # Limpiar menú existente si se llama múltiples veces (ej. por ShortcutManager)
+        menuBar.clear()
         self.create_file_menu(menuBar)
         self.create_edit_menu(menuBar)
         self.create_config_menu(menuBar)
@@ -217,32 +220,29 @@ class MainWindow(QMainWindow):
         editMenu.addAction(self.actions["edit_increment_scene"])
 
     def create_config_menu(self, menuBar):
-        configMenu = menuBar.addMenu("&Herramientas") # Cambiado de Config a Herramientas
+        configMenu = menuBar.addMenu("&Herramientas")
         configMenu.addAction(self.actions["config_app_settings"])
 
     def create_shortcuts_menu(self, menuBar):
-        # Eliminar menú de shortcuts si ya existe para evitar duplicados al refrescar
         for action_menu_item in menuBar.actions():
             if action_menu_item.menu() and action_menu_item.menu().title() == "&Shortcuts":
                 menuBar.removeAction(action_menu_item)
-                break # Asumimos que solo hay uno
+                break
 
         shortcutsMenu = menuBar.addMenu("&Shortcuts")
         shortcutsMenu.addAction(self.actions["config_shortcuts_dialog"])
 
         load_config_menu = shortcutsMenu.addMenu("Cargar Configuración de Shortcuts")
         load_config_menu.setIcon(get_icon("load_config_icon.svg"))
-        if hasattr(self, 'shortcut_manager'): # Asegurar que shortcut_manager exista
+        if hasattr(self, 'shortcut_manager'):
             for config_name in self.shortcut_manager.configurations.keys():
                 action = QAction(config_name, self)
                 action.triggered.connect(lambda checked, name=config_name: self.shortcut_manager.apply_shortcuts(name))
                 load_config_menu.addAction(action)
         
-        # "Eliminar Configuración" debería estar dentro del menú de Shortcuts
-        # El objeto "config_delete_shortcut_profile" ya se crea en create_all_actions
         if "config_delete_shortcut_profile" in self.actions:
             shortcutsMenu.addAction(self.actions["config_delete_shortcut_profile"])
-        else: # Si no existe, crearla específicamente para el menú (menos ideal que esté en create_all_actions)
+        else:
             delete_config_action = self.add_managed_action(
                 "Eliminar Configuración de Shortcuts",
                 self.delete_shortcut_configuration,
@@ -252,16 +252,14 @@ class MainWindow(QMainWindow):
             )
             shortcutsMenu.addAction(delete_config_action)
 
-
     def update_recent_files_menu(self):
         if not hasattr(self, 'recent_files_menu') or not self.recent_files_menu:
-            # Podría pasar si se llama antes de que el menú esté completamente creado
             return
             
         self.recent_files_menu.clear()
         for file_path in self.recent_files:
             action = QAction(os.path.basename(file_path), self)
-            action.setIcon(get_icon("open_document_icon.svg")) # O un icono de archivo genérico
+            action.setIcon(get_icon("open_document_icon.svg"))
             action.setToolTip(file_path)
             action.triggered.connect(lambda checked, path=file_path: self.open_recent_file(path))
             self.recent_files_menu.addAction(action)
@@ -289,7 +287,7 @@ class MainWindow(QMainWindow):
                 self.tableWindow.load_from_docx_path(file_path)
             else:
                 QMessageBox.warning(self, "Error", "Tipo de archivo no soportado para abrir desde recientes.")
-            self.add_to_recent_files(file_path) # Actualizar orden incluso si ya estaba
+            self.add_to_recent_files(file_path)
         else:
             QMessageBox.warning(self, "Error", f"El archivo reciente '{os.path.basename(file_path)}' no existe en la ruta:\n{file_path}")
             if file_path in self.recent_files:
@@ -301,10 +299,11 @@ class MainWindow(QMainWindow):
         config_dialog = ConfigDialog(
             current_trim=self.trim_value,
             current_font_size=self.font_size,
+            current_line_length=self.line_length,
             get_icon_func=get_icon
         )
         if config_dialog.exec() == QDialog.DialogCode.Accepted:
-            self.trim_value, self.font_size = config_dialog.get_values()
+            self.trim_value, self.font_size, self.line_length = config_dialog.get_values()
             self.apply_font_size()
 
     def load_me_audio_file(self):
@@ -315,21 +314,19 @@ class MainWindow(QMainWindow):
         file_name, _ = QFileDialog.getOpenFileName(self, "Cargar Audio M+E", "", "Archivos de Audio (*.wav *.mp3);;Todos los archivos (*.*)")
         if file_name:
             self.videoPlayerWidget.load_me_file(file_name)
-            self.add_to_recent_files(file_name) # También añadir M+E a recientes
-
+            self.add_to_recent_files(file_name)
 
     def add_to_recent_files(self, file_path):
-        abs_file_path = os.path.abspath(file_path) # Normalizar path
+        abs_file_path = os.path.abspath(file_path)
         if abs_file_path in self.recent_files:
             self.recent_files.remove(abs_file_path)
         self.recent_files.insert(0, abs_file_path)
-        self.recent_files = self.recent_files[:10] # Limitar a 10 recientes
+        self.recent_files = self.recent_files[:10]
         self.save_recent_files()
         self.update_recent_files_menu()
 
     def load_recent_files(self):
         try:
-            # Guardar recent_files.json en el directorio del script main.py
             base_dir = os.path.dirname(os.path.abspath(__file__))
             recent_files_path = os.path.join(base_dir, 'recent_files.json')
 
@@ -363,7 +360,7 @@ class MainWindow(QMainWindow):
     def delete_shortcut_configuration(self):
         configs = list(self.shortcut_manager.configurations.keys())
         if "default" in configs:
-            configs.remove("default") # No permitir borrar 'default'
+            configs.remove("default")
         
         if not configs:
             QMessageBox.information(self, "Información", "No hay configuraciones personalizadas para eliminar.")
@@ -377,13 +374,10 @@ class MainWindow(QMainWindow):
             confirm = QMessageBox.question(self, "Confirmar", 
                                            f"¿Está seguro de que desea eliminar la configuración de shortcuts '{config_name}'?",
                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                           QMessageBox.StandardButton.No) # Default a No
+                                           QMessageBox.StandardButton.No)
             if confirm == QMessageBox.StandardButton.Yes:
                 if self.shortcut_manager.delete_configuration(config_name):
                     QMessageBox.information(self, "Éxito", f"Configuración '{config_name}' eliminada exitosamente.")
-                    # El refresh del menú ya lo hace delete_configuration si tiene éxito.
-                # else: El propio shortcut_manager mostrará un error si falla.
-
 
     def open_video_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, 
@@ -394,7 +388,7 @@ class MainWindow(QMainWindow):
             self.add_to_recent_files(file_name)
 
     def detach_video(self, video_widget_instance):
-        if self.videoWindow is not None: # Ya está separado
+        if self.videoWindow is not None:
             return
         try:
             widget_index_in_splitter = -1
@@ -403,15 +397,9 @@ class MainWindow(QMainWindow):
                     widget_index_in_splitter = i
                     break
             
-            # El widget de video se quita del splitter al reparentarlo a VideoWindow
-            # No es necesario llamara a video_widget_instance.setParent(None) explícitamente
-            # ya que QWidget lo hace cuando se añade a un nuevo layout/padre.
-
             if widget_index_in_splitter != -1:
-                # video_widget_instance ya es self.videoPlayerWidget
                 self.videoWindow = VideoWindow(video_widget_instance, get_icon_func=get_icon, main_window=self)
                 
-                # Pasar acciones relevantes a la ventana flotante
                 actions_for_detached_video = [
                     "video_toggle_play", "video_rewind", "video_forward", 
                     "video_mark_in", "video_mark_out_hold" 
@@ -422,7 +410,6 @@ class MainWindow(QMainWindow):
 
                 self.videoWindow.close_detached.connect(self.attach_video)
                 self.videoWindow.show()
-                # self.videoPlayerWidget.setFocus() # La ventana flotante debería manejar su foco
             else:
                  QMessageBox.warning(self,"Error", "El widget de video a separar no se encontró en el splitter.")
         except Exception as e:
@@ -430,13 +417,11 @@ class MainWindow(QMainWindow):
 
 
     def attach_video(self):
-        if self.videoWindow is None: # No está separado
+        if self.videoWindow is None:
             return
         try:
-            video_widget_instance = self.videoWindow.video_widget # Es self.videoPlayerWidget
+            video_widget_instance = self.videoWindow.video_widget
             
-            # Quitar las acciones que se pasaron a la ventana flotante para evitar duplicados
-            # Esto puede ser opcional si los shortcuts no entran en conflicto o si se gestionan bien
             actions_for_detached_video = [
                 "video_toggle_play", "video_rewind", "video_forward",
                 "video_mark_in", "video_mark_out_hold"
@@ -445,21 +430,17 @@ class MainWindow(QMainWindow):
                 if action_name in self.actions:
                     self.videoWindow.removeAction(self.actions[action_name])
 
-            self.splitter.insertWidget(0, video_widget_instance) # Volver a añadir al splitter
-            # video_widget_instance.setParent(self.splitter) # insertWidget ya hace esto
-
+            self.splitter.insertWidget(0, video_widget_instance)
             self.videoWindow.close_detached.disconnect(self.attach_video)
-            # self.videoWindow.close() # No es necesario, closeEvent ya se ha gestionado
-            self.videoWindow = None # Liberar referencia
+            self.videoWindow = None
 
-            # Restaurar tamaños del splitter
             total_width = self.splitter.width()
-            if total_width > 0 and self.splitter.count() == 2: # Asegurar que hay 2 widgets
+            if total_width > 0 and self.splitter.count() == 2:
                  self.splitter.setSizes([total_width // 2, total_width // 2])
-            else: # Fallback si algo va mal
-                 self.splitter.setSizes([100,100]) # O un tamaño por defecto
+            else:
+                 self.splitter.setSizes([100,100])
             
-            self.videoPlayerWidget.setFocus() # Devolver foco al player en la ventana principal
+            self.videoPlayerWidget.setFocus()
         except Exception as e:
             QMessageBox.warning(self,"Error",f"Error al adjuntar el video: {str(e)}\n{traceback.format_exc()}")
 
@@ -488,28 +469,25 @@ class MainWindow(QMainWindow):
                                          "Guardar cambios", 
                                          "Hay cambios sin guardar. ¿Desea guardar el guion antes de salir?",
                                          QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-                                         QMessageBox.StandardButton.Cancel) # Default a Cancelar
+                                         QMessageBox.StandardButton.Cancel)
             if reply == QMessageBox.StandardButton.Save:
                 saved_successfully = False
-                # Intentar guardar al path actual si existe, sino pedir uno nuevo
                 if self.tableWindow.current_script_path and self.tableWindow.current_script_path.endswith(".json"):
-                    # Aquí deberíamos llamar a un método "save_current_json_script" que no pide diálogo si ya hay path
-                    # Por ahora, save_to_json_dialog pedirá confirmación si ya existe.
                     self.guion_manager.save_to_json(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
-                    saved_successfully = True # Asumimos que si no hay excepción, se guardó.
+                    saved_successfully = True
                 elif self.tableWindow.current_script_path and self.tableWindow.current_script_path.endswith(".xlsx"):
                     self.guion_manager.save_to_excel(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
                     saved_successfully = True
-                else: # No hay path actual o no es tipo conocido, pedir diálogo
-                    saved_successfully = self.tableWindow.save_to_json_dialog() # O export_to_excel_dialog()
+                else:
+                    saved_successfully = self.tableWindow.save_to_json_dialog()
 
                 if saved_successfully:
                     event.accept()
-                else: # El usuario canceló el diálogo de guardar o hubo un error
+                else:
                     event.ignore() 
             elif reply == QMessageBox.StandardButton.Discard:
                 event.accept()
-            else: # Cancel
+            else:
                 event.ignore()
         else:
             event.accept()
@@ -522,31 +500,29 @@ def handle_exception(exc_type, exc_value, exc_traceback):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
     error_message = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    print(error_message) # Siempre imprimir en consola
+    print(error_message)
 
     user_message = f"Ocurrió un error inesperado:\n\nTipo: {exc_type.__name__}\nMensaje: {exc_value}\n\n"
     user_message += "Por favor, reporte este error. Puede encontrar más detalles en la consola."
 
-    # Intentar mostrar el error en un QMessageBox si la app está corriendo
     if QApplication.instance():
         try:
             msg_box = QMessageBox()
             msg_box.setIcon(QMessageBox.Icon.Critical)
             msg_box.setWindowTitle("Error Inesperado")
-            # Mostrar solo la parte principal del mensaje en el texto, el resto como informativo
             msg_box.setText(user_message.split('\n\n')[0]) 
             msg_box.setInformativeText('\n\n'.join(user_message.split('\n\n')[1:]))
             msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg_box.exec()
-        except Exception as e_msgbox: # Si falla el QMessageBox
+        except Exception as e_msgbox:
             print(f"Error al mostrar QMessageBox: {e_msgbox}")
-            print("Error original:", error_message) # Imprimir el error original de nuevo
-    else: # Si QApplication no existe, solo imprimir en consola
+            print("Error original:", error_message)
+    else:
         print("Error original (QApplication no disponible):", error_message)
 
 
 def main():
-    sys.excepthook = handle_exception # Configurar el manejador de excepciones global
+    sys.excepthook = handle_exception
     app = QApplication(sys.argv)
 
     main_css_content = load_stylesheet_content("main.css")

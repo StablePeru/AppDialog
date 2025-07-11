@@ -59,6 +59,7 @@ class TableWindow(QWidget):
         self.current_font_size = 9
         self.f6_key_pressed_internally = False 
 
+        # --- Timers para operaciones diferidas ---
         self._resize_rows_timer = QTimer(self)
         self._resize_rows_timer.setSingleShot(True)
         self._resize_rows_timer.setInterval(100) 
@@ -69,10 +70,15 @@ class TableWindow(QWidget):
         self._update_error_indicator_timer.setInterval(0)
         self._update_error_indicator_timer.timeout.connect(self.update_time_error_indicator)
 
-        self._update_scene_error_indicator_timer = QTimer(self) # NEW
+        self._update_scene_error_indicator_timer = QTimer(self)
         self._update_scene_error_indicator_timer.setSingleShot(True)
         self._update_scene_error_indicator_timer.setInterval(0)
         self._update_scene_error_indicator_timer.timeout.connect(self.update_scene_error_indicator)
+        
+        self._recache_timer = QTimer(self)
+        self._recache_timer.setSingleShot(True)
+        self._recache_timer.setInterval(150)
+        self._recache_timer.timeout.connect(self._recache_subtitle_timeline)
 
 
         self.action_buttons = {}
@@ -109,12 +115,14 @@ class TableWindow(QWidget):
         self.error_df_indices: List[int] = []
         self._current_error_nav_idx: int = -1
 
-        self.scene_error_indicator_button: Optional[QPushButton] = None # NEW
-        self.scene_error_df_indices: List[int] = [] # NEW
-        self._current_scene_error_nav_idx: int = -1 # NEW
+        self.scene_error_indicator_button: Optional[QPushButton] = None
+        self.scene_error_df_indices: List[int] = []
+        self._current_scene_error_nav_idx: int = -1
 
         self._current_header_data_for_undo: Dict[str, Any] = {} 
         self._header_change_timer: Optional[QTimer] = None 
+        
+        self.cached_subtitle_timeline: List[Tuple[int, int, str]] = []
 
         self.setup_ui() 
         self.update_action_buttons_state() 
@@ -123,9 +131,13 @@ class TableWindow(QWidget):
         self.pandas_model.layoutChanged.connect(self._request_error_indicator_update) 
         self.pandas_model.modelReset.connect(self._request_error_indicator_update) 
 
-        self.pandas_model.dataChanged.connect(self._request_scene_error_indicator_update) # NEW
-        self.pandas_model.layoutChanged.connect(self._request_scene_error_indicator_update) # NEW
-        self.pandas_model.modelReset.connect(self._request_scene_error_indicator_update) # NEW
+        self.pandas_model.dataChanged.connect(self._request_scene_error_indicator_update)
+        self.pandas_model.layoutChanged.connect(self._request_scene_error_indicator_update)
+        self.pandas_model.modelReset.connect(self._request_scene_error_indicator_update)
+        
+        self.pandas_model.dataChanged.connect(self._request_recache_subtitles)
+        self.pandas_model.layoutChanged.connect(self._request_recache_subtitles)
+        self.pandas_model.modelReset.connect(self._request_recache_subtitles)
 
 
         self.undo_stack.canUndoChanged.connect(self._update_undo_action_state)
@@ -138,9 +150,7 @@ class TableWindow(QWidget):
         QTimer.singleShot(0, lambda: self.table_view.setColumnHidden(self.COL_EUSKERA_VIEW, True))
 
     def _update_undo_action_state(self, can_undo: bool):
-        # print(f"TableWindow: _update_undo_action_state CALLED, can_undo = {can_undo}") # DEBUG
         if self.main_window and hasattr(self.main_window, 'actions') and "edit_undo" in self.main_window.actions:
-            # print(f"  Setting 'edit_undo' action enabled: {can_undo}") # DEBUG
             self.main_window.actions["edit_undo"].setEnabled(can_undo)
 
     def _update_redo_action_state(self, can_redo: bool):
@@ -153,8 +163,38 @@ class TableWindow(QWidget):
     def _request_error_indicator_update(self):
         self._update_error_indicator_timer.start()
     
-    def _request_scene_error_indicator_update(self): # NEW
+    def _request_scene_error_indicator_update(self):
         self._update_scene_error_indicator_timer.start()
+
+    def _request_recache_subtitles(self):
+        self._recache_timer.start()
+
+    def _recache_subtitle_timeline(self):
+        self.cached_subtitle_timeline.clear()
+        if self.pandas_model is None or self.pandas_model.rowCount() == 0:
+            return
+            
+        df = self.pandas_model.dataframe()
+        for i in range(len(df)):
+            try:
+                in_tc = str(df.at[i, 'IN'])
+                out_tc = str(df.at[i, 'OUT'])
+                dialogue = str(df.at[i, 'DIÁLOGO'])
+                
+                in_ms = self.convert_time_code_to_milliseconds(in_tc)
+                out_ms = self.convert_time_code_to_milliseconds(out_tc)
+                
+                if in_ms < out_ms:
+                    self.cached_subtitle_timeline.append((in_ms, out_ms, dialogue))
+            except (KeyError, ValueError, TypeError) as e:
+                print(f"Advertencia: Omitiendo fila {i} del caché de subtítulos por error: {e}")
+                continue
+        
+        self.cached_subtitle_timeline.sort(key=lambda x: x[0])
+
+
+    def get_subtitle_timeline(self) -> List[Tuple[int, int, str]]:
+        return self.cached_subtitle_timeline
 
 
     def setup_ui(self) -> None: 
@@ -252,12 +292,11 @@ class TableWindow(QWidget):
         self._update_toggle_header_button_text_and_icon()
 
     def setup_buttons(self, layout: QVBoxLayout) -> None:
-        # CONTENEDOR PRINCIPAL PARA TODA LA FILA DE BOTONES (ACCIONES + ERRORES + CHECKBOX)
-        self.top_controls_row_widget = QWidget() # Nuevo widget contenedor
-        self.top_controls_row_widget.setObjectName("top_controls_row_widget_css") # Para CSS si es necesario
-        buttons_overall_container_layout = QHBoxLayout(self.top_controls_row_widget) # Layout para este nuevo widget
-        buttons_overall_container_layout.setContentsMargins(0,0,0,0) # Sin márgenes extra para el layout interno
-        buttons_overall_container_layout.setSpacing(10) # Espaciado entre grupos de widgets
+        self.top_controls_row_widget = QWidget()
+        self.top_controls_row_widget.setObjectName("top_controls_row_widget_css")
+        buttons_overall_container_layout = QHBoxLayout(self.top_controls_row_widget)
+        buttons_overall_container_layout.setContentsMargins(0,0,0,0)
+        buttons_overall_container_layout.setSpacing(10)
 
         self.table_actions_widget = QWidget()
         self.table_actions_widget.setObjectName("table_actions_bar")
@@ -273,7 +312,7 @@ class TableWindow(QWidget):
             (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, "edit_delete_row", None),
             ("", self.move_row_up, "move_up_icon.svg", True, "edit_move_up", "Mover Fila Arriba"),
             ("", self.move_row_down, "move_down_icon.svg", True, "edit_move_down", "Mover Fila Abajo"),
-            (" Ajustar Diálogos", self.adjust_dialogs, "adjust_dialogs_icon.svg", False, "edit_adjust_dialogs", None),
+            (" Ajustar Diálogos", self.main_window.call_adjust_dialogs, "adjust_dialogs_icon.svg", False, "edit_adjust_dialogs", None),
             (" Separar", self.split_intervention, "split_intervention_icon.svg", False, "edit_split_intervention", None),
             (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False, "edit_merge_interventions", None),
             (" Copiar IN/OUT", self.copy_in_out_to_next, "copy_in_out_icon.svg", False, "edit_copy_in_out", "Copiar IN/OUT a Siguiente")
@@ -306,22 +345,21 @@ class TableWindow(QWidget):
         buttons_overall_container_layout.addWidget(self.table_actions_widget)
         buttons_overall_container_layout.addStretch(1) 
 
-        # --- Contenedor para indicadores de error ---
         self.error_indicators_container = QWidget()
         self.error_indicators_container.setObjectName("error_indicators_container")
         error_indicators_layout = QHBoxLayout(self.error_indicators_container)
         error_indicators_layout.setContentsMargins(0,0,0,0)
-        error_indicators_layout.setSpacing(5) # Espacio entre botones de error
+        error_indicators_layout.setSpacing(5)
 
         self.time_error_indicator_button = QPushButton("") 
         self.time_error_indicator_button.setObjectName("timeErrorIndicatorButton")
         self.time_error_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred) 
         self.time_error_indicator_button.setFocusPolicy(Qt.FocusPolicy.NoFocus) 
         self.time_error_indicator_button.setVisible(False) 
-        self.time_error_indicator_button.clicked.connect(self.go_to_next_time_error) # Changed from go_to_first_time_error
+        self.time_error_indicator_button.clicked.connect(self.go_to_next_time_error)
         error_indicators_layout.addWidget(self.time_error_indicator_button)
 
-        self.scene_error_indicator_button = QPushButton("") # NEW
+        self.scene_error_indicator_button = QPushButton("")
         self.scene_error_indicator_button.setObjectName("sceneErrorIndicatorButton")
         self.scene_error_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.scene_error_indicator_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -330,7 +368,6 @@ class TableWindow(QWidget):
         error_indicators_layout.addWidget(self.scene_error_indicator_button)
         
         buttons_overall_container_layout.addWidget(self.error_indicators_container)
-        # --- Fin contenedor ---
 
         self.link_out_in_checkbox = QCheckBox("OUT->IN")
         self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
@@ -398,7 +435,7 @@ class TableWindow(QWidget):
             self.time_error_indicator_button.style().unpolish(self.time_error_indicator_button)
             self.time_error_indicator_button.style().polish(self.time_error_indicator_button)
 
-    def update_scene_error_indicator(self): # NEW
+    def update_scene_error_indicator(self):
         if not hasattr(self, 'scene_error_indicator_button') or self.scene_error_indicator_button is None:
             return
         if not hasattr(self.pandas_model, '_scene_validation_status'):
@@ -441,7 +478,7 @@ class TableWindow(QWidget):
             self.scene_error_indicator_button.style().polish(self.scene_error_indicator_button)
 
 
-    def go_to_next_time_error(self): # Renamed
+    def go_to_next_time_error(self):
         if not self.error_df_indices: 
             self._current_error_nav_idx = -1
             return
@@ -463,7 +500,7 @@ class TableWindow(QWidget):
                     self.table_view.scrollTo(model_idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
                 self.table_view.setFocus()
     
-    def go_to_next_scene_error(self): # NEW
+    def go_to_next_scene_error(self):
         if not self.scene_error_df_indices:
             self._current_scene_error_nav_idx = -1
             return
@@ -553,12 +590,10 @@ class TableWindow(QWidget):
             css_path = os.path.join(current_file_dir, '..', 'styles', 'table_styles.css')
             
             if not os.path.exists(css_path):
-                print(f"Advertencia: Stylesheet 'table_styles.css' no encontrado en {css_path}")
                 alt_css_path = os.path.join(os.path.dirname(current_file_dir), 'styles', 'table_styles.css')
                 if os.path.exists(alt_css_path):
                     css_path = alt_css_path
                 else:
-                    print(f"Advertencia: Stylesheet 'table_styles.css' tampoco encontrado en {alt_css_path}")
                     return
 
             with open(css_path, 'r', encoding='utf-8') as f:
@@ -646,14 +681,14 @@ class TableWindow(QWidget):
         
         status_bar = self.main_window.statusBar() if self.main_window else None
         if status_bar: status_bar.showMessage(f"Guion '{self.current_script_name}' cargado.", 5000)
-        else: print(f"INFO: Guion '{self.current_script_name}' cargado.")
         
         self.update_window_title()
         self.adjust_all_row_heights_and_validate() 
         self._update_toggle_header_button_text_and_icon()
         
         self._request_error_indicator_update() 
-        self._request_scene_error_indicator_update() # NEW
+        self._request_scene_error_indicator_update()
+        self._request_recache_subtitles()
 
     def open_docx_dialog(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(self, "Abrir Guion DOCX", "", "Documentos Word (*.docx)")
@@ -784,7 +819,7 @@ class TableWindow(QWidget):
         self.current_script_path = None
         self._update_toggle_header_button_text_and_icon()
         self._request_error_indicator_update() 
-        self._request_scene_error_indicator_update() # NEW
+        self._request_scene_error_indicator_update()
         self.update_window_title()
 
 
@@ -799,7 +834,7 @@ class TableWindow(QWidget):
         self.request_resize_rows_to_contents_deferred()
         for row_idx in range(self.pandas_model.rowCount()):
             self.pandas_model.force_time_validation_update_for_row(row_idx) 
-            self.pandas_model.force_scene_validation_update_for_row(row_idx) # NEW
+            self.pandas_model.force_scene_validation_update_for_row(row_idx)
 
     def on_model_layout_changed(self): 
         self.adjust_all_row_heights_and_validate()
@@ -842,7 +877,8 @@ class TableWindow(QWidget):
                 command = EditCommand(self, df_idx, view_col_idx, old_value, self.clipboard_text)
                 self.undo_stack.push(command)
 
-    def adjust_dialogs(self) -> None:
+    # ----> MODIFICACIÓN CLAVE AQUÍ <----
+    def adjust_dialogs(self, max_chars: int) -> None:
         if self.pandas_model.dataframe().empty:
             return
 
@@ -855,7 +891,7 @@ class TableWindow(QWidget):
         for df_idx in range(self.pandas_model.rowCount()):
             if view_col_dialogue is not None:
                 dialog_text_original = str(self.pandas_model.dataframe().at[df_idx, 'DIÁLOGO'])
-                adjusted_dialog_text = ajustar_dialogo(dialog_text_original)
+                adjusted_dialog_text = ajustar_dialogo(dialog_text_original, max_chars)
                 if dialog_text_original != adjusted_dialog_text:
                     command_dialog = EditCommand(self, df_idx, view_col_dialogue, dialog_text_original, adjusted_dialog_text)
                     self.undo_stack.push(command_dialog)
@@ -863,7 +899,7 @@ class TableWindow(QWidget):
             
             if view_col_euskera is not None:
                 euskera_text_original = str(self.pandas_model.dataframe().at[df_idx, 'EUSKERA'])
-                adjusted_euskera_text = ajustar_dialogo(euskera_text_original) 
+                adjusted_euskera_text = ajustar_dialogo(euskera_text_original, max_chars) 
                 if euskera_text_original != adjusted_euskera_text:
                     command_euskera = EditCommand(self, df_idx, view_col_euskera, euskera_text_original, adjusted_euskera_text)
                     self.undo_stack.push(command_euskera)
@@ -955,7 +991,6 @@ class TableWindow(QWidget):
         self.last_focused_dialog_index = index_edited
 
     def split_intervention(self) -> None:
-        # Get the currently focused cell in the table view
         current_model_index = self.table_view.currentIndex()
         if not current_model_index.isValid():
             QMessageBox.warning(self, "Separar", "Seleccione una celda en la columna 'DIÁLOGO' o 'EUSKERA' para separar.")
@@ -969,38 +1004,32 @@ class TableWindow(QWidget):
             QMessageBox.warning(self, "Separar", "Por favor, seleccione una celda en la columna 'DIÁLOGO' o 'EUSKERA'.")
             return
         
-        # This is the QModelIndex of the cell the user intends to split
         cell_to_split_qmodelindex = self.pandas_model.index(current_row_index, current_view_col_idx)
 
         cursor_pos = -1
         text_that_was_split = None
         
-        # Check if the last focused/edited cell (where cursor position was stored)
-        # is the same as the cell currently selected for splitting.
         if self.last_focused_dialog_index and \
            self.last_focused_dialog_index.row() == cell_to_split_qmodelindex.row() and \
            self.last_focused_dialog_index.column() == cell_to_split_qmodelindex.column() and \
            self.last_focused_dialog_cursor_pos != -1:
             
             cursor_pos = self.last_focused_dialog_cursor_pos
-            text_that_was_split = self.last_focused_dialog_text # This is the text from the last edit of *this* cell
+            text_that_was_split = self.last_focused_dialog_text
         else:
-            # If the last edit context doesn't match the current cell, or no valid cursor pos.
             QMessageBox.information(self, "Separar Intervención",
                                     f"Por favor, edite la celda '{df_column_name_to_split}' (fila {current_row_index + 1}) "
                                     "y coloque el cursor en el punto de división deseado.\n\n"
                                     "Luego, asegúrese de que la celda pierda el foco (ej. haciendo clic fuera o presionando Enter) "
                                     "antes de intentar 'Separar'.")
-            # Clear any potentially stale state to avoid misuse
             self.last_focused_dialog_index = None
             self.last_focused_dialog_cursor_pos = -1
             return
         
-        # Clear the state *after* successfully retrieving it for this operation
         self.last_focused_dialog_index = None
         self.last_focused_dialog_cursor_pos = -1
         
-        if text_that_was_split is None: # Should be caught by above, but as a safeguard
+        if text_that_was_split is None:
             QMessageBox.warning(self, "Error Interno", f"No se pudo obtener el texto de la celda '{df_column_name_to_split}' para dividir.")
             return
         
@@ -1017,7 +1046,7 @@ class TableWindow(QWidget):
         before_text = text_that_was_split[:cursor_pos].strip()
         after_text = text_that_was_split[cursor_pos:].strip()
         
-        if not after_text: # If cursor is at the end, or only whitespace after.
+        if not after_text:
             QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después de la posición del cursor.")
             return
         
@@ -1058,31 +1087,25 @@ class TableWindow(QWidget):
         original_out_first = str(current_df.at[df_idx_curr, 'OUT'])
 
         command = MergeInterventionsCommand(
-            self,                         # for tw
-            df_idx_curr,                  # for df_idx_first_row
-            merged_dialog,                # for merged_dialog_text
-            merged_euskera,               # <--- ADD THIS ARGUMENT HERE
-            df_idx_next,                  # for df_idx_second_row_original
-            original_out_first            # for original_out_time_first_row
+            self,
+            df_idx_curr,
+            merged_dialog,
+            merged_euskera,
+            df_idx_next,
+            original_out_first
         )
         self.undo_stack.push(command)
 
     def convert_time_code_to_milliseconds(self, time_code: str) -> int:
         try:
             parts = time_code.split(':'); h, m, s, f = map(int, parts)
-            if len(parts) != 4 or not all(0 <= x < 100 for x in [h,m,s]) or not (0 <= f < 60): # Originalmente f < 60, debería ser FPS_RATE
-                # print(f"DEBUG: Invalid timecode format or range in TableWindow: {time_code}")
+            if len(parts) != 4 or not all(0 <= x < 100 for x in [h,m,s]) or not (0 <= f < 60):
                 raise ValueError("Formato de Timecode inválido")
-            # Usar FPS_RATE de VideoPlayerWidget sería mejor, pero no es directamente accesible aquí.
-            # Usaremos un valor fijo o asumiremos 25 como en PandasTableModel.
-            # Idealmente, FPS_RATE debería ser una constante global o parte de la configuración.
             FPS_RATE = 25.0 
             return (h * 3600 + m * 60 + s) * 1000 + int(round((f / FPS_RATE) * 1000.0)) 
         except ValueError:
-            # print(f"DEBUG: ValueError converting TC to MS in TableWindow: {time_code}")
             return 0 
         except Exception as e:
-            # print(f"DEBUG: General Exception converting TC to MS in TableWindow: {time_code}, Error: {e}")
             self.handle_exception(e, f"Error convirtiendo '{time_code}' a milisegundos")
             return 0
 
@@ -1300,12 +1323,6 @@ class TableWindow(QWidget):
         elif not self.get_icon: 
             self.toggle_header_button.setIcon(QIcon())
 
-
-    def toggle_header_visibility(self) -> None:
-        current_visibility = self.header_details_widget.isVisible()
-        self.header_details_widget.setVisible(not current_visibility)
-        self._update_toggle_header_button_text_and_icon() 
-
 class EditCommand(QUndoCommand): 
     def __init__(self, table_window: TableWindow, df_row_index: int, view_col_index: int, old_value: Any, new_value: Any):
         super().__init__()
@@ -1387,14 +1404,14 @@ class MoveRowCommand(QUndoCommand):
 class SplitInterventionCommand(QUndoCommand): 
     def __init__(self, table_window: TableWindow, df_idx_split: int, 
                  before_txt: str, after_txt: str, text_before_split: str,
-                 df_column_name_to_split: str): # Added df_column_name_to_split
+                 df_column_name_to_split: str):
         super().__init__()
         self.tw = table_window
         self.df_idx_split = df_idx_split
         self.before_txt = before_txt
         self.after_txt = after_txt
         self.text_that_was_split = text_before_split
-        self.df_column_name_to_split = df_column_name_to_split # Store the target column
+        self.df_column_name_to_split = df_column_name_to_split
         self.new_row_id = -1
         self.setText(f"Separar '{self.df_column_name_to_split}' en fila {df_idx_split + 1}")
 
@@ -1411,19 +1428,15 @@ class SplitInterventionCommand(QUndoCommand):
             print(f"SplitInterventionCommand.redo: Columna '{self.df_column_name_to_split}' no encontrada en el mapeo del modelo.")
             return
 
-        # Get all data from the original row to copy to the new row
         original_row_data_for_new_row = current_df.iloc[self.df_idx_split].copy().to_dict()
         
-        # Update the target column in the original (split) row with 'before_text'
         self.tw.pandas_model.setData(
             self.tw.pandas_model.index(self.df_idx_split, target_col_view_idx), 
             self.before_txt, 
             Qt.ItemDataRole.EditRole
         )
         
-        # Prepare the full data for the new row
         new_row_full_data = {**original_row_data_for_new_row, 'ID': self.new_row_id}
-        # Set the 'after_text' into the correct column for the new row
         new_row_full_data[self.df_column_name_to_split] = self.after_txt
         
         if self.df_column_name_to_split == 'DIÁLOGO':
@@ -1433,13 +1446,11 @@ class SplitInterventionCommand(QUndoCommand):
             if 'DIÁLOGO' in new_row_full_data:
                 new_row_full_data['DIÁLOGO'] = ""
 
-        # Insert the new row below the original one
         self.tw.pandas_model.insert_row_data(self.df_idx_split + 1, new_row_full_data)
         
         self.tw.set_unsaved_changes(True)
-        self.tw.update_character_completer_and_notify() # If PERSONAJE was part of new_row_full_data
+        self.tw.update_character_completer_and_notify()
         
-        # Select and scroll to the new row
         self.tw.table_view.selectRow(self.df_idx_split + 1)
         idx_to_scroll = self.tw.pandas_model.index(self.df_idx_split + 1, 0)
         if idx_to_scroll.isValid(): 
@@ -1448,29 +1459,21 @@ class SplitInterventionCommand(QUndoCommand):
         self.tw.request_resize_rows_to_contents_deferred()
 
     def undo(self):
-        if self.new_row_id == -1: return # Redo was not successful or not called
+        if self.new_row_id == -1: return
         
         target_col_view_idx = self.tw.pandas_model.get_view_column_index(self.df_column_name_to_split)
         if target_col_view_idx is None:
             print(f"SplitInterventionCommand.undo: Columna '{self.df_column_name_to_split}' no encontrada.")
             return
             
-        # Restore the original full text to the target column of the original row
         self.tw.pandas_model.setData(
             self.tw.pandas_model.index(self.df_idx_split, target_col_view_idx), 
             self.text_that_was_split, 
             Qt.ItemDataRole.EditRole
         )
         
-        # Find and remove the row that was added
-        # It should be at df_idx_split + 1 if no other structural changes happened,
-        # but finding by ID is safer if available and reliable.
-        # Let's assume remove_row_by_df_index handles the actual removal given an index.
-        # The key is to find the correct index of the row with self.new_row_id.
         idx_to_remove = self.tw.pandas_model.find_df_index_by_id(self.new_row_id)
         if idx_to_remove is None: 
-            # Fallback if ID search fails (e.g., ID was not unique or some issue)
-            # This assumes the row is still at df_idx_split + 1
             idx_to_remove = self.df_idx_split + 1 
             print(f"SplitInterventionCommand.undo: Could not find row by ID {self.new_row_id}, attempting to remove at index {idx_to_remove}.")
 
@@ -1483,7 +1486,6 @@ class SplitInterventionCommand(QUndoCommand):
         self.tw.set_unsaved_changes(True)
         self.tw.update_character_completer_and_notify()
         
-        # Select and scroll back to the original row
         self.tw.table_view.selectRow(self.df_idx_split)
         idx_to_scroll = self.tw.pandas_model.index(self.df_idx_split, 0)
         if idx_to_scroll.isValid(): 
@@ -1493,26 +1495,24 @@ class SplitInterventionCommand(QUndoCommand):
 
 class MergeInterventionsCommand(QUndoCommand):
     def __init__(self, tw: TableWindow, df_idx_first_row: int,
-                 merged_dialog_text: str, merged_euskera_text: str, # Added merged_euskera_text
+                 merged_dialog_text: str, merged_euskera_text: str,
                  df_idx_second_row_original: int, original_out_time_first_row: str):
         super().__init__()
         self.tw = tw
         self.df_idx1 = df_idx_first_row
         self.merged_dlg = merged_dialog_text
-        self.merged_eusk = merged_euskera_text # Store merged Euskera
-        self.df_idx2_rem_orig = df_idx_second_row_original # Original index of 2nd row
-        self.orig_out1 = original_out_time_first_row
+        self.merged_eusk = merged_euskera_text
+        self.df_idx2_rem_orig = df_idx_second_row_original
 
-        # For undo:
+        self.orig_out1 = original_out_time_first_row
         self.orig_dlg1: Optional[str] = None
-        self.orig_eusk1: Optional[str] = None # Store original Euskera of first row
-        self.data_df_idx2: Optional[pd.Series] = None # Full data of the second row
+        self.orig_eusk1: Optional[str] = None
+        self.data_df_idx2: Optional[pd.Series] = None
 
         self.setText(f"Juntar filas {df_idx_first_row + 1} y {df_idx_first_row + 2}")
 
     def redo(self):
         current_df = self.tw.pandas_model.dataframe()
-        # The actual index of the second row to merge/remove in the *current* state of the DataFrame
         df_idx_actual_second_row_to_merge = self.df_idx1 + 1
 
         if not (0 <= self.df_idx1 < len(current_df) and \
@@ -1520,35 +1520,28 @@ class MergeInterventionsCommand(QUndoCommand):
             print(f"MergeCommand.redo: Indices out of bounds. df_idx1={self.df_idx1}, actual_second_idx={df_idx_actual_second_row_to_merge}, df_len={len(current_df)}")
             return
 
-        # Capture original data of the first row (for undo)
-        # Only capture if not already captured (e.g., first time redo is called)
         if self.orig_dlg1 is None:
             self.orig_dlg1 = str(current_df.at[self.df_idx1, 'DIÁLOGO'])
-        if self.orig_eusk1 is None: # Capture original Euskera of first row
+        if self.orig_eusk1 is None:
             self.orig_eusk1 = str(current_df.at[self.df_idx1, 'EUSKERA'])
-        # self.orig_out1 is already captured in __init__
 
-        # Capture full data of the second row (the one to be removed)
         if self.data_df_idx2 is None:
             self.data_df_idx2 = current_df.iloc[df_idx_actual_second_row_to_merge].copy()
 
         view_col_dlg = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
-        view_col_eusk = self.tw.pandas_model.get_view_column_index('EUSKERA') # Get Euskera view col
+        view_col_eusk = self.tw.pandas_model.get_view_column_index('EUSKERA')
         view_col_out = self.tw.pandas_model.get_view_column_index('OUT')
 
         if view_col_dlg is None or view_col_out is None or view_col_eusk is None:
             print("MergeCommand.redo: One or more critical column view indices not found.")
             return
 
-        # Update the first row
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.merged_dlg, Qt.ItemDataRole.EditRole)
-        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_eusk), self.merged_eusk, Qt.ItemDataRole.EditRole) # Set merged Euskera
+        self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_eusk), self.merged_eusk, Qt.ItemDataRole.EditRole)
 
-        # Set the OUT time of the first row to be the OUT time of the second row
         if self.data_df_idx2 is not None and 'OUT' in self.data_df_idx2 and pd.notna(self.data_df_idx2['OUT']):
              self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.data_df_idx2['OUT'], Qt.ItemDataRole.EditRole)
 
-        # Remove the second row
         self.tw.pandas_model.remove_row_by_df_index(df_idx_actual_second_row_to_merge)
 
         self.tw.set_unsaved_changes(True)
@@ -1573,19 +1566,15 @@ class MergeInterventionsCommand(QUndoCommand):
             print("MergeCommand.undo: One or more critical column view indices not found.")
             return
 
-        # Restore first row's original DIÁLOGO, EUSKERA, and OUT
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.orig_dlg1, Qt.ItemDataRole.EditRole)
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_eusk), self.orig_eusk1, Qt.ItemDataRole.EditRole)
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.orig_out1, Qt.ItemDataRole.EditRole)
 
-        # Re-insert the second row at its original position (or what would be its original position)
-        # self.df_idx2_rem_orig was the original index of the second row. If the first row is df_idx1,
-        # then the second row was at df_idx1 + 1 before removal.
         self.tw.pandas_model.insert_row_data(self.df_idx1 + 1, self.data_df_idx2.to_dict())
 
         self.tw.set_unsaved_changes(True)
         self.tw.update_character_completer_and_notify()
-        self.tw.table_view.selectRow(self.df_idx1) # Or perhaps select both rows? For now, just the first.
+        self.tw.table_view.selectRow(self.df_idx1)
         idx_to_scroll = self.tw.pandas_model.index(self.df_idx1, 0)
         if idx_to_scroll.isValid():
             self.tw.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.EnsureVisible)
@@ -1617,11 +1606,9 @@ class ChangeSceneCommand(QUndoCommand):
             self.setText(f"Incrementar escena (fila {self.df_start_idx+1} inválida)")
             return
 
-        # Pre-check loop to ensure all subsequent scenes are simple numeric strings
         for df_idx in range(self.df_start_idx, len(current_df)):
             scene_val_str = str(current_df.at[df_idx, 'SCENE']).strip()
             try:
-                # We don't need the value, just to check if it's convertible to an int
                 int(scene_val_str)
             except ValueError:
                 QMessageBox.warning(self.tw, "Cambiar Escena",
@@ -1629,18 +1616,15 @@ class ChangeSceneCommand(QUndoCommand):
                                     "no es un número simple. No se puede autoincrementar en bloque. "
                                     "Todas las escenas desde la seleccionada deben ser numéricas.")
                 self.setText("Incrementar escena (escena no numérica encontrada)")
-                return # Abort the operation
+                return
 
-        # If pre-check passes, proceed with the changes
         self.old_scenes_map.clear()
         new_scenes_map_for_redo: Dict[int, str] = {}
         
-        # Main loop to calculate and store changes
         for df_idx in range(self.df_start_idx, len(current_df)):
             original_scene_str = str(current_df.at[df_idx, 'SCENE'])
             self.old_scenes_map[df_idx] = original_scene_str
             
-            # We know it's convertible from the pre-check
             scene_num = int(original_scene_str.strip())
             new_scene_val = str(scene_num + 1)
             new_scenes_map_for_redo[df_idx] = new_scene_val
