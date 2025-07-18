@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtCore import QUrl, Qt, QTimer, pyqtSignal, QSize, QKeyCombination
-from PyQt6.QtGui import QKeySequence, QFont, QIcon, QKeyEvent, QFontMetrics, QMouseEvent
+from PyQt6.QtGui import QKeySequence, QFont, QIcon, QKeyEvent, QFontMetrics, QMouseEvent, QColor
 
 from .time_code_edit import TimeCodeEdit
 
@@ -94,11 +94,20 @@ class VideoPlayerWidget(QWidget):
         self.video_widget.setObjectName("video_widget")
         self.media_player.setVideoOutput(self.video_widget)
 
-        self.subtitle_display_label = QLabel(self.video_widget) 
-        self.subtitle_display_label.setObjectName("subtitle_display_label")
-        self.subtitle_display_label.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
+        self.subtitle_container = QWidget()
+        self.subtitle_container.setObjectName("subtitle_container")
+        subtitle_layout = QHBoxLayout(self.subtitle_container) # Usamos QHBoxLayout para centrar
+        subtitle_layout.setContentsMargins(10, 5, 10, 5) # Padding interno
+
+        # 2. El label de subtítulos ahora es hijo del CONTENEDOR.
+        self.subtitle_display_label = QLabel("") 
+        self.subtitle_display_label.setObjectName("subtitle_display_label_in_container") # Nuevo nombre de objeto para CSS
+        self.subtitle_display_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.subtitle_display_label.setWordWrap(True)
-        self.subtitle_display_label.setVisible(False) 
+        subtitle_layout.addWidget(self.subtitle_display_label)
+
+        # 3. El contenedor empieza oculto.
+        self.subtitle_container.setVisible(False)
 
         self.media_player.playbackStateChanged.connect(self.update_play_button_icon)
         self.media_player.positionChanged.connect(self.update_slider_position)
@@ -220,6 +229,7 @@ class VideoPlayerWidget(QWidget):
         
         layout.addWidget(top_info_layout_container)
         layout.addWidget(self.video_widget, 1)
+        layout.addWidget(self.subtitle_container)
         layout.addWidget(self.slider) 
 
         self.video_controls_bar_widget = QWidget()
@@ -244,17 +254,6 @@ class VideoPlayerWidget(QWidget):
         layout.addWidget(self.video_controls_bar_widget)
         self.setLayout(layout)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if hasattr(self, 'subtitle_display_label') and self.video_widget:
-            label_height = self.subtitle_display_label.fontMetrics().height() * 3 
-            label_width = self.video_widget.width() - 40 
-            
-            x = (self.video_widget.width() - label_width) // 2
-            y = self.video_widget.height() - label_height - 15 
-            
-            self.subtitle_display_label.setGeometry(x, y, label_width, label_height)
-
     def _refresh_subtitle_timeline(self): # NUEVO
         """Obtiene la caché de subtítulos de TableWindow y la prepara para la búsqueda."""
         if not self.table_window_ref:
@@ -268,29 +267,15 @@ class VideoPlayerWidget(QWidget):
         self._trigger_subtitle_update(self.media_player.position())
 
 
-    def _handle_subtitle_toggle(self, state: int):
-        is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
-        
-        if is_checked:
-            self.subtitle_display_label.setVisible(True)
-            self._trigger_subtitle_update(self.media_player.position())
-        else:
-            self.subtitle_display_label.setText("")
-            self.subtitle_display_label.setVisible(False)
-        
-        if self.video_widget:
-            self.video_widget.update()
-        self.update()
-
-    def _trigger_subtitle_update(self, position_ms: int): # REESCRITO PARA OPTIMIZACIÓN
+    def _trigger_subtitle_update(self, position_ms: int):
+        # Si la casilla no está marcada o no hay datos, no hacemos nada.
         if not self.subtitle_toggle_checkbox.isChecked() or not self.subtitle_timeline:
-            if self.subtitle_display_label.text():
-                self.subtitle_display_label.setText("")
-            self.current_subtitle_timeline_idx = -1
+            # Asegurarse de que el CONTENEDOR esté oculto
+            if self.subtitle_container.isVisible():
+                self.subtitle_container.setVisible(False)
             return
 
-        # Búsqueda binaria para encontrar el índice del subtítulo actual
-        # bisect_right encuentra el punto de inserción, el subtítulo correcto es el anterior a ese punto.
+        # Búsqueda binaria...
         idx = bisect.bisect_right(self.subtitle_start_times, position_ms)
         
         found_subtitle_idx = -1
@@ -300,15 +285,39 @@ class VideoPlayerWidget(QWidget):
             candidate_idx = idx - 1
             start_ms, end_ms, dialogue = self.subtitle_timeline[candidate_idx]
             
-            # Comprobar si el tiempo actual está dentro del rango del subtítulo candidato
             if start_ms <= position_ms < end_ms:
                 found_subtitle_idx = candidate_idx
                 text_to_display = dialogue
         
-        # Actualizar el label solo si el subtítulo ha cambiado
         if self.current_subtitle_timeline_idx != found_subtitle_idx:
             self.subtitle_display_label.setText(text_to_display)
+            
+            # Se hace visible/invisible el CONTENEDOR
+            self.subtitle_container.setVisible(bool(text_to_display))
+            
             self.current_subtitle_timeline_idx = found_subtitle_idx
+
+    # Corregimos este método para que oculte el CONTENEDOR, no el label.
+    def _handle_subtitle_toggle(self, state: int):
+        is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
+        
+        if is_checked:
+            self._trigger_subtitle_update(self.media_player.position())
+        else:
+            # Si se desmarca, forzamos el ocultamiento del CONTENEDOR
+            self.subtitle_display_label.setText("")
+            self.subtitle_container.setVisible(False)
+
+    def _handle_subtitle_toggle(self, state: int):
+        is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
+        
+        if is_checked:
+            # Simplemente dispara una actualización. El trigger decidirá si mostrar algo.
+            self._trigger_subtitle_update(self.media_player.position())
+        else:
+            # Si se desmarca, forzamos el ocultamiento.
+            self.subtitle_display_label.setText("")
+            self.subtitle_display_label.setVisible(False)
 
     def update_key_listeners(self):
         pass

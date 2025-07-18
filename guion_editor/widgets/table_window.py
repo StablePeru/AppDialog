@@ -219,6 +219,10 @@ class TableWindow(QWidget):
         
         self.cached_subtitle_timeline.sort(key=lambda x: x[0])
 
+        print(f"[DEBUG TableWindow]: Recache completo. Se han cacheado {len(self.cached_subtitle_timeline)} subtítulos.")
+        if self.cached_subtitle_timeline:
+            print(f"  -> Ejemplo de primer subtítulo en caché: {self.cached_subtitle_timeline[0]}")
+
 
     def get_subtitle_timeline(self) -> List[Tuple[int, int, str]]:
         return self.cached_subtitle_timeline
@@ -1125,13 +1129,17 @@ class TableWindow(QWidget):
 
     def convert_time_code_to_milliseconds(self, time_code: str) -> int:
         try:
+            FPS_RATE = 25.0  # Definir la constante primero
             parts = time_code.split(':'); h, m, s, f = map(int, parts)
-            if len(parts) != 4 or not all(0 <= x < 100 for x in [h,m,s]) or not (0 <= f < 60):
-                raise ValueError("Formato de Timecode inválido")
-            FPS_RATE = 25.0 
-            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / FPS_RATE) * 1000.0)) 
+            
+            # La validación ahora puede usar FPS_RATE de forma segura
+            if len(parts) != 4 or not (0 <= m < 60 and 0 <= s < 60 and 0 <= f < FPS_RATE):
+                raise ValueError(f"Formato o rango de Timecode inválido (MM:SS < 60, FF < {int(FPS_RATE)})")
+            
+            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / FPS_RATE) * 1000.0))
         except ValueError:
-            return 0 
+            # Esta excepción ahora captura tanto los errores de formato como los de rango
+            return 0
         except Exception as e:
             self.handle_exception(e, f"Error convirtiendo '{time_code}' a milisegundos")
             return 0

@@ -468,27 +468,20 @@ QHeaderView::section:pressed {
     border-bottom-color: #005AA1;
 }
 
-QLabel#subtitle_display_label {
-    background-color: rgba(0, 0, 0, 0.6); /* Fondo semi-transparente para legibilidad */
-    color: white;
-    font-size: 16pt; /* Ajusta según necesidad */
-    font-weight: bold;
-    padding: 8px 12px;
-    border-radius: 5px;
-    margin: 10px; /* Margen para que no esté pegado a los bordes del video_widget */
-    /* qproperty-alignment: 'AlignBottom | AlignHCenter'; /* Esto se setea en código */
+QWidget#subtitle_container {
+    background-color: #1A1A1A; /* Un fondo oscuro pero diferente al principal */
+    border-radius: 4px;
+    min-height: 40px; /* Una altura mínima para que no desaparezca si el texto es corto */
+    margin: 5px 0px; /* Margen vertical para separarlo del video y los controles */
 }
 
-QLabel#subtitle_display_label {
-    background-color: rgba(0, 0, 0, 0.65); /* Fondo semi-transparente para legibilidad */
-    color: white;
-    /* font-size: 16pt;  El tamaño se gestiona en update_fonts */
-    /* font-weight: bold; El peso se gestiona en update_fonts */
-    padding: 8px 15px; /* Padding ajustado */
-    border-radius: 6px;
-    margin: 0px 20px 15px 20px; /* Margen: 0 arriba, 20 L/R, 15 abajo */
-    text-align: center; /* Asegurar que el texto dentro del label esté centrado si el label es más ancho */
-    border: 1px solid rgba(255, 255, 255, 0.1); /* Borde sutil opcional */
+/* Estilo para el label dentro del nuevo contenedor */
+QLabel#subtitle_display_label_in_container {
+    color: #E0E0E0;
+    background-color: transparent; /* El fondo lo da el contenedor */
+    border: none; /* Sin borde propio */
+    padding: 5px;
+    /* La fuente y su tamaño se gestionan desde el código Python */
 }
 
 QStatusBar { background-color: #2A2A2A; color: #A0A0A0; border-top: 1px solid #383838; padding: 4px 8px; font-size: 8.5pt; }
