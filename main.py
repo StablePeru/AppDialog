@@ -163,7 +163,6 @@ class MainWindow(QMainWindow):
             self.addAction(action)
         return action
     
-    # ----> MODIFICACIÓN CLAVE AQUÍ <----
     def call_adjust_dialogs(self, checked=None):
         """
         Llama al ajuste de diálogos en TableWindow pasándole la longitud de línea configurada.
