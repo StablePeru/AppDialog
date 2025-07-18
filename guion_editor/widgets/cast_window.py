@@ -222,7 +222,7 @@ class CastWindow(QWidget):
                        f"con las de '{new_name}' bajo el único nombre '{new_name}'.")
             reply = QMessageBox.question(self, "Confirmar Fusión de Personajes", message,
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                         QMessageBox.StandardButton.No)
+                                         QMessageBox.StandardButton.Yes)
             if reply == QMessageBox.StandardButton.No:
                 self.table_widget.blockSignals(True)
                 item.setText(old_name)
