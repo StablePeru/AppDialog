@@ -1,5 +1,5 @@
 {
-    "current_config": "default",
+    "current_config": "Aintzane",
     "configs": {
         "default": {
             "file_open_video": "Ctrl+O",
@@ -72,7 +72,7 @@
             "edit_move_down": "Alt+Down",
             "edit_adjust_dialogs": "",
             "edit_split_intervention": "Alt+S",
-            "edit_merge_interventions": "Alt+M",
+            "edit_merge_interventions": "Ctrl+Alt+J",
             "edit_view_cast": "",
             "edit_find_replace": "Ctrl+F",
             "edit_copy_in_out": "Ctrl+B",
