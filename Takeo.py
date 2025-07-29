@@ -339,7 +339,8 @@ class ScriptTakeOptimizer:
         segmentation[0] = []
         for i in range(1, n + 1):
             for j in range(i):
-                merged_text = " ".join(texts[j:i])
+                # MODIFICADO: Usar " _ " para juntar textos de la misma intervención
+                merged_text = " _ ".join(texts[j:i])
                 merged_lines = self.expand_dialogue(merged_text)
                 cost = len(merged_lines)
                 if dp[j] + cost < dp[i]:
@@ -414,11 +415,12 @@ class ScriptTakeOptimizer:
         if not self.check_inter_intervention_silence(blocks_segment):
             return False
 
-        segment_total_lines = sum(b['total_lines'] for b in blocks_segment)
+        # El chequeo de líneas ahora usa la lógica de fusión optimizada
+        segment_total_lines, character_exceeded_consecutive = self.unify_and_check(blocks_segment)
+        
         if segment_total_lines > self.max_lines_per_take:
             return False
 
-        _, character_exceeded_consecutive = self.unify_and_check(blocks_segment)
         if character_exceeded_consecutive:
             return False
             
@@ -470,6 +472,8 @@ class ScriptTakeOptimizer:
             for j in range(i, n):
                 segment = blocks[i:j+1]
                 if not self.is_segment_feasible(segment):
+                    # Como is_segment_feasible ahora es más preciso, este break
+                    # se activará solo cuando sea realmente imposible continuar.
                     break 
                 
                 seg_characters = set()
@@ -502,10 +506,14 @@ class ScriptTakeOptimizer:
 
     def _fuse_run_texts(self, texts_list_of_lists_of_lines):
         """
-        texts_list_of_lists_of_lines: [['line1', 'line2'], ['line3']]
+        Fusiona una lista de intervenciones (donde cada intervención es una lista de líneas)
+        en una única lista de líneas finales, usando el separador " _ ".
         """
+        # Une las líneas de cada intervención individual en un solo string
         full_texts_for_run = [" ".join(lines_list) for lines_list in texts_list_of_lists_of_lines]
-        merged_text_complete = " ".join(full_texts_for_run)
+        # MODIFICADO: Une las diferentes intervenciones con el separador " _ "
+        merged_text_complete = " _ ".join(full_texts_for_run)
+        # Vuelve a expandir el texto completamente fusionado en líneas según el max_chars_per_line
         return self.expand_dialogue(merged_text_complete)
 
     def generate_detail(self, blocks_with_takes):
@@ -542,6 +550,7 @@ class ScriptTakeOptimizer:
                 else:
                     char_of_run = current_run_for_char[0]["personaje"]
                     texts_to_fuse = [r["lines_original_expansion"] for r in current_run_for_char]
+                    # La fusión para la salida final ahora usa la nueva lógica
                     fused_lines = self._fuse_run_texts(texts_to_fuse)
                     
                     run_in_time = current_run_for_char[0]["in_str"]
@@ -556,6 +565,7 @@ class ScriptTakeOptimizer:
             if current_run_for_char:
                 char_of_run = current_run_for_char[0]["personaje"]
                 texts_to_fuse = [r["lines_original_expansion"] for r in current_run_for_char]
+                 # La fusión para la salida final ahora usa la nueva lógica
                 fused_lines = self._fuse_run_texts(texts_to_fuse)
                 run_in_time = current_run_for_char[0]["in_str"]
                 run_out_time = current_run_for_char[-1]["out_str"]
