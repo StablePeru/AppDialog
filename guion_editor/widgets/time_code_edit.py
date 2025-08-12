@@ -133,7 +133,8 @@ class TimeCodeEdit(QLineEdit):
         try:
             parts = time_code.split(':')
             if len(parts) != 4 or not all(p.isdigit() and len(p) == 2 for p in parts):
-                raise ValueError("Formato de Timecode inválido: debe ser HH:MM:SS:FF con dígitos.")
+                #raise ValueError("Formato de Timecode inválido: debe ser HH:MM:SS:FF con dígitos.")
+                pass
             
             self.digits = [
                 int(parts[0][0]), int(parts[0][1]),
