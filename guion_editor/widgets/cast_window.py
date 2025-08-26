@@ -2,10 +2,15 @@
 from functools import partial
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-    QMessageBox, QHeaderView, QPushButton, QApplication
+    QMessageBox, QHeaderView, QPushButton, QApplication, QHBoxLayout
 )
-from PyQt6.QtCore import Qt, QAbstractItemModel, QSize # Added QSize
-from PyQt6.QtGui import QIcon # Added QIcon for isNull check if needed
+from PyQt6.QtCore import Qt, QAbstractItemModel, QSize
+from PyQt6.QtGui import QIcon
+
+# -> NUEVO: Importar el delegado de personaje que vamos a reutilizar
+from guion_editor.delegates.custom_delegates import CharacterDelegate
+# -> NUEVO: Importar pandas para la lógica del autocompletador
+import pandas as pd
 
 class CastWindow(QWidget):
     HEADER_LABELS = ["Personaje", "Intervenciones", "Acción"]
@@ -28,25 +33,84 @@ class CastWindow(QWidget):
 
     def init_window(self):
         self.setWindowTitle("Reparto Completo")
-        # Adjusted width slightly, icon buttons are more compact
         self.setGeometry(200, 200, 500, 600) 
 
     def setup_ui(self):
         layout = QVBoxLayout()
         self.table_widget = self.create_table_widget()
         layout.addWidget(self.table_widget)
+        
+        bottom_button_layout = QHBoxLayout()
+        self.uppercase_button = QPushButton(" Convertir a Mayúsculas")
+        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
+            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
+            if get_icon:
+                try: # Añadir try-except por si el icono no existe
+                    self.uppercase_button.setIcon(get_icon("uppercase_icon.svg"))
+                    self.uppercase_button.setIconSize(QSize(16, 16))
+                except: pass # Si el icono falla, no es crítico
+        
+        self.uppercase_button.setToolTip("Convierte todos los nombres de personaje a mayúsculas en el guion principal.")
+        self.uppercase_button.clicked.connect(self.convert_all_characters_to_uppercase)
+
+        bottom_button_layout.addStretch()
+        bottom_button_layout.addWidget(self.uppercase_button)
+        
+        layout.addLayout(bottom_button_layout)
+
         self.setLayout(layout)
         self.populate_table()
+        
+    def convert_all_characters_to_uppercase(self):
+        if not self.parent_main_window or not hasattr(self.parent_main_window, 'tableWindow'):
+            QMessageBox.warning(self, "Error", "No se puede acceder a la ventana principal del guion.")
+            return
 
+        reply = QMessageBox.question(self, "Confirmar Acción",
+                                     "¿Está seguro de que desea convertir todos los nombres de personaje a MAYÚSCULAS?\n\n"
+                                     "Podrá deshacer esta acción con Ctrl+Z en la ventana principal.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.Yes)
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.parent_main_window.tableWindow.convert_all_characters_to_uppercase()
+            QMessageBox.information(self, "Éxito", "Nombres de personaje convertidos a mayúsculas.")
+
+    # -> NUEVO: Método para obtener la lista de nombres para el autocompletador
+    def get_character_names_for_completer(self) -> list[str]:
+        """Obtiene la lista de nombres de personajes únicos del modelo de datos principal."""
+        dataframe = self.pandas_model.dataframe()
+        if dataframe is None or dataframe.empty or 'PERSONAJE' not in dataframe.columns:
+            return []
+        
+        # Obtenemos los nombres únicos, los convertimos a string y quitamos espacios
+        unique_names = pd.Series(dataframe['PERSONAJE'].unique()).astype(str).str.strip()
+        # Filtramos los que queden vacíos y devolvemos una lista ordenada
+        return sorted(list(unique_names[unique_names != ""]))
+
+    # -> MODIFICADO: create_table_widget para añadir el delegado
     def create_table_widget(self):
         table_widget = QTableWidget()
         table_widget.setColumnCount(len(self.HEADER_LABELS))
         table_widget.setHorizontalHeaderLabels(self.HEADER_LABELS)
         
+        # --- Asignación del delegado ---
+        # Creamos una instancia de CharacterDelegate
+        char_delegate = CharacterDelegate(
+            get_names_callback=self.get_character_names_for_completer,
+            parent=table_widget,
+            # Importante: No pasamos table_window_instance para que el delegado
+            # no intente usar la pila de undo directamente. Dejamos que la señal
+            # itemChanged de esta ventana se encargue de ello.
+            table_window_instance=None 
+        )
+        # Lo asignamos a la columna de personajes (COL_PERSONAJE)
+        table_widget.setItemDelegateForColumn(self.COL_PERSONAJE, char_delegate)
+        # --- Fin de la asignación ---
+
         header = table_widget.horizontalHeader()
         header.setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch) 
         header.setSectionResizeMode(self.COL_INTERVENCIONES, QHeaderView.ResizeMode.ResizeToContents)
-        # ResizeToContents should work well with consistently sized icon buttons
         header.setSectionResizeMode(self.COL_ACCION, QHeaderView.ResizeMode.ResizeToContents) 
 
         header.sectionClicked.connect(self.sort_by_column)
@@ -55,6 +119,7 @@ class CastWindow(QWidget):
         
         return table_widget
 
+    # ... (el resto del archivo no necesita cambios)
     def sort_by_column(self, logical_index):
         if logical_index == self.COL_ACCION:
             return
@@ -94,27 +159,16 @@ class CastWindow(QWidget):
         current_get_icon_func = None
         if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
             current_get_icon_func = self.parent_main_window.get_icon_func_for_dialogs()
-            print(f"CastWindow: get_icon_func is available: {callable(current_get_icon_func)}") # DEBUG
-        else:
-            print("CastWindow: get_icon_func is NOT available from parent_main_window.") # DEBUG
-
 
         icon_button_size = QSize(28, 28)
         icon_itself_size = QSize(16, 16)
         
-        # Load the icon once if possible, for efficiency and easier debugging
         search_icon_instance = None
         if current_get_icon_func:
             try:
-                print("CastWindow: Attempting to load 'find_next_icon.svg'") # DEBUG
                 search_icon_instance = current_get_icon_func("find_next_icon.svg")
-                if search_icon_instance.isNull():
-                    print("CastWindow: 'find_next_icon.svg' loaded as QIcon, but it's NULL (icon not found or invalid).") # DEBUG
-                else:
-                    print(f"CastWindow: 'find_next_icon.svg' loaded. Name: {search_icon_instance.name()}, Sizes: {search_icon_instance.availableSizes()}") # DEBUG
             except Exception as e:
-                print(f"CastWindow: EXCEPTION while loading 'find_next_icon.svg': {e}") # DEBUG
-                search_icon_instance = None # Ensure it's None on error
+                search_icon_instance = None 
 
         for row, (character, count) in enumerate(items_to_sort):
             self.set_table_item(row, self.COL_PERSONAJE, str(character))
@@ -125,19 +179,14 @@ class CastWindow(QWidget):
             self.table_widget.setItem(row, self.COL_INTERVENCIONES, count_item)
 
             find_button = QPushButton()
-            # Use the pre-loaded search_icon_instance
             if search_icon_instance and not search_icon_instance.isNull():
                 find_button.setIcon(search_icon_instance)
                 find_button.setIconSize(icon_itself_size)
                 find_button.setFixedSize(icon_button_size)
-                # Optional: make it look more like a pure icon
                 find_button.setStyleSheet("QPushButton { border: none; background-color: transparent; padding: 0px; margin: 0px; }") 
             else:
-                # Fallback if icon function or specific icon is not available/loaded
-                if row == 0: # Print fallback reason only once
-                    print("CastWindow: Fallback - using text '...' for find button because icon was not loaded.") # DEBUG
-                find_button.setText("...") # Compact fallback text
-                find_button.setFixedSize(icon_button_size) # Still set fixed size for alignment
+                find_button.setText("...")
+                find_button.setFixedSize(icon_button_size)
 
             find_button.setToolTip(f"Buscar intervenciones de {character}")
             find_button.clicked.connect(partial(self.find_character_in_script, str(character)))
@@ -185,7 +234,6 @@ class CastWindow(QWidget):
 
         dialog.exec()
 
-    # ... (on_item_changed, update_character_name_in_main_table, showEvent remain the same)
     def on_item_changed(self, item: QTableWidgetItem):
         if item.column() != self.COL_PERSONAJE:
             return

@@ -1423,3 +1423,42 @@ class TableWindow(QWidget):
             self.toggle_header_button.setIcon(icon_to_set)
         elif not self.get_icon: 
             self.toggle_header_button.setIcon(QIcon())
+
+    def convert_all_characters_to_uppercase(self):
+        """
+        Recorre todo el guion y convierte cada nombre de personaje a mayúsculas.
+        Esta operación se registra en la pila de deshacer como una sola acción.
+        """
+        if self.pandas_model.dataframe().empty:
+            return # No hay nada que hacer si la tabla está vacía
+
+        view_col_char = self.pandas_model.get_view_column_index('PERSONAJE')
+        if view_col_char is None:
+            QMessageBox.critical(self, "Error Interno", "No se encontró la columna de personaje.")
+            return
+
+        changed_any = False
+        # Iniciar una macro para que todos los cambios se deshagan/rehagan juntos
+        self.undo_stack.beginMacro("Convertir Personajes a Mayúsculas")
+
+        for df_idx in range(self.pandas_model.rowCount()):
+            old_name = str(self.pandas_model.dataframe().at[df_idx, 'PERSONAJE'])
+            
+            # Solo procesar nombres que no estén vacíos
+            if old_name.strip():
+                new_name = old_name.upper()
+                
+                # Solo crear un comando si el nombre realmente cambia
+                if old_name != new_name:
+                    command = EditCommand(self, df_idx, view_col_char, old_name, new_name)
+                    self.undo_stack.push(command)
+                    changed_any = True
+        
+        # Finalizar la macro
+        self.undo_stack.endMacro()
+
+        # Los cambios en el modelo (a través de EditCommand) notificarán a la vista
+        # y la ventana de reparto se actualizará automáticamente.
+        # No es necesario emitir señales manualmente aquí.
+        if not changed_any:
+            QMessageBox.information(self, "Información", "Todos los nombres de personaje ya estaban en mayúsculas.")
