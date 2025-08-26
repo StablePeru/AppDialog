@@ -2,6 +2,7 @@
 
 import json
 import os
+import re 
 from typing import Any, List, Dict, Optional, Tuple
 
 import pandas as pd
@@ -32,6 +33,7 @@ class TableWindow(QWidget):
     in_out_signal = pyqtSignal(str, int)
     character_name_changed = pyqtSignal()
 
+    # -> INICIO: CONSTANTES DE COLUMNA ACTUALIZADAS
     COL_NUM_INTERV_VIEW = 0
     COL_ID_VIEW = 1         
     COL_SCENE_VIEW = 2      
@@ -40,8 +42,9 @@ class TableWindow(QWidget):
     COL_CHARACTER_VIEW = 5  
     COL_DIALOGUE_VIEW = 6   
     COL_EUSKERA_VIEW = 7 
+    COL_OHARRAK_VIEW = 8 # Nueva columna
 
-    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO", "EUSKERA"] 
+    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO", "EUSKERA", "OHARRAK"] 
     
     VIEW_TO_DF_COL_MAP = {
         COL_NUM_INTERV_VIEW: ROW_NUMBER_COL_IDENTIFIER,
@@ -51,9 +54,11 @@ class TableWindow(QWidget):
         COL_OUT_VIEW: 'OUT', 
         COL_CHARACTER_VIEW: 'PERSONAJE', 
         COL_DIALOGUE_VIEW: 'DIÁLOGO',
-        COL_EUSKERA_VIEW: 'EUSKERA' 
+        COL_EUSKERA_VIEW: 'EUSKERA',
+        COL_OHARRAK_VIEW: 'OHARRAK' # Nuevo mapeo
     }
-    DF_COLUMN_ORDER = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA']
+    DF_COLUMN_ORDER = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA', 'OHARRAK']
+    # -> FIN: CONSTANTES DE COLUMNA ACTUALIZADAS
 
     def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
                  guion_manager: Optional[GuionManager] = None, get_icon_func=None):
@@ -104,6 +109,11 @@ class TableWindow(QWidget):
         self.last_focused_dialog_text: Optional[str] = None
         self.last_focused_dialog_cursor_pos: int = -1
         self.last_focused_dialog_index: Optional[QModelIndex] = None
+        
+        # -> INICIO: SOLUCIÓN DEL ERROR
+        # Inicializamos la columna de origen de subtítulos con un valor por defecto.
+        self.subtitle_source_column = 'DIÁLOGO'
+        # -> FIN: SOLUCIÓN DEL ERROR
 
         if self.get_icon:
             self.icon_expand_less = self.get_icon("toggle_header_collapse_icon.svg")
@@ -198,30 +208,35 @@ class TableWindow(QWidget):
 
     def _recache_subtitle_timeline(self):
         self.cached_subtitle_timeline.clear()
-        if self.pandas_model is None or self.pandas_model.rowCount() == 0:
+        df = self.pandas_model.dataframe()
+        if df.empty or self.subtitle_source_column not in df.columns:
             return
             
-        df = self.pandas_model.dataframe()
         for i in range(len(df)):
             try:
                 in_tc = str(df.at[i, 'IN'])
                 out_tc = str(df.at[i, 'OUT'])
-                dialogue = str(df.at[i, 'DIÁLOGO'])
+                # Utiliza la columna de origen almacenada
+                subtitle_text = str(df.at[i, self.subtitle_source_column])
                 
                 in_ms = self.convert_time_code_to_milliseconds(in_tc)
                 out_ms = self.convert_time_code_to_milliseconds(out_tc)
                 
                 if in_ms < out_ms:
-                    self.cached_subtitle_timeline.append((in_ms, out_ms, dialogue))
+                    self.cached_subtitle_timeline.append((in_ms, out_ms, subtitle_text))
             except (KeyError, ValueError, TypeError) as e:
                 print(f"Advertencia: Omitiendo fila {i} del caché de subtítulos por error: {e}")
                 continue
         
         self.cached_subtitle_timeline.sort(key=lambda x: x[0])
 
-        print(f"[DEBUG TableWindow]: Recache completo. Se han cacheado {len(self.cached_subtitle_timeline)} subtítulos.")
-        if self.cached_subtitle_timeline:
-            print(f"  -> Ejemplo de primer subtítulo en caché: {self.cached_subtitle_timeline[0]}")
+    def trigger_recache_with_source(self, source_column: str):
+        """
+        Actualiza la columna de origen para los subtítulos y solicita un recacheo.
+        """
+        if source_column in self.DF_COLUMN_ORDER:
+            self.subtitle_source_column = source_column
+            self._request_recache_subtitles()
 
 
     def get_subtitle_timeline(self) -> List[Tuple[int, int, str]]:
@@ -565,16 +580,18 @@ class TableWindow(QWidget):
         self.table_view.setColumnHidden(self.COL_ID_VIEW, True) 
         self.table_view.selectionModel().selectionChanged.connect(self.update_action_buttons_state)
 
-        time_delegate = TimeCodeDelegate(self.table_view)
+        # -> MODIFICADO: Pasar la instancia de TableWindow a los delegados
+        time_delegate = TimeCodeDelegate(self.table_view, table_window_instance=self)
         self.table_view.setItemDelegateForColumn(self.COL_IN_VIEW, time_delegate)
         self.table_view.setItemDelegateForColumn(self.COL_OUT_VIEW, time_delegate)
         
-        char_delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view)
+        char_delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view, table_window_instance=self)
         self.table_view.setItemDelegateForColumn(self.COL_CHARACTER_VIEW, char_delegate)
 
         self.dialog_delegate = DialogDelegate(parent=self.table_view, font_size=self.current_font_size, table_window_instance=self)
         self.table_view.setItemDelegateForColumn(self.COL_DIALOGUE_VIEW, self.dialog_delegate)
         self.table_view.setItemDelegateForColumn(self.COL_EUSKERA_VIEW, self.dialog_delegate)
+        self.table_view.setItemDelegateForColumn(self.COL_OHARRAK_VIEW, self.dialog_delegate)
 
         self.table_view.cellCtrlClicked.connect(self.handle_ctrl_click_on_cell)
         self.table_view.cellAltClicked.connect(self.handle_alt_click_on_cell)  
@@ -587,7 +604,6 @@ class TableWindow(QWidget):
         self.table_view.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.horizontalHeader().sectionResized.connect(self.handle_column_resized)
         self.table_view.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
-
     def show_header_context_menu(self, position: QPoint) -> None: 
         menu = QMenu(self)
         header = self.table_view.horizontalHeader()
@@ -612,7 +628,8 @@ class TableWindow(QWidget):
                 self.table_view.setColumnHidden(view_col_idx, not checked)
 
     def handle_column_resized(self, logical_index: int, old_size: int, new_size: int):
-        if logical_index == self.COL_DIALOGUE_VIEW or logical_index == self.COL_EUSKERA_VIEW:
+        # -> AÑADIDO: Redimensionar filas si se cambia el ancho de Oharrak
+        if logical_index in [self.COL_DIALOGUE_VIEW, self.COL_EUSKERA_VIEW, self.COL_OHARRAK_VIEW]:
             self.request_resize_rows_to_contents_deferred()
 
     def load_stylesheet(self) -> None:
@@ -878,7 +895,7 @@ class TableWindow(QWidget):
             view_col_idx = top_left_index.column() 
             df_col_name = self.pandas_model.get_df_column_name(view_col_idx)
             
-            if df_col_name in ['DIÁLOGO', 'EUSKERA']:
+            if df_col_name in ['DIÁLOGO', 'EUSKERA', 'OHARRAK']: # -> AÑADIDO OHARRAK
                 self.request_resize_rows_to_contents_deferred()
             elif df_col_name == 'PERSONAJE':
                 self.update_character_completer_and_notify()
@@ -1250,31 +1267,80 @@ class TableWindow(QWidget):
         self.undo_stack.endMacro()
         if changed_any: self.update_character_completer_and_notify() 
 
-    def find_and_replace(self, find_text: str, replace_text: str, search_in_character: bool = True, search_in_dialogue: bool = True) -> None:
-        if self.pandas_model.dataframe().empty or not find_text: return 
-        self.undo_stack.beginMacro("Buscar y Reemplazar")
+    # -> INICIO: MÉTODO `find_and_replace` CORREGIDO
+    def find_and_replace(self, find_text: str, replace_text: str,
+                         search_in_character: bool = True,
+                         search_in_dialogue: bool = True,
+                         search_in_euskera: bool = False) -> None:
+        if self.pandas_model.dataframe().empty or not find_text:
+            return
+        
+        self.undo_stack.beginMacro("Buscar y Reemplazar Todo")
         changed_count = 0
+        
         view_col_char = self.pandas_model.get_view_column_index('PERSONAJE')
         view_col_dialog = self.pandas_model.get_view_column_index('DIÁLOGO')
-        
-        find_text_lower = find_text.lower()
+        view_col_euskera = self.pandas_model.get_view_column_index('EUSKERA')
 
         for df_idx in range(self.pandas_model.rowCount()):
             if search_in_character and view_col_char is not None:
                 char_text_orig = str(self.pandas_model.dataframe().at[df_idx, 'PERSONAJE'])
-                if find_text_lower in char_text_orig.lower():
-                    new_char_text = char_text_orig.replace(find_text, replace_text) 
-                    if char_text_orig != new_char_text:
-                        self.undo_stack.push(EditCommand(self, df_idx, view_col_char, char_text_orig, new_char_text)); changed_count +=1
-            
+                new_char_text, num_subs = re.subn(re.escape(find_text), replace_text, char_text_orig, flags=re.IGNORECASE)
+                if num_subs > 0:
+                    self.undo_stack.push(EditCommand(self, df_idx, view_col_char, char_text_orig, new_char_text))
+                    changed_count += num_subs
+
             if search_in_dialogue and view_col_dialog is not None:
                 dialog_text_orig = str(self.pandas_model.dataframe().at[df_idx, 'DIÁLOGO'])
-                if find_text_lower in dialog_text_orig.lower():
-                    new_dialog_text = dialog_text_orig.replace(find_text, replace_text)
-                    if dialog_text_orig != new_dialog_text:
-                        self.undo_stack.push(EditCommand(self, df_idx, view_col_dialog, dialog_text_orig, new_dialog_text)); changed_count += 1
+                new_dialog_text, num_subs = re.subn(re.escape(find_text), replace_text, dialog_text_orig, flags=re.IGNORECASE)
+                if num_subs > 0:
+                    self.undo_stack.push(EditCommand(self, df_idx, view_col_dialog, dialog_text_orig, new_dialog_text))
+                    changed_count += num_subs
+            
+            if search_in_euskera and view_col_euskera is not None:
+                euskera_text_orig = str(self.pandas_model.dataframe().at[df_idx, 'EUSKERA'])
+                new_euskera_text, num_subs = re.subn(re.escape(find_text), replace_text, euskera_text_orig, flags=re.IGNORECASE)
+                if num_subs > 0:
+                    self.undo_stack.push(EditCommand(self, df_idx, view_col_euskera, euskera_text_orig, new_euskera_text))
+                    changed_count += num_subs
+
         self.undo_stack.endMacro()
-        QMessageBox.information(self, "Reemplazar", f"{changed_count} reemplazo(s) realizado(s)." if changed_count > 0 else "No se encontraron coincidencias para reemplazar.")
+        QMessageBox.information(self, "Reemplazar Todo",
+                                f"{changed_count} reemplazo(s) realizado(s)." if changed_count > 0 else "No se encontraron coincidencias para reemplazar.")
+    # -> FIN: MÉTODO `find_and_replace` CORREGIDO
+
+    # -> INICIO: MÉTODO `replace_in_current_match` CORREGIDO
+    def replace_in_current_match(self, df_idx: int, find_text: str, replace_text: str,
+                                 in_char: bool, in_dialogue: bool, in_euskera: bool) -> bool:
+        """Reemplaza la primera coincidencia encontrada en una fila específica."""
+        if self.pandas_model.dataframe().empty or not find_text or not (0 <= df_idx < self.pandas_model.rowCount()):
+            return False
+
+        self.undo_stack.beginMacro(f"Reemplazar en fila {df_idx + 1}")
+        changed = False
+
+        columns_to_check = []
+        if in_char: columns_to_check.append('PERSONAJE')
+        if in_dialogue: columns_to_check.append('DIÁLOGO')
+        if in_euskera: columns_to_check.append('EUSKERA')
+
+        for col_name in columns_to_check:
+            view_col_idx = self.pandas_model.get_view_column_index(col_name)
+            if view_col_idx is None:
+                continue
+
+            original_text = str(self.pandas_model.dataframe().at[df_idx, col_name])
+            
+            new_text, num_subs = re.subn(re.escape(find_text), replace_text, original_text, count=1, flags=re.IGNORECASE)
+
+            if num_subs > 0:
+                self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, new_text))
+                changed = True
+                break
+
+        self.undo_stack.endMacro()
+        return changed
+    # -> FIN: MÉTODO `replace_in_current_match` CORREGIDO
 
     def update_window_title(self) -> None:
         prefix = "*" if self.unsaved_changes else ""

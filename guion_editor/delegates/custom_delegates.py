@@ -1,48 +1,64 @@
 # guion_editor/delegates/custom_delegates.py
 
 from PyQt6.QtWidgets import QStyledItemDelegate, QLineEdit, QCompleter, QWidget, QStyle, QStyleOptionViewItem
-from PyQt6.QtCore import Qt, QObject, QModelIndex
+from PyQt6.QtCore import Qt, QObject, QModelIndex, QAbstractItemModel # -> AÑADIDO QAbstractItemModel
 from PyQt6.QtGui import QPalette, QPainter, QBrush, QColor, QFont
 
-# TimeCodeEdit se importa localmente en createEditor para TimeCodeDelegate
-# from guion_editor.widgets.time_code_edit import TimeCodeEdit
-
+# -> NUEVO: Importar EditCommand
+from guion_editor.commands.undo_commands import EditCommand
 from typing import Optional, Any, List, Callable
 
 class TimeCodeDelegate(QStyledItemDelegate):
-    def __init__(self, parent: Optional[QObject] = None):
+    # -> MODIFICADO: Añadir table_window_instance al constructor
+    def __init__(self, parent: Optional[QObject] = None, table_window_instance=None):
         super().__init__(parent)
+        self.table_window = table_window_instance
 
     def createEditor(self, parent_widget_for_editor: QWidget,
                      option: 'QStyleOptionViewItem',
                      index: QModelIndex) -> QWidget:
-        """Crea el editor TimeCodeEdit."""
         from guion_editor.widgets.time_code_edit import TimeCodeEdit
         editor = TimeCodeEdit(parent=parent_widget_for_editor)
         return editor
 
     def setEditorData(self, editor_widget: QWidget, index: QModelIndex) -> None:
-        """Establece los datos del modelo en el editor TimeCodeEdit."""
         from guion_editor.widgets.time_code_edit import TimeCodeEdit
 
         time_code_value = index.model().data(index, Qt.ItemDataRole.EditRole)
         if isinstance(editor_widget, TimeCodeEdit):
             editor_widget.set_time_code(str(time_code_value) if time_code_value is not None else "00:00:00:00")
 
+    # -> MODIFICADO: setModelData ahora usa QUndoStack
     def setModelData(self, editor_widget: QWidget,
                      model: 'QAbstractItemModel',
                      index: QModelIndex) -> None:
-        """Obtiene los datos del editor TimeCodeEdit y los establece en el modelo."""
         from guion_editor.widgets.time_code_edit import TimeCodeEdit
+        if not isinstance(editor_widget, TimeCodeEdit):
+            super().setModelData(editor_widget, model, index)
+            return
 
-        if isinstance(editor_widget, TimeCodeEdit):
+        if not self.table_window or not hasattr(self.table_window, 'undo_stack'):
             time_code = editor_widget.get_time_code()
             model.setData(index, time_code, Qt.ItemDataRole.EditRole)
+            return
+            
+        old_value = model.data(index, Qt.ItemDataRole.EditRole) or "00:00:00:00"
+        new_value = editor_widget.get_time_code()
+
+        if str(old_value) != new_value:
+            command = EditCommand(
+                table_window=self.table_window,
+                df_row_index=index.row(),
+                view_col_index=index.column(),
+                old_value=old_value,
+                new_value=new_value
+            )
+            self.table_window.undo_stack.push(command)
+
 
     def updateEditorGeometry(self, editor_widget: QWidget,
                              option: 'QStyleOptionViewItem',
                              index: QModelIndex) -> None:
-        """Ajusta la geometría del editor para que ocupe la celda."""
         editor_widget.setGeometry(option.rect)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
@@ -98,10 +114,12 @@ class TimeCodeDelegate(QStyledItemDelegate):
 
 
 class CharacterDelegate(QStyledItemDelegate):
+    # -> MODIFICADO: Añadir table_window_instance al constructor
     def __init__(self, get_names_callback: Optional[Callable[[], List[str]]] = None,
-                 parent: Optional[QObject] = None):
+                 parent: Optional[QObject] = None, table_window_instance=None):
         super().__init__(parent)
         self.get_names_callback = get_names_callback
+        self.table_window = table_window_instance
 
     def createEditor(self, parent_widget_for_editor: QWidget,
                      option: 'QStyleOptionViewItem',
@@ -113,33 +131,13 @@ class CharacterDelegate(QStyledItemDelegate):
             completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
             editor.setCompleter(completer)
 
-            popup = completer.popup() # El popup es un QListView
+            popup = completer.popup()
             if popup:
-                # Aplicar un estilo específico al popup del QCompleter para asegurar colores correctos
                 popup_stylesheet = """
-                    QListView {
-                        background-color: #2D2D2D;
-                        border: 1px solid #4A4A4A;
-                        border-radius: 4px;
-                        padding: 2px;
-                        font-family: inherit; /* Heredar fuente de la aplicación/editor */
-                        font-size: inherit;   /* Heredar tamaño de fuente */
-                    }
-                    QListView::item {
-                        color: white;
-                        background-color: transparent;
-                        padding: 5px 8px;
-                        margin: 1px;
-                        border-radius: 3px;
-                    }
-                    QListView::item:selected {
-                        color: white;
-                        background-color: #0078D7; /* Color de selección estándar */
-                    }
-                    QListView::item:hover {
-                        color: white;
-                        background-color: #3A3A3A; /* Fondo ligeramente más claro en hover */
-                    }
+                    QListView { background-color: #2D2D2D; border: 1px solid #4A4A4A; border-radius: 4px; padding: 2px; font-family: inherit; font-size: inherit; }
+                    QListView::item { color: white; background-color: transparent; padding: 5px 8px; margin: 1px; border-radius: 3px; }
+                    QListView::item:selected { color: white; background-color: #0078D7; }
+                    QListView::item:hover { color: white; background-color: #3A3A3A; }
                 """
                 popup.setStyleSheet(popup_stylesheet)
         return editor
@@ -149,12 +147,32 @@ class CharacterDelegate(QStyledItemDelegate):
         if isinstance(editor_widget, QLineEdit):
             editor_widget.setText(str(text_value) if text_value is not None else "")
 
+    # -> MODIFICADO: setModelData ahora usa QUndoStack
     def setModelData(self, editor_widget: QWidget,
                      model: 'QAbstractItemModel',
                      index: QModelIndex) -> None:
-        if isinstance(editor_widget, QLineEdit):
+        if not isinstance(editor_widget, QLineEdit):
+            super().setModelData(editor_widget, model, index)
+            return
+
+        if not self.table_window or not hasattr(self.table_window, 'undo_stack'):
             text = editor_widget.text().strip()
             model.setData(index, text, Qt.ItemDataRole.EditRole)
+            return
+
+        old_value = model.data(index, Qt.ItemDataRole.EditRole) or ""
+        new_value = editor_widget.text().strip()
+
+        if str(old_value) != new_value:
+            command = EditCommand(
+                table_window=self.table_window,
+                df_row_index=index.row(),
+                view_col_index=index.column(),
+                old_value=old_value,
+                new_value=new_value
+            )
+            self.table_window.undo_stack.push(command)
+
 
     def updateEditorGeometry(self, editor_widget: QWidget,
                              option: 'QStyleOptionViewItem',

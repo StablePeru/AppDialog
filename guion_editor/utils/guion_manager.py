@@ -3,12 +3,15 @@ import pandas as pd
 import json
 import os
 from typing import Tuple, Dict, List, Any
+from openpyxl.styles import PatternFill # -> AÑADIDO
 
 from .dialog_utils import leer_guion
 
 class GuionManager:
     BASE_COLUMNS = ['IN', 'OUT', 'PERSONAJE', 'DIÁLOGO']
-    ALL_COLUMNS = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA']
+    # -> INICIO: LISTA DE COLUMNAS ACTUALIZADA
+    ALL_COLUMNS = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA', 'OHARRAK']
+    # -> FIN
 
     def __init__(self):
         pass
@@ -81,6 +84,7 @@ class GuionManager:
                     df['SCENE'] = "1"
                     has_scene_numbers = False
         
+        # -> INICIO: ASEGURARSE DE QUE 'OHARRAK' EXISTA
         if 'EUSKERA' not in df.columns:
             insert_pos = -1
             if 'DIÁLOGO' in df.columns:
@@ -90,6 +94,17 @@ class GuionManager:
                 df.insert(insert_pos, 'EUSKERA', "")
             else: 
                 df['EUSKERA'] = ""
+
+        if 'OHARRAK' not in df.columns:
+            insert_pos_oh = -1
+            if 'EUSKERA' in df.columns:
+                insert_pos_oh = df.columns.get_loc('EUSKERA') + 1
+            
+            if insert_pos_oh != -1 and insert_pos_oh <= len(df.columns):
+                df.insert(insert_pos_oh, 'OHARRAK', "")
+            else:
+                df['OHARRAK'] = ""
+        # -> FIN
 
         ordered_present_columns = [col for col in self.ALL_COLUMNS if col in df.columns]
         extra_cols = [col for col in df.columns if col not in self.ALL_COLUMNS]
@@ -119,29 +134,51 @@ class GuionManager:
         except Exception as e:
             raise
 
+    # -> INICIO: MÉTODO `save_to_excel` MODIFICADO
     def save_to_excel(self, path: str, dataframe: pd.DataFrame, header_data: Dict[str, Any]) -> None:
         try:
             with pd.ExcelWriter(path, engine='openpyxl') as writer:
                 df_to_save = dataframe.copy()
 
+                # Reemplazar valores vacíos para que no se guarden como "nan" literales en Excel
                 def replace_if_empty(value):
                     if pd.isna(value) or str(value).strip() == '':
-                        return '"Nan"'
+                        return "" # Guardar como celda vacía real
                     return value
 
-                if 'DIÁLOGO' in df_to_save.columns:
-                    df_to_save['DIÁLOGO'] = df_to_save['DIÁLOGO'].apply(replace_if_empty)
+                for col in ['DIÁLOGO', 'EUSKERA', 'OHARRAK']:
+                    if col in df_to_save.columns:
+                        df_to_save[col] = df_to_save[col].apply(replace_if_empty)
                 
-                if 'EUSKERA' in df_to_save.columns:
-                    df_to_save['EUSKERA'] = df_to_save['EUSKERA'].apply(replace_if_empty)
-
                 df_to_save.to_excel(writer, sheet_name='Guion', index=False)
+
+                # --- LÓGICA DE RESALTADO ---
+                if 'OHARRAK' in df_to_save.columns:
+                    workbook = writer.book
+                    worksheet = writer.sheets['Guion']
+                    
+                    # Define el estilo de relleno (amarillo claro)
+                    highlight_fill = PatternFill(start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid")
+
+                    # Itera sobre el DataFrame para encontrar filas con notas
+                    for df_index, row in df_to_save.iterrows():
+                        oharrak_content = row['OHARRAK']
+                        if pd.notna(oharrak_content) and str(oharrak_content).strip() != '':
+                            # El índice de la fila en Excel es el índice del DataFrame + 2
+                            # (+1 porque Excel es 1-based, +1 para saltar la cabecera)
+                            excel_row_index = df_index + 2
+                            
+                            # Aplica el relleno a todas las celdas de esa fila
+                            for col_idx in range(1, len(df_to_save.columns) + 1):
+                                worksheet.cell(row=excel_row_index, column=col_idx).fill = highlight_fill
+                # --- FIN DE LÓGICA DE RESALTADO ---
 
                 if header_data:
                     header_df = pd.DataFrame(list(header_data.items()), columns=['Campo', 'Valor'])
                     header_df.to_excel(writer, sheet_name='Header', index=False)
         except Exception as e:
             raise
+    # -> FIN
 
     def load_from_json(self, path: str) -> Tuple[pd.DataFrame, Dict[str, Any], bool]:
         try:

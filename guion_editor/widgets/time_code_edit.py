@@ -149,8 +149,8 @@ class TimeCodeEdit(QLineEdit):
         except ValueError as e: # Capturar el error específico para un mejor mensaje
             QMessageBox.warning(self, "Error de Formato", str(e))
         except Exception as e_gen: # Capturar otros errores inesperados
-            QMessageBox.warning(self, "Error", f"Error al establecer timecode: {e_gen}")
-
+            #QMessageBox.warning(self, "Error", f"Error al establecer timecode: {e_gen}")
+            pass
 
     def get_time_code(self) -> str:
         return self.text()

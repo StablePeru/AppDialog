@@ -1,4 +1,3 @@
-# guion_editor/widgets/find_replace_dialog.py
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QHBoxLayout,
     QPushButton, QMessageBox, QCheckBox, QAbstractItemView
@@ -60,10 +59,19 @@ class FindReplaceDialog(QDialog):
         self.find_next_button.setFixedSize(icon_only_button_size)
         self.find_next_button.setToolTip("Find Next")
 
-        self.replace_button = QPushButton(" Replace All")
+        # -> INICIO: BOTONES DE REEMPLAZO MODIFICADOS
+        self.replace_button = QPushButton(" Replace")
         if self.get_icon:
-            self.replace_button.setIcon(self.get_icon("replace_all_icon.svg"))
+            self.replace_button.setIcon(self.get_icon("replace_one_icon.svg")) # Sugerencia de nuevo icono
         self.replace_button.setIconSize(icon_size)
+        self.replace_button.setToolTip("Reemplaza la coincidencia actual y busca la siguiente")
+
+        self.replace_all_button = QPushButton(" Replace All")
+        if self.get_icon:
+            self.replace_all_button.setIcon(self.get_icon("replace_all_icon.svg"))
+        self.replace_all_button.setIconSize(icon_size)
+        self.replace_all_button.setToolTip("Reemplaza todas las coincidencias en el documento")
+        # -> FIN: BOTONES DE REEMPLAZO MODIFICADOS
 
         self.close_button = QPushButton()
         if self.get_icon:
@@ -74,7 +82,8 @@ class FindReplaceDialog(QDialog):
 
         button_layout.addWidget(self.find_prev_button)
         button_layout.addWidget(self.find_next_button)
-        button_layout.addWidget(self.replace_button)
+        button_layout.addWidget(self.replace_button)      # -> AÑADIDO
+        button_layout.addWidget(self.replace_all_button)  # -> RENOMBRADO
         button_layout.addStretch()
         button_layout.addWidget(self.close_button)
         layout.addLayout(button_layout)
@@ -82,8 +91,38 @@ class FindReplaceDialog(QDialog):
         self.find_text_input.textChanged.connect(self.reset_search)
         self.find_next_button.clicked.connect(self.find_next)
         self.find_prev_button.clicked.connect(self.find_previous)
-        self.replace_button.clicked.connect(self.replace_all)
+        self.replace_button.clicked.connect(self.replace_and_find) # -> AÑADIDO
+        self.replace_all_button.clicked.connect(self.replace_all) # -> RENOMBRADO
         self.close_button.clicked.connect(self.close)
+
+    # -> INICIO: NUEVO MÉTODO
+    def replace_and_find(self):
+        """Reemplaza la coincidencia actual y busca la siguiente."""
+        find_text = self.find_text_input.text()
+        if not find_text:
+            QMessageBox.information(self, "Reemplazar", "Por favor, introduzca texto para buscar.")
+            return
+
+        if not self.current_search_results or not (0 <= self.current_search_index < len(self.current_search_results)):
+            self.find_next()
+            return
+
+        replace_text = self.replace_text_input.text()
+        row_to_replace = self.current_search_results[self.current_search_index]
+
+        # Llama a un nuevo método en table_window que se encarga de reemplazar en la fila actual
+        replaced = self.table_window.replace_in_current_match(
+            row_to_replace,
+            find_text,
+            replace_text,
+            self.search_in_character.isChecked(),
+            self.search_in_original.isChecked(),
+            self.search_in_euskera.isChecked()
+        )
+
+        # Después de reemplazar, simplemente busca el siguiente
+        self.find_next()
+    # -> FIN: NUEVO MÉTODO
 
     def set_search_parameters(self, find_text: str, search_character: bool, search_dialogue: bool):
         """

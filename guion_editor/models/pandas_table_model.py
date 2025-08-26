@@ -44,6 +44,10 @@ class PandasTableModel(QAbstractTableModel):
                     target_df[df_col_name] = "00:00:00:00"
                 elif df_col_name == 'SCENE':
                     target_df[df_col_name] = "1"
+                # -> INICIO: AÑADIR VALOR POR DEFECTO PARA OHARRAK
+                elif df_col_name == 'OHARRAK':
+                    target_df[df_col_name] = ""
+                # -> FIN
                 else:
                     target_df[df_col_name] = ""
 
@@ -229,7 +233,7 @@ class PandasTableModel(QAbstractTableModel):
                 if col_name == 'ID': new_row_series[col_name] = self.get_next_id()
                 elif col_name in ['IN', 'OUT']: new_row_series[col_name] = "00:00:00:00"
                 elif col_name == 'SCENE': new_row_series[col_name] = "1"
-                elif col_name == 'EUSKERA': new_row_series[col_name] = ""
+                elif col_name in ['EUSKERA', 'OHARRAK']: new_row_series[col_name] = "" # -> AÑADIDO OHARRAK
                 else: new_row_series[col_name] = ""
 
         new_row_df = pd.DataFrame([new_row_series])

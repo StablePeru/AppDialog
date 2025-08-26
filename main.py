@@ -3,12 +3,15 @@ import sys
 import traceback
 import json
 import os
+# -> NUEVO: Importar time para obtener la fecha de modificación del archivo
+import time
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
     QMessageBox, QFileDialog
 )
-from PyQt6.QtCore import Qt, QSize
+# -> NUEVO: Importar QTimer para el autoguardado
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 
 from guion_editor.widgets.video_player_widget import VideoPlayerWidget
@@ -50,6 +53,9 @@ def load_stylesheet_content(filename: str) -> str:
         return ""
 
 class MainWindow(QMainWindow):
+    # -> NUEVO: Constante para el archivo de recuperación
+    RECOVERY_FILE_NAME = "autosave_recovery.json"
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Editor de Guion con Video")
@@ -91,6 +97,84 @@ class MainWindow(QMainWindow):
         self.tableWindow.setFocus()
         self._update_initial_undo_redo_actions_state()
 
+        # -> NUEVO: Comprobar si hay un archivo de recuperación al iniciar
+        self._check_for_recovery_file()
+        # -> NUEVO: Configurar y arrancar el temporizador de autoguardado
+        self._setup_autosave()
+
+
+    # -> NUEVO: Método para obtener la ruta del archivo de recuperación
+    def _get_recovery_file_path(self) -> str:
+        """Devuelve la ruta completa al archivo de recuperación."""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_dir, self.RECOVERY_FILE_NAME)
+
+    # -> NUEVO: Método para configurar el temporizador de autoguardado
+    def _setup_autosave(self):
+        """Configura e inicia el QTimer para el autoguardado."""
+        self.autosave_timer = QTimer(self)
+        # Guardar cada 2 minutos (120000 milisegundos)
+        self.autosave_timer.setInterval(120000) 
+        self.autosave_timer.timeout.connect(self._perform_autosave)
+        self.autosave_timer.start()
+        print("Autoguardado activado (cada 2 minutos si hay cambios).")
+
+    # -> NUEVO: Método que realiza el autoguardado
+    def _perform_autosave(self):
+        """Guarda el estado actual en el archivo de recuperación si hay cambios."""
+        # Solo autoguarda si hay cambios sin guardar en el stack
+        if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
+            recovery_path = self._get_recovery_file_path()
+            try:
+                current_df = self.tableWindow.pandas_model.dataframe()
+                header_data = self.tableWindow._get_header_data_from_ui()
+                self.guion_manager.save_to_json(recovery_path, current_df, header_data)
+                # Opcional: mostrar un mensaje en la barra de estado
+                if self.statusBar():
+                    self.statusBar().showMessage("Progreso autoguardado.", 3000)
+            except Exception as e:
+                print(f"Error durante el autoguardado: {e}")
+
+    # -> NUEVO: Método para comprobar y ofrecer la recuperación
+    def _check_for_recovery_file(self):
+        """Comprueba si existe un archivo de recuperación y pregunta al usuario si desea restaurarlo."""
+        recovery_path = self._get_recovery_file_path()
+        if os.path.exists(recovery_path):
+            try:
+                last_modified_timestamp = os.path.getmtime(recovery_path)
+                last_modified_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_modified_timestamp))
+                
+                reply = QMessageBox.question(self,
+                                             "Recuperar Sesión",
+                                             f"Se ha encontrado un archivo de recuperación de una sesión anterior no guardada.\n"
+                                             f"Última modificación: {last_modified_str}\n\n"
+                                             "¿Desea restaurar el trabajo?",
+                                             QMessageBox.StandardButton.Restore | QMessageBox.StandardButton.Discard,
+                                             QMessageBox.StandardButton.Restore)
+
+                if reply == QMessageBox.StandardButton.Restore:
+                    self.tableWindow.load_from_json_path(recovery_path)
+                    # Importante: Marcar el estado como "sucio" porque este trabajo recuperado
+                    # aún no ha sido guardado permanentemente por el usuario.
+                    self.tableWindow.undo_stack.setClean(False)
+                    QMessageBox.information(self, "Éxito", "El guion ha sido restaurado desde la última copia autoguardada.")
+                else:
+                    # Si el usuario descarta, eliminamos el archivo para no volver a preguntar.
+                    self._delete_recovery_file()
+            except Exception as e:
+                QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
+                self._delete_recovery_file()
+                
+    # -> NUEVO: Método para eliminar el archivo de recuperación
+    def _delete_recovery_file(self):
+        """Elimina el archivo de autoguardado de forma segura."""
+        recovery_path = self._get_recovery_file_path()
+        try:
+            if os.path.exists(recovery_path):
+                os.remove(recovery_path)
+        except OSError as e:
+            print(f"Error al eliminar el archivo de recuperación: {e}")
+
 
     def _update_initial_undo_redo_actions_state(self):
         if hasattr(self.tableWindow, 'undo_stack'):
@@ -104,9 +188,10 @@ class MainWindow(QMainWindow):
         self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", "file_open_video")
         self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", "file_load_me")
         self.add_managed_action("Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G", "open_document_icon.svg", "file_open_docx")
-        self.add_managed_action("Exportar Guion a Excel", self.tableWindow.export_to_excel_dialog, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
+        # -> MODIFICADO: Apuntar a los nuevos métodos wrapper en MainWindow
+        self.add_managed_action("Exportar Guion a Excel", self.export_script_to_excel, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
         self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
-        self.add_managed_action("Guardar Guion como JSON", self.tableWindow.save_to_json_dialog, "Ctrl+S", "save_json_icon.svg", "file_save_json")
+        self.add_managed_action("Guardar Guion como JSON", self.save_script_as_json, "Ctrl+S", "save_json_icon.svg", "file_save_json")
         self.add_managed_action("Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg", "file_load_json")
 
         # Edit Menu Actions
@@ -143,6 +228,17 @@ class MainWindow(QMainWindow):
         self.actions["video_mark_out_hold"] = action_mark_out_hold
         self.addAction(action_mark_out_hold)
 
+    # -> NUEVO: Métodos wrapper para guardar que eliminan el archivo de recuperación
+    def save_script_as_json(self):
+        """Llama al diálogo de guardado y elimina el archivo de recuperación si tiene éxito."""
+        if self.tableWindow.save_to_json_dialog():
+            self._delete_recovery_file()
+
+    def export_script_to_excel(self):
+        """Llama al diálogo de exportación y elimina el archivo de recuperación si tiene éxito."""
+        if self.tableWindow.export_to_excel_dialog():
+            self._delete_recovery_file()
+            
     def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
         if not object_name:
             object_name = text.lower().replace("&", "").replace(" ", "_").replace("/", "_").replace(":", "").replace("(", "").replace(")", "")
@@ -462,6 +558,7 @@ class MainWindow(QMainWindow):
         if self.tableWindow and hasattr(self.tableWindow, 'undo_stack'):
             self.tableWindow.undo_stack.redo()
 
+    # -> MODIFICADO: closeEvent para limpiar el archivo de recuperación
     def closeEvent(self, event):
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
             reply = QMessageBox.question(self, 
@@ -478,17 +575,21 @@ class MainWindow(QMainWindow):
                     self.guion_manager.save_to_excel(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
                     saved_successfully = True
                 else:
-                    saved_successfully = self.tableWindow.save_to_json_dialog()
+                    # Usamos el método wrapper para que también elimine el archivo de recuperación
+                    saved_successfully = self.save_script_as_json()
 
                 if saved_successfully:
+                    self._delete_recovery_file() # Asegurarse de eliminar al guardar con éxito
                     event.accept()
                 else:
                     event.ignore() 
             elif reply == QMessageBox.StandardButton.Discard:
+                self._delete_recovery_file() # Eliminar si el usuario descarta los cambios
                 event.accept()
             else:
                 event.ignore()
         else:
+            self._delete_recovery_file() # Eliminar si no había cambios pendientes
             event.accept()
             
     def get_icon_func_for_dialogs(self):
