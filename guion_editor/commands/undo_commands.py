@@ -389,3 +389,37 @@ class HeaderEditCommand(QUndoCommand):
         self.tw._current_header_data_for_undo = self.old_data.copy()
         self.tw.set_unsaved_changes(True)
         self.tw._update_toggle_header_button_text_and_icon()
+
+'''class ToggleBookmarkCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow', df_indices: List[int]):
+        super().__init__()
+        self.tw = table_window
+        self.df_indices = df_indices
+        self.original_states: Dict[int, bool] = {}
+
+        # Guardar el estado original de cada fila a modificar
+        for df_idx in self.df_indices:
+            if 0 <= df_idx < self.tw.pandas_model.rowCount():
+                self.original_states[df_idx] = self.tw.pandas_model.dataframe().at[df_idx, 'BOOKMARK']
+        
+        self.setText(f"Marcar/Desmarcar {len(self.df_indices)} fila(s)")
+
+    def _set_bookmark_state(self, is_bookmarked: bool, df_idx: int):
+        """Método auxiliar para cambiar el estado de una fila."""
+        view_col_bookmark = self.tw.pandas_model.get_view_column_index('BOOKMARK')
+        if view_col_bookmark is not None:
+            model_idx = self.tw.pandas_model.index(df_idx, view_col_bookmark)
+            # Usamos setData para que la vista se actualice (cambie el color)
+            self.tw.pandas_model.setData(model_idx, is_bookmarked, Qt.ItemDataRole.EditRole)
+
+    def redo(self):
+        """Aplica el estado contrario al original."""
+        for df_idx, original_state in self.original_states.items():
+            self._set_bookmark_state(not original_state, df_idx)
+        self.tw.set_unsaved_changes(True)
+
+    def undo(self):
+        """Restaura el estado original."""
+        for df_idx, original_state in self.original_states.items():
+            self._set_bookmark_state(original_state, df_idx)
+        self.tw.set_unsaved_changes(True)'''
