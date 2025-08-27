@@ -9,7 +9,8 @@ from .dialog_utils import leer_guion
 
 class GuionManager:
     BASE_COLUMNS = ['IN', 'OUT', 'PERSONAJE', 'DIÁLOGO']
-    ALL_COLUMNS = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA', 'OHARRAK']
+    # -> MODIFICADO: Añadir BOOKMARK a la lista de todas las columnas
+    ALL_COLUMNS = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA', 'OHARRAK', 'BOOKMARK']
 
     def __init__(self):
         pass
@@ -97,6 +98,14 @@ class GuionManager:
                 df.insert(insert_pos_oh, 'OHARRAK', "")
             else:
                 df['OHARRAK'] = ""
+        
+        # -> NUEVO: Añadir la columna BOOKMARK si no existe
+        if 'BOOKMARK' not in df.columns:
+            df['BOOKMARK'] = False
+        else:
+            # Asegurar que los valores existentes se traten como booleanos
+            df['BOOKMARK'] = df['BOOKMARK'].fillna(False).astype(bool)
+
 
         ordered_present_columns = [col for col in self.ALL_COLUMNS if col in df.columns]
         extra_cols = [col for col in df.columns if col not in self.ALL_COLUMNS]
@@ -126,9 +135,9 @@ class GuionManager:
                 except Exception:
                     pass
             
-            # Comprobación estricta: ¿están TODAS las columnas requeridas (excepto ID) presentes?
-            # 'ID' no es estrictamente necesario en el Excel, ya que lo podemos generar.
-            expected_cols_in_excel = [col for col in self.ALL_COLUMNS if col != 'ID']
+            # Comprobación estricta: ¿están TODAS las columnas requeridas (excepto ID y BOOKMARK) presentes?
+            # 'ID' y 'BOOKMARK' no son estrictamente necesarios en el Excel, ya que los podemos generar/asumir.
+            expected_cols_in_excel = [col for col in self.ALL_COLUMNS if col not in ['ID', 'BOOKMARK']]
             needs_mapping = not all(col in df.columns for col in expected_cols_in_excel)
             
             return df, header_data, needs_mapping

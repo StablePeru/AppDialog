@@ -9,13 +9,11 @@ import pandas as pd
 
 from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer, QKeyCombination, QPoint
 from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, QKeySequence, QAction
-# -> INICIO: LÍNEA CORREGIDA - Asegúrate de que QDialog está aquí
 from PyQt6.QtWidgets import (
     QWidget, QFileDialog, QAbstractItemView,
     QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
     QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu, QSizePolicy, QDialog
 )
-# -> FIN: LÍNEA CORREGIDA
 from PyQt6.QtGui import QUndoStack
 
 from guion_editor.widgets.custom_table_view import CustomTableView
@@ -26,9 +24,11 @@ from guion_editor.utils.dialog_utils import ajustar_dialogo
 from guion_editor.utils.guion_manager import GuionManager
 from guion_editor.widgets.custom_text_edit import CustomTextEdit
 from guion_editor.widgets.excel_mapping_dialog import ExcelMappingDialog
+# -> MODIFICADO: Importar el nuevo comando de marcapáginas
 from guion_editor.commands.undo_commands import (
     EditCommand, AddRowCommand, RemoveRowsCommand, MoveRowCommand, 
-    SplitInterventionCommand, MergeInterventionsCommand, ChangeSceneCommand, HeaderEditCommand
+    SplitInterventionCommand, MergeInterventionsCommand, ChangeSceneCommand, HeaderEditCommand,
+    ToggleBookmarkCommand
 )
 
 
@@ -45,9 +45,13 @@ class TableWindow(QWidget):
     COL_DIALOGUE_VIEW = 6   
     COL_EUSKERA_VIEW = 7 
     COL_OHARRAK_VIEW = 8
+    # -> NUEVO: Aunque no sea visible, necesitamos un identificador para el modelo
+    COL_BOOKMARK_VIEW = 9 
 
-    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO", "EUSKERA", "OHARRAK"] 
+    # -> MODIFICADO: Añadir la nueva columna (aunque no sea visible en esta lista)
+    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "PERSONAJE", "DIÁLOGO", "EUSKERA", "OHARRAK", "BOOKMARK"]
     
+    # -> MODIFICADO: Añadir mapeo para BOOKMARK
     VIEW_TO_DF_COL_MAP = {
         COL_NUM_INTERV_VIEW: ROW_NUMBER_COL_IDENTIFIER,
         COL_ID_VIEW: 'ID', 
@@ -57,9 +61,10 @@ class TableWindow(QWidget):
         COL_CHARACTER_VIEW: 'PERSONAJE', 
         COL_DIALOGUE_VIEW: 'DIÁLOGO',
         COL_EUSKERA_VIEW: 'EUSKERA',
-        COL_OHARRAK_VIEW: 'OHARRAK'
+        COL_OHARRAK_VIEW: 'OHARRAK',
+        COL_BOOKMARK_VIEW: 'BOOKMARK'
     }
-    DF_COLUMN_ORDER = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA', 'OHARRAK']
+    DF_COLUMN_ORDER = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA', 'OHARRAK', 'BOOKMARK']
 
     def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
                  guion_manager: Optional[GuionManager] = None, get_icon_func=None):
@@ -72,7 +77,10 @@ class TableWindow(QWidget):
         self._connect_signals()
         self.clear_script_state()
         self.update_window_title()
-        QTimer.singleShot(0, lambda: self.table_view.setColumnHidden(self.COL_EUSKERA_VIEW, True))
+        QTimer.singleShot(0, self.hide_default_columns)
+
+    def hide_default_columns(self):
+        self.table_view.setColumnHidden(self.COL_BOOKMARK_VIEW, True) 
         
     def _init_internal_state(self, video_player_widget, main_window, guion_manager, get_icon_func):
         self.get_icon = get_icon_func
@@ -106,6 +114,11 @@ class TableWindow(QWidget):
         self.scene_error_indicator_button: Optional[QPushButton] = None
         self.scene_error_df_indices: List[int] = []
         self._current_scene_error_nav_idx: int = -1
+        # -> INICIO: NUEVOS ATRIBUTOS PARA MARCAPÁGINAS
+        self.bookmark_indicator_button: Optional[QPushButton] = None
+        self.bookmark_df_indices: List[int] = []
+        self._current_bookmark_nav_idx: int = -1
+        # -> FIN
         self._current_header_data_for_undo: Dict[str, Any] = {}
         self.cached_subtitle_timeline: List[Tuple[int, int, str]] = []
 
@@ -119,6 +132,11 @@ class TableWindow(QWidget):
         self._update_scene_error_indicator_timer = QTimer(self)
         self._update_scene_error_indicator_timer.setSingleShot(True)
         self._update_scene_error_indicator_timer.setInterval(0)
+        # -> NUEVO: Timer para el indicador de marcapáginas
+        self._update_bookmark_indicator_timer = QTimer(self)
+        self._update_bookmark_indicator_timer.setSingleShot(True)
+        self._update_bookmark_indicator_timer.setInterval(0)
+
         self._recache_timer = QTimer(self)
         self._recache_timer.setSingleShot(True)
         self._recache_timer.setInterval(150)
@@ -128,6 +146,9 @@ class TableWindow(QWidget):
         self._resize_rows_timer.timeout.connect(self._perform_resize_rows_to_contents)
         self._update_error_indicator_timer.timeout.connect(self.update_time_error_indicator)
         self._update_scene_error_indicator_timer.timeout.connect(self.update_scene_error_indicator)
+        # -> NUEVO: Conectar el timer del marcapáginas
+        self._update_bookmark_indicator_timer.timeout.connect(self.update_bookmark_indicator)
+
         self._recache_timer.timeout.connect(self._recache_subtitle_timeline)
         if self.video_player_widget:
             self.video_player_widget.in_out_signal.connect(self.update_in_out_from_player) 
@@ -138,6 +159,11 @@ class TableWindow(QWidget):
         self.pandas_model.dataChanged.connect(self._request_scene_error_indicator_update)
         self.pandas_model.layoutChanged.connect(self._request_scene_error_indicator_update)
         self.pandas_model.modelReset.connect(self._request_scene_error_indicator_update)
+        # -> INICIO: Conectar señales para actualizar el indicador de marcapáginas
+        self.pandas_model.dataChanged.connect(self._request_bookmark_indicator_update)
+        self.pandas_model.layoutChanged.connect(self._request_bookmark_indicator_update)
+        self.pandas_model.modelReset.connect(self._request_bookmark_indicator_update)
+        # -> FIN
         self.pandas_model.dataChanged.connect(self._request_recache_subtitles)
         self.pandas_model.layoutChanged.connect(self._request_recache_subtitles)
         self.pandas_model.modelReset.connect(self._request_recache_subtitles)
@@ -163,6 +189,11 @@ class TableWindow(QWidget):
     
     def _request_scene_error_indicator_update(self):
         self._update_scene_error_indicator_timer.start()
+
+    # -> NUEVO: Método para solicitar la actualización del indicador de marcapáginas
+    def _request_bookmark_indicator_update(self):
+        self._update_bookmark_indicator_timer.start()
+
 
     def _request_recache_subtitles(self):
         self._recache_timer.start()
@@ -281,9 +312,11 @@ class TableWindow(QWidget):
         actions_bar_internal_layout.setContentsMargins(0, 0, 0, 0)
         actions_bar_internal_layout.setSpacing(4) 
         action_icon_size = QSize(16, 16)
+        # -> MODIFICADO: Añadir el botón de marcapáginas
         actions_map = [
             (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False, "edit_add_row", None),
             (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, "edit_delete_row", None),
+            (" Marcapáginas", self.toggle_bookmark, "bookmark_icon.svg", False, "edit_toggle_bookmark", "Marcar/Desmarcar Fila(s)"),
             ("", self.move_row_up, "move_up_icon.svg", True, "edit_move_up", "Mover Fila Arriba"),
             ("", self.move_row_down, "move_down_icon.svg", True, "edit_move_down", "Mover Fila Abajo"),
             (" Ajustar Diálogos", self.main_window.call_adjust_dialogs, "adjust_dialogs_icon.svg", False, "edit_adjust_dialogs", None),
@@ -331,6 +364,15 @@ class TableWindow(QWidget):
         self.scene_error_indicator_button.setVisible(False)
         self.scene_error_indicator_button.clicked.connect(self.go_to_next_scene_error)
         error_indicators_layout.addWidget(self.scene_error_indicator_button)
+        # -> INICIO: Crear el botón indicador de marcapáginas
+        self.bookmark_indicator_button = QPushButton("")
+        self.bookmark_indicator_button.setObjectName("bookmarkIndicatorButton")
+        self.bookmark_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.bookmark_indicator_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.bookmark_indicator_button.setVisible(False)
+        self.bookmark_indicator_button.clicked.connect(self.go_to_next_bookmark)
+        error_indicators_layout.addWidget(self.bookmark_indicator_button)
+        # -> FIN
         buttons_overall_container_layout.addWidget(self.error_indicators_container)
         self.link_out_in_checkbox = QCheckBox("OUT->IN")
         self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
@@ -425,6 +467,63 @@ class TableWindow(QWidget):
         if self.scene_error_indicator_button.style() is not None:
             self.scene_error_indicator_button.style().unpolish(self.scene_error_indicator_button)
             self.scene_error_indicator_button.style().polish(self.scene_error_indicator_button)
+
+    # -> INICIO: NUEVOS MÉTODOS PARA EL INDICADOR Y NAVEGACIÓN DE MARCAPÁGINAS
+    def update_bookmark_indicator(self):
+        if not hasattr(self, 'bookmark_indicator_button') or self.bookmark_indicator_button is None:
+            return
+        
+        df = self.pandas_model.dataframe()
+        if df.empty or 'BOOKMARK' not in df.columns:
+            self.bookmark_indicator_button.setVisible(False)
+            return
+
+        bookmarked_rows = df[df['BOOKMARK'] == True]
+        num_bookmarks = len(bookmarked_rows)
+
+        old_bookmark_count = len(self.bookmark_df_indices)
+        self.bookmark_df_indices = bookmarked_rows.index.tolist()
+
+        if num_bookmarks != old_bookmark_count:
+            self._current_bookmark_nav_idx = -1
+        elif self.bookmark_df_indices and self._current_bookmark_nav_idx >= num_bookmarks:
+            self._current_bookmark_nav_idx = num_bookmarks - 1
+            
+        if num_bookmarks > 0:
+            self.bookmark_indicator_button.setText(f"🔖 {num_bookmarks}")
+            self.bookmark_indicator_button.setToolTip(f"{num_bookmarks} marcapáginas. Pulse para ir al siguiente.")
+            self.bookmark_indicator_button.setVisible(True)
+            self.bookmark_indicator_button.setEnabled(True)
+        else:
+            self.bookmark_indicator_button.setText("")
+            self.bookmark_indicator_button.setToolTip("")
+            self.bookmark_indicator_button.setVisible(False)
+            self.bookmark_indicator_button.setEnabled(False)
+            self._current_bookmark_nav_idx = -1
+
+        if self.bookmark_indicator_button.style() is not None:
+            self.bookmark_indicator_button.style().unpolish(self.bookmark_indicator_button)
+            self.bookmark_indicator_button.style().polish(self.bookmark_indicator_button)
+
+    def go_to_next_bookmark(self):
+        if not self.bookmark_df_indices:
+            self._current_bookmark_nav_idx = -1
+            return
+        
+        self._current_bookmark_nav_idx += 1
+        if self._current_bookmark_nav_idx >= len(self.bookmark_df_indices):
+            self._current_bookmark_nav_idx = 0
+            
+        if 0 <= self._current_bookmark_nav_idx < len(self.bookmark_df_indices):
+            target_df_idx = self.bookmark_df_indices[self._current_bookmark_nav_idx]
+            if 0 <= target_df_idx < self.pandas_model.rowCount():
+                self.table_view.clearSelection()
+                self.table_view.selectRow(target_df_idx)
+                model_idx_to_scroll = self.pandas_model.index(target_df_idx, 0)
+                if model_idx_to_scroll.isValid():
+                    self.table_view.scrollTo(model_idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
+                self.table_view.setFocus()
+    # -> FIN
 
     def go_to_next_time_error(self):
         if not self.error_df_indices: 
@@ -602,6 +701,7 @@ class TableWindow(QWidget):
         self._update_toggle_header_button_text_and_icon()
         self._request_error_indicator_update() 
         self._request_scene_error_indicator_update()
+        self._request_bookmark_indicator_update() # -> NUEVO
         self._request_recache_subtitles()
 
     def open_docx_dialog(self) -> None:
@@ -710,11 +810,20 @@ class TableWindow(QWidget):
         selected_model_indices = self.table_view.selectionModel().selectedRows()
         num_selected = len(selected_model_indices)
         is_main_window_available = self.main_window and hasattr(self.main_window, 'actions')
-        can_delete = num_selected > 0
+        can_select_multiple = num_selected > 0 # -> NUEVO: Variable para botones que funcionan con 1 o más selecciones
+        
+        # -> MODIFICADO: Usar can_select_multiple
         if is_main_window_available and "edit_delete_row" in self.main_window.actions:
-            self.main_window.actions["edit_delete_row"].setEnabled(can_delete)
+            self.main_window.actions["edit_delete_row"].setEnabled(can_select_multiple)
         if "edit_delete_row" in self.action_buttons:
-            self.action_buttons["edit_delete_row"].setEnabled(can_delete)
+            self.action_buttons["edit_delete_row"].setEnabled(can_select_multiple)
+        
+        # -> NUEVO: Habilitar/deshabilitar botón de marcapáginas
+        if is_main_window_available and "edit_toggle_bookmark" in self.main_window.actions:
+            self.main_window.actions["edit_toggle_bookmark"].setEnabled(can_select_multiple)
+        if "edit_toggle_bookmark" in self.action_buttons:
+            self.action_buttons["edit_toggle_bookmark"].setEnabled(can_select_multiple)
+
         can_move = num_selected == 1
         if is_main_window_available:
             if "edit_move_up" in self.main_window.actions:
@@ -757,6 +866,7 @@ class TableWindow(QWidget):
         self._update_toggle_header_button_text_and_icon()
         self._request_error_indicator_update() 
         self._request_scene_error_indicator_update()
+        self._request_bookmark_indicator_update() # -> NUEVO
         self.update_window_title()
 
     def _perform_resize_rows_to_contents(self):
@@ -889,6 +999,18 @@ class TableWindow(QWidget):
         if confirm == QMessageBox.StandardButton.Yes:
             command = RemoveRowsCommand(self, df_indices_to_remove)
             self.undo_stack.push(command)
+
+    def toggle_bookmark(self) -> None:
+        print("--- PASO 1: table_window.toggle_bookmark() llamado ---") # <--- AÑADE ESTA LÍNEA
+        selected_model_indices = self.table_view.selectionModel().selectedRows()
+        if not selected_model_indices:
+            QMessageBox.warning(self, "Marcapáginas", "Por favor, seleccione una o más filas.")
+            return
+        
+        df_indices_to_toggle = sorted([index.row() for index in selected_model_indices])
+        print(f"--- Filas a modificar: {df_indices_to_toggle} ---") # <--- AÑADE ESTA LÍNEA
+        command = ToggleBookmarkCommand(self, df_indices_to_toggle)
+        self.undo_stack.push(command)
 
     def move_row_up(self) -> None:
         selected_indexes = self.table_view.selectedIndexes()

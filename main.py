@@ -200,6 +200,9 @@ class MainWindow(QMainWindow):
 
         self.add_managed_action("Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N", "add_row_icon.svg", "edit_add_row")
         self.add_managed_action("Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del", "delete_row_icon.svg", "edit_delete_row")
+        # -> INICIO: AÑADIR LA NUEVA ACCIÓN DE MARCAPÁGINAS
+        self.add_managed_action("Marcar/Desmarcar Fila", self.tableWindow.toggle_bookmark, "Ctrl+M", "bookmark_icon.svg", "edit_toggle_bookmark")
+        # -> FIN
         self.add_managed_action("Mover Arriba", self.tableWindow.move_row_up, "Alt+Up", "move_up_icon.svg", "edit_move_up")
         self.add_managed_action("Mover Abajo", self.tableWindow.move_row_down, "Alt+Down", "move_down_icon.svg", "edit_move_down")
         self.add_managed_action("Ajustar Diálogos", self.call_adjust_dialogs, None, "adjust_dialogs_icon.svg", "edit_adjust_dialogs")
@@ -301,6 +304,10 @@ class MainWindow(QMainWindow):
 
         editMenu.addAction(self.actions["edit_add_row"])
         editMenu.addAction(self.actions["edit_delete_row"])
+        # -> INICIO: AÑADIR LA ACCIÓN DE MARCAPÁGINAS AL MENÚ
+        if "edit_toggle_bookmark" in self.actions:
+            editMenu.addAction(self.actions["edit_toggle_bookmark"])
+        # -> FIN
         editMenu.addAction(self.actions["edit_move_up"])
         editMenu.addAction(self.actions["edit_move_down"])
         editMenu.addSeparator()

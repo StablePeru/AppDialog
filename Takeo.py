@@ -164,11 +164,19 @@ class ScriptTakeOptimizer:
         if self.problematic_interventions_report: self._save_problematic_interventions_report()
 
     def _save_problematic_interventions_report(self):
-        if not self.problematic_interventions_report: return
+        # CAMBIO 1: Se comprueba primero si hay datos antes de pedir un directorio.
+        if not self.problematic_interventions_report:
+            return
+        
+        report_df = pd.DataFrame(self.problematic_interventions_report)
+        if report_df.empty:
+            return # No hacer nada si, por alguna razón, el DataFrame está vacío
+
         save_dir = filedialog.askdirectory(title="Seleccionar directorio para REPORTE DE ERRORES INDIVIDUALES")
-        if not save_dir: return
+        if not save_dir:
+            return
+            
         try:
-            report_df = pd.DataFrame(self.problematic_interventions_report)
             path = os.path.join(save_dir, "reporte_intervenciones_problematicas.xlsx")
             report_df.to_excel(path, index=False)
             messagebox.showwarning("Intervenciones Problemáticas", f"Se encontraron problemas en intervenciones individuales. Reporte guardado en:\n{path}")
@@ -236,13 +244,39 @@ class ScriptTakeOptimizer:
         elif len(parts) == 4: hh, mm, ss, ff = map(int, parts); return hh * 3600 + mm * 60 + ss + ff / self.frame_rate
         else: raise ValueError(f"Formato de tiempo inválido: '{time_str}'. Se esperaba HH:MM:SS o HH:MM:SS:FF.")
     
+    def _get_effective_len(self, text):
+        """
+        CAMBIO 2: Nueva función auxiliar.
+        Calcula la longitud efectiva de una cadena, tratando el texto
+        dentro de paréntesis como un solo carácter.
+        """
+        # Encuentra todas las expresiones entre paréntesis no anidadas.
+        parentheticals = re.findall(r'\([^)]*\)', text)
+        # Suma la longitud total de estas expresiones.
+        len_of_parentheticals = sum(len(p) for p in parentheticals)
+        # Cuenta cuántas expresiones hay.
+        num_parentheticals = len(parentheticals)
+        # La longitud efectiva es la longitud total menos los caracteres entre paréntesis,
+        # pero sumando 1 por cada bloque de paréntesis (para que cuente como un espacio).
+        effective_length = len(text) - len_of_parentheticals + num_parentheticals
+        return effective_length
+
     def expand_dialogue(self, text):
+        """
+        CAMBIO 2: Modificada para usar la nueva lógica de conteo de caracteres.
+        """
         lines, current_line = [], ""
         for word in str(text).split():
-            if not current_line: current_line = word
-            elif len(current_line) + 1 + len(word) > self.max_chars_per_line: lines.append(current_line); current_line = word
-            else: current_line += " " + word
-        if current_line: lines.append(current_line)
+            if not current_line:
+                current_line = word
+            # Usar la longitud efectiva para la comprobación
+            elif self._get_effective_len(current_line + " " + word) > self.max_chars_per_line:
+                lines.append(current_line)
+                current_line = word
+            else:
+                current_line += " " + word
+        if current_line:
+            lines.append(current_line)
         return lines
 
     def unify_and_check(self, blocks_segment):

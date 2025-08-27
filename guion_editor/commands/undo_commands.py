@@ -390,7 +390,8 @@ class HeaderEditCommand(QUndoCommand):
         self.tw.set_unsaved_changes(True)
         self.tw._update_toggle_header_button_text_and_icon()
 
-'''class ToggleBookmarkCommand(QUndoCommand):
+# -> INICIO: NUEVO COMANDO PARA MARCAPÁGINAS
+class ToggleBookmarkCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow', df_indices: List[int]):
         super().__init__()
         self.tw = table_window
@@ -406,6 +407,7 @@ class HeaderEditCommand(QUndoCommand):
 
     def _set_bookmark_state(self, is_bookmarked: bool, df_idx: int):
         """Método auxiliar para cambiar el estado de una fila."""
+        print(f"--- PASO 3: _set_bookmark_state() para fila {df_idx}. Nuevo estado: {is_bookmarked} ---")
         view_col_bookmark = self.tw.pandas_model.get_view_column_index('BOOKMARK')
         if view_col_bookmark is not None:
             model_idx = self.tw.pandas_model.index(df_idx, view_col_bookmark)
@@ -414,6 +416,7 @@ class HeaderEditCommand(QUndoCommand):
 
     def redo(self):
         """Aplica el estado contrario al original."""
+        print("--- PASO 2: ToggleBookmarkCommand.redo() llamado ---")
         for df_idx, original_state in self.original_states.items():
             self._set_bookmark_state(not original_state, df_idx)
         self.tw.set_unsaved_changes(True)
@@ -422,4 +425,4 @@ class HeaderEditCommand(QUndoCommand):
         """Restaura el estado original."""
         for df_idx, original_state in self.original_states.items():
             self._set_bookmark_state(original_state, df_idx)
-        self.tw.set_unsaved_changes(True)'''
+        self.tw.set_unsaved_changes(True)

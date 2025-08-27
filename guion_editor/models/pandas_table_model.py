@@ -7,6 +7,8 @@ from typing import Any, List, Dict, Optional, Tuple
 # Colores de validación (apropiados para tema oscuro)
 VALID_TIME_BG_COLOR = QColor(Qt.GlobalColor.transparent) # Sin color de fondo para válido
 INVALID_TIME_BG_COLOR = QColor(139, 0, 0) # Rojo oscuro para inválido
+# -> NUEVO: Color para las filas marcadas como marcapáginas
+BOOKMARK_BG_COLOR = QColor(221, 211, 237, 40) # Lila claro con transparencia
 
 ROW_NUMBER_COL_IDENTIFIER = "__ROW_NUMBER__"
 MAX_INTERVENTION_DURATION_MS = 30000 # Límite de 30 segundos en milisegundos
@@ -44,10 +46,10 @@ class PandasTableModel(QAbstractTableModel):
                     target_df[df_col_name] = "00:00:00:00"
                 elif df_col_name == 'SCENE':
                     target_df[df_col_name] = "1"
-                # -> INICIO: AÑADIR VALOR POR DEFECTO PARA OHARRAK
                 elif df_col_name == 'OHARRAK':
                     target_df[df_col_name] = ""
-                # -> FIN
+                elif df_col_name == 'BOOKMARK':
+                    target_df[df_col_name] = False
                 else:
                     target_df[df_col_name] = ""
 
@@ -55,6 +57,9 @@ class PandasTableModel(QAbstractTableModel):
             target_df['ID'] = pd.to_numeric(target_df['ID'], errors='coerce').astype('Int64')
         if 'SCENE' in target_df.columns:
              target_df['SCENE'] = target_df['SCENE'].astype(str)
+        if 'BOOKMARK' in target_df.columns:
+            target_df['BOOKMARK'] = target_df['BOOKMARK'].fillna(False).astype(bool)
+
 
         cols_in_df_ordered = [col for col in self.df_column_order if col in target_df.columns]
         other_cols = [col for col in target_df.columns if col not in self.df_column_order]
@@ -121,15 +126,26 @@ class PandasTableModel(QAbstractTableModel):
             value = ""
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+            if df_col_name == 'BOOKMARK':
+                return ""
             return str(value)
 
         if role == Qt.ItemDataRole.BackgroundRole:
+            df_row_idx = index.row()
             if df_col_name in ["IN", "OUT"]:
                 is_valid = self._time_validation_status.get(df_row_idx, True)
-                return QBrush(VALID_TIME_BG_COLOR if is_valid else INVALID_TIME_BG_COLOR)
+                if not is_valid:
+                    return QBrush(INVALID_TIME_BG_COLOR)
             elif df_col_name == "SCENE":
                 is_valid = self._scene_validation_status.get(df_row_idx, True)
-                return QBrush(VALID_TIME_BG_COLOR if is_valid else INVALID_TIME_BG_COLOR)
+                if not is_valid:
+                    return QBrush(INVALID_TIME_BG_COLOR)
+            
+            is_bookmarked = self._dataframe.at[df_row_idx, 'BOOKMARK']
+            if is_bookmarked:
+                print(f"--- PASO 5: data() para fila {df_row_idx} pide color. Marcapáginas: {is_bookmarked}. Devolviendo LILA. ---")
+                return QBrush(BOOKMARK_BG_COLOR)
+
         return None
 
     def setData(self, index: QModelIndex, value: Any, role=Qt.ItemDataRole.EditRole):
@@ -146,6 +162,7 @@ class PandasTableModel(QAbstractTableModel):
             return False
 
         df_col_name = col_identifier
+        print(f"--- PASO 4: pandas_model.setData() llamado para fila {index.row()}, col '{df_col_name}', nuevo valor '{value}' ---")
         if df_row_idx >= len(self._dataframe) or df_col_name not in self._dataframe.columns:
             return False
 
@@ -154,6 +171,8 @@ class PandasTableModel(QAbstractTableModel):
         try:
             str_value = str(value)
             if df_col_name == 'ID': return False
+            elif df_col_name == 'BOOKMARK':
+                new_typed_value = bool(value)
             elif df_col_name == 'SCENE':
                 new_typed_value = str_value
             elif df_col_name in ['IN', 'OUT']:
@@ -167,22 +186,32 @@ class PandasTableModel(QAbstractTableModel):
             return False
 
         current_df_value = self._dataframe.iat[df_row_idx, df_actual_col_idx]
-        current_value_str = "" if pd.isna(current_df_value) else str(current_df_value)
+        
+        if df_col_name == 'BOOKMARK':
+            if current_df_value == new_typed_value:
+                return True
+        else:
+            current_value_str = "" if pd.isna(current_df_value) else str(current_df_value)
+            if current_value_str == new_typed_value:
+                return True
 
-        if current_value_str == new_typed_value:
-            return True
-
+        # --- INICIO DE LA CORRECCIÓN ---
+        # 1. Cambiar el valor en el DataFrame ANTES de emitir cualquier señal.
         self._dataframe.iat[df_row_idx, df_actual_col_idx] = new_typed_value
 
-        roles_changed_for_current_cell = [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole]
-
-        if df_col_name in ['IN', 'OUT']:
+        # 2. Comprobar qué tipo de actualización visual se necesita.
+        if df_col_name == 'BOOKMARK':
+            # Si es un marcapáginas, emitir dataChanged para toda la fila para actualizar el fondo.
+            start_index = self.index(df_row_idx, 0)
+            end_index = self.index(df_row_idx, self.columnCount() - 1)
+            self.dataChanged.emit(start_index, end_index, [Qt.ItemDataRole.BackgroundRole])
+        elif df_col_name in ['IN', 'OUT']:
+            # Lógica para errores de tiempo
             old_validation_status = self._time_validation_status.get(df_row_idx, True)
             self._validate_in_out_for_row(df_row_idx)
             new_validation_status = self._time_validation_status.get(df_row_idx, True)
 
             if old_validation_status != new_validation_status:
-                roles_changed_for_current_cell.append(Qt.ItemDataRole.BackgroundRole)
                 in_view_col = self.get_view_column_index('IN')
                 out_view_col = self.get_view_column_index('OUT')
                 if in_view_col is not None:
@@ -191,15 +220,23 @@ class PandasTableModel(QAbstractTableModel):
                 if out_view_col is not None:
                     out_idx = self.index(df_row_idx, out_view_col)
                     self.dataChanged.emit(out_idx, out_idx, [Qt.ItemDataRole.BackgroundRole])
+            # Emitir también para la celda individual
+            self.dataChanged.emit(index, index)
         elif df_col_name == 'SCENE':
+            # Lógica para errores de escena
             old_validation_status = self._scene_validation_status.get(df_row_idx, True)
             self._validate_scene_for_row(df_row_idx)
             new_validation_status = self._scene_validation_status.get(df_row_idx, True)
             if old_validation_status != new_validation_status:
-                roles_changed_for_current_cell.append(Qt.ItemDataRole.BackgroundRole)
+                self.dataChanged.emit(index, index, [Qt.ItemDataRole.BackgroundRole])
+            else:
+                self.dataChanged.emit(index, index)
+        else:
+            # Para cualquier otra celda, solo notificar el cambio de esa celda.
+            self.dataChanged.emit(index, index)
 
-        self.dataChanged.emit(index, index, roles_changed_for_current_cell)
         return True
+        # --- FIN DE LA CORRECCIÓN ---
 
     def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):
         if role == Qt.ItemDataRole.DisplayRole:
@@ -213,7 +250,7 @@ class PandasTableModel(QAbstractTableModel):
             return Qt.ItemFlag.NoItemFlags
 
         df_col_name = self.column_map.get(index.column())
-        if df_col_name == 'ID':
+        if df_col_name in ['ID', 'BOOKMARK']:
             return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
         return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEditable
@@ -226,6 +263,7 @@ class PandasTableModel(QAbstractTableModel):
             if col_name in self.df_column_order:
                 if col_name == 'ID' and pd.notna(value): new_row_series[col_name] = int(value)
                 elif col_name == 'SCENE': new_row_series[col_name] = str(value)
+                elif col_name == 'BOOKMARK': new_row_series[col_name] = bool(value)
                 else: new_row_series[col_name] = value
 
         for col_name in self.df_column_order:
@@ -233,7 +271,8 @@ class PandasTableModel(QAbstractTableModel):
                 if col_name == 'ID': new_row_series[col_name] = self.get_next_id()
                 elif col_name in ['IN', 'OUT']: new_row_series[col_name] = "00:00:00:00"
                 elif col_name == 'SCENE': new_row_series[col_name] = "1"
-                elif col_name in ['EUSKERA', 'OHARRAK']: new_row_series[col_name] = "" # -> AÑADIDO OHARRAK
+                elif col_name in ['EUSKERA', 'OHARRAK']: new_row_series[col_name] = ""
+                elif col_name == 'BOOKMARK': new_row_series[col_name] = False
                 else: new_row_series[col_name] = ""
 
         new_row_df = pd.DataFrame([new_row_series])
@@ -386,7 +425,6 @@ class PandasTableModel(QAbstractTableModel):
             return None
 
     def _validate_in_out_for_row(self, df_row_idx: int):
-        # --- MODIFICACIÓN: Añadir comprobación para IN/OUT ambos en cero ---
         if 0 <= df_row_idx < len(self._dataframe):
             in_tc = str(self._dataframe.at[df_row_idx, 'IN'])
             out_tc = str(self._dataframe.at[df_row_idx, 'OUT'])
@@ -394,22 +432,18 @@ class PandasTableModel(QAbstractTableModel):
             in_ms = self._convert_tc_to_ms(in_tc)
             out_ms = self._convert_tc_to_ms(out_tc)
 
-            is_valid = False # Asumir inválido por defecto
+            is_valid = False
             if in_ms is not None and out_ms is not None:
-                # Condición 1: No pueden ser ambos 00:00:00:00. Si lo son, es inválido.
                 if in_ms == 0 and out_ms == 0:
                     is_valid = False
                 else:
-                    # Condición 2: Duración debe ser positiva y no exceder el máximo
                     duration_ms = out_ms - in_ms
                     if duration_ms >= 0 and duration_ms <= MAX_INTERVENTION_DURATION_MS:
                         is_valid = True
-            # Si in_ms o out_ms son None (formato inválido), is_valid permanece False
             
             self._time_validation_status[df_row_idx] = is_valid
         elif df_row_idx in self._time_validation_status:
                  del self._time_validation_status[df_row_idx]
-        # --- FIN DE LA MODIFICACIÓN ---
 
     def _validate_scene_for_row(self, df_row_idx: int):
         if 0 <= df_row_idx < len(self._dataframe):
