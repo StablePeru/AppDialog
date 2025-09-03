@@ -2,13 +2,15 @@
 from functools import partial
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-    QMessageBox, QHeaderView, QPushButton, QApplication, QHBoxLayout
+    QMessageBox, QHeaderView, QPushButton, QApplication, QHBoxLayout,
+    QInputDialog, QAbstractItemView, QLineEdit
 )
 from PyQt6.QtCore import Qt, QAbstractItemModel, QSize
 from PyQt6.QtGui import QIcon
 
 # -> NUEVO: Importar el delegado de personaje que vamos a reutilizar
 from guion_editor.delegates.custom_delegates import CharacterDelegate
+from guion_editor.widgets.split_character_dialog import SplitCharacterDialog
 # -> NUEVO: Importar pandas para la lógica del autocompletador
 import pandas as pd
 
@@ -30,6 +32,7 @@ class CastWindow(QWidget):
         self.setup_ui()
         self.pandas_model.dataChanged.connect(self.refresh_table_data)
         self.pandas_model.layoutChanged.connect(self.refresh_table_data)
+        self.table_widget.itemSelectionChanged.connect(self.update_button_states)
 
     def init_window(self):
         self.setWindowTitle("Reparto Completo")
@@ -41,18 +44,48 @@ class CastWindow(QWidget):
         layout.addWidget(self.table_widget)
         
         bottom_button_layout = QHBoxLayout()
+
+        # -> INICIO: NUEVO BOTÓN PARA SEPARAR
+        self.split_button = QPushButton(" Separar Personaje")
+        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
+            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
+            if get_icon:
+                try:
+                    self.split_button.setIcon(get_icon("split_intervention_icon.svg"))
+                    self.split_button.setIconSize(QSize(16, 16))
+                except: pass
+        self.split_button.setToolTip("Separa un personaje compuesto (ej. 'KIMA / AMIK') en dos entradas.")
+        self.split_button.clicked.connect(self.split_selected_character)
+        self.split_button.setEnabled(False) # Deshabilitado por defecto
+        # -> FIN
+
+        self.merge_button = QPushButton(" Unificar Personajes")
+        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
+            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
+            if get_icon:
+                try:
+                    self.merge_button.setIcon(get_icon("merge_intervention_icon.svg"))
+                    self.merge_button.setIconSize(QSize(16, 16))
+                except: pass
+        self.merge_button.setToolTip("Unifica los personajes seleccionados bajo un único nombre.")
+        self.merge_button.clicked.connect(self.merge_selected_characters)
+        self.merge_button.setEnabled(False) 
+        
         self.uppercase_button = QPushButton(" Convertir a Mayúsculas")
         if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
             get_icon = self.parent_main_window.get_icon_func_for_dialogs()
             if get_icon:
-                try: # Añadir try-except por si el icono no existe
+                try:
                     self.uppercase_button.setIcon(get_icon("uppercase_icon.svg"))
                     self.uppercase_button.setIconSize(QSize(16, 16))
-                except: pass # Si el icono falla, no es crítico
+                except: pass
         
-        self.uppercase_button.setToolTip("Convierte todos los nombres de personaje a mayúsculas en el guion principal.")
+        self.uppercase_button.setToolTip("Convierte todoss los nombres de personaje a mayúsculas en el guion principal.")
         self.uppercase_button.clicked.connect(self.convert_all_characters_to_uppercase)
 
+        # -> MODIFICADO: Añadir el nuevo botón al layout
+        bottom_button_layout.addWidget(self.split_button)
+        bottom_button_layout.addWidget(self.merge_button)
         bottom_button_layout.addStretch()
         bottom_button_layout.addWidget(self.uppercase_button)
         
@@ -60,7 +93,90 @@ class CastWindow(QWidget):
 
         self.setLayout(layout)
         self.populate_table()
+
+    # -> INICIO: NUEVO MÉTODO PARA HABILITAR/DESHABILITAR BOTONES
+    def update_button_states(self):
+        """Actualiza el estado de los botones según la selección en la tabla."""
+        selected_rows = self.table_widget.selectionModel().selectedRows()
+        num_selected = len(selected_rows)
+        # -> MODIFICADO: Lógica para habilitar/deshabilitar ambos botones
+        self.split_button.setEnabled(num_selected == 1)
+        self.merge_button.setEnabled(num_selected > 1)
+
+    # -> INICIO: FUNCIÓN NUEVA
+    def split_selected_character(self):
+        """
+        Lanza el diálogo para separar un personaje seleccionado en dos.
+        """
+        selected_rows = self.table_widget.selectionModel().selectedRows()
+        if len(selected_rows) != 1:
+            return
+
+        row_index = selected_rows[0].row()
+        item = self.table_widget.item(row_index, self.COL_PERSONAJE)
+        original_name = item.text()
+
+        dialog = SplitCharacterDialog(original_name, self)
+        if dialog.exec():
+            names = dialog.get_names()
+            if names:
+                name1, name2 = names
+                
+                message = (f"¿Está seguro de que desea reemplazar todas las intervenciones de:\n"
+                           f"'{original_name}'\n\n"
+                           f"por dos intervenciones idénticas para:\n"
+                           f"'{name1}' y '{name2}'?\n\n"
+                           "Esta acción es reversible con Ctrl+Z.")
+                
+                reply = QMessageBox.question(self, "Confirmar Separación", message,
+                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                             QMessageBox.StandardButton.Yes)
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
+                        self.parent_main_window.tableWindow.split_character_rows(original_name, name1, name2)
+
+    # -> INICIO: NUEVO MÉTODO PARA UNIFICAR SELECCIONADOS
+    def merge_selected_characters(self):
+        """
+        Toma los personajes seleccionados en la tabla de reparto y los unifica bajo un nuevo nombre.
+        """
+        selected_rows = self.table_widget.selectionModel().selectedRows()
+        if len(selected_rows) < 2:
+            QMessageBox.information(self, "Unificar", "Por favor, seleccione dos o más personajes para unificar.")
+            return
+
+        old_names_to_merge = [self.table_widget.item(row.row(), self.COL_PERSONAJE).text() for row in selected_rows]
         
+        # Sugerir el nombre más largo como el nombre por defecto
+        suggested_name = max(old_names_to_merge, key=len)
+
+        new_name, ok = QInputDialog.getText(self, "Unificar Personajes",
+                                            "Introduzca el nombre final para los personajes seleccionados:",
+                                            QLineEdit.EchoMode.Normal,
+                                            suggested_name)
+
+        if ok and new_name and new_name.strip():
+            final_name = new_name.strip()
+            
+            # Comprobar si el nombre final es uno de los antiguos pero con espacios
+            if final_name in old_names_to_merge and len(old_names_to_merge) > 1:
+                pass # Es válido unificar "KIMA " y "KIM" en "KIMA"
+            
+            message = (f"¿Está seguro de que desea renombrar los siguientes personajes a '{final_name}'?\n\n"
+                       f"- {', '.join(old_names_to_merge)}\n\n"
+                       "Esta acción es reversible con Ctrl+Z.")
+            
+            reply = QMessageBox.question(self, "Confirmar Unificación", message,
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                         QMessageBox.StandardButton.Yes)
+
+            if reply == QMessageBox.StandardButton.Yes:
+                if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
+                    # Usamos el nuevo método que acepta una lista de nombres antiguos
+                    self.parent_main_window.tableWindow.update_multiple_character_names(old_names_to_merge, final_name)
+    # -> FIN
+
     def convert_all_characters_to_uppercase(self):
         if not self.parent_main_window or not hasattr(self.parent_main_window, 'tableWindow'):
             QMessageBox.warning(self, "Error", "No se puede acceder a la ventana principal del guion.")
@@ -76,37 +192,32 @@ class CastWindow(QWidget):
             self.parent_main_window.tableWindow.convert_all_characters_to_uppercase()
             QMessageBox.information(self, "Éxito", "Nombres de personaje convertidos a mayúsculas.")
 
-    # -> NUEVO: Método para obtener la lista de nombres para el autocompletador
     def get_character_names_for_completer(self) -> list[str]:
         """Obtiene la lista de nombres de personajes únicos del modelo de datos principal."""
         dataframe = self.pandas_model.dataframe()
         if dataframe is None or dataframe.empty or 'PERSONAJE' not in dataframe.columns:
             return []
         
-        # Obtenemos los nombres únicos, los convertimos a string y quitamos espacios
         unique_names = pd.Series(dataframe['PERSONAJE'].unique()).astype(str).str.strip()
-        # Filtramos los que queden vacíos y devolvemos una lista ordenada
         return sorted(list(unique_names[unique_names != ""]))
 
-    # -> MODIFICADO: create_table_widget para añadir el delegado
+    # -> MODIFICADO: create_table_widget para permitir selección múltiple
     def create_table_widget(self):
         table_widget = QTableWidget()
         table_widget.setColumnCount(len(self.HEADER_LABELS))
         table_widget.setHorizontalHeaderLabels(self.HEADER_LABELS)
         
-        # --- Asignación del delegado ---
-        # Creamos una instancia de CharacterDelegate
+        # --- PERMITIR SELECCIÓN MÚLTIPLE ---
+        table_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # -> LÍNEA AÑADIDA: Asegura que la selección se aplique a filas enteras.
+        table_widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        
         char_delegate = CharacterDelegate(
             get_names_callback=self.get_character_names_for_completer,
             parent=table_widget,
-            # Importante: No pasamos table_window_instance para que el delegado
-            # no intente usar la pila de undo directamente. Dejamos que la señal
-            # itemChanged de esta ventana se encargue de ello.
             table_window_instance=None 
         )
-        # Lo asignamos a la columna de personajes (COL_PERSONAJE)
         table_widget.setItemDelegateForColumn(self.COL_PERSONAJE, char_delegate)
-        # --- Fin de la asignación ---
 
         header = table_widget.horizontalHeader()
         header.setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch) 
@@ -119,7 +230,6 @@ class CastWindow(QWidget):
         
         return table_widget
 
-    # ... (el resto del archivo no necesita cambios)
     def sort_by_column(self, logical_index):
         if logical_index == self.COL_ACCION:
             return
@@ -135,18 +245,23 @@ class CastWindow(QWidget):
     def refresh_table_data(self):
         self.populate_table()
 
+    # -> MODIFICADO: populate_table para agrupar nombres con espacios
     def populate_table(self):
         dataframe = self.pandas_model.dataframe()
         if dataframe is None or dataframe.empty or 'PERSONAJE' not in dataframe.columns:
             self.table_widget.setRowCount(0)
             return
 
-        character_series = dataframe['PERSONAJE'].astype(str).str.strip()
+        # -> MODIFICADO: Se elimina .str.strip() para que value_counts() diferencie
+        #    entre "KIMA" y "KIMA ". Ahora se agrupa por el nombre exacto.
+        character_series = dataframe['PERSONAJE'].astype(str)
         character_counts = character_series[character_series != ""].value_counts()
+        
         items_to_sort = list(character_counts.items())
 
         if self.current_sort_column == self.COL_PERSONAJE:
-            items_to_sort.sort(key=lambda item: str(item[0]).lower(),
+            # -> MODIFICADO: Se aplica .strip() solo para el ordenamiento, no para la agrupación.
+            items_to_sort.sort(key=lambda item: str(item[0]).strip().lower(),
                                reverse=(self.current_sort_order == Qt.SortOrder.DescendingOrder))
         elif self.current_sort_column == self.COL_INTERVENCIONES:
             items_to_sort.sort(key=lambda item: int(item[1]),
@@ -171,6 +286,7 @@ class CastWindow(QWidget):
                 search_icon_instance = None 
 
         for row, (character, count) in enumerate(items_to_sort):
+            # -> MODIFICADO: Ahora 'character' contiene el nombre con espacios si los tuviera.
             self.set_table_item(row, self.COL_PERSONAJE, str(character))
 
             count_item = QTableWidgetItem(str(count))
@@ -234,26 +350,23 @@ class CastWindow(QWidget):
 
         dialog.exec()
 
+    # -> MODIFICADO: on_item_changed para renombrar todas las variantes de un nombre
     def on_item_changed(self, item: QTableWidgetItem):
         if item.column() != self.COL_PERSONAJE:
             return
 
-        old_name = item.data(Qt.ItemDataRole.UserRole)
-        current_text_in_cell = item.text()
-        new_name = current_text_in_cell.strip()
+        # El "nombre antiguo" es el nombre limpio que se mostraba en la tabla
+        old_name_clean = item.data(Qt.ItemDataRole.UserRole)
+        new_name_clean = item.text().strip()
 
-        if not new_name:
+        if not new_name_clean:
             QMessageBox.warning(self, "Entrada no válida", "El nombre del personaje no puede estar vacío.")
             self.table_widget.blockSignals(True)
-            item.setText(old_name)
+            item.setText(old_name_clean)
             self.table_widget.blockSignals(False)
             return
 
-        if old_name == new_name:
-            if current_text_in_cell != new_name:
-                self.table_widget.blockSignals(True)
-                item.setText(new_name)
-                self.table_widget.blockSignals(False)
+        if old_name_clean == new_name_clean:
             return
 
         all_other_character_names_lower = [
@@ -261,28 +374,28 @@ class CastWindow(QWidget):
             for r in range(self.table_widget.rowCount())
             if r != item.row() and self.table_widget.item(r, self.COL_PERSONAJE)
         ]
-        is_duplicate = new_name.lower() in all_other_character_names_lower
+        is_duplicate = new_name_clean.lower() in all_other_character_names_lower
 
         if is_duplicate:
-            message = (f"El nombre de personaje '{new_name}' ya existe.\n\n"
-                       f"¿Desea cambiar '{old_name}' a '{new_name}'?\n\n"
-                       f"Esto combinará todas las intervenciones de '{old_name}' "
-                       f"con las de '{new_name}' bajo el único nombre '{new_name}'.")
+            message = (f"El nombre de personaje '{new_name_clean}' ya existe.\n\n"
+                       f"¿Desea unificar todas las variantes de '{old_name_clean}' bajo el nombre '{new_name_clean}'?")
             reply = QMessageBox.question(self, "Confirmar Fusión de Personajes", message,
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                          QMessageBox.StandardButton.Yes)
             if reply == QMessageBox.StandardButton.No:
                 self.table_widget.blockSignals(True)
-                item.setText(old_name)
+                item.setText(old_name_clean)
                 self.table_widget.blockSignals(False)
                 return
         
-        self.update_character_name_in_main_table(old_name, new_name)
-        self.populate_table()
+        # Llamamos al nuevo método que puede manejar una lista de nombres antiguos.
+        # En este caso, la lista solo contiene un nombre (el grupo que estamos renombrando).
+        self.update_multiple_character_names_in_main_table([old_name_clean], new_name_clean)
+        # La tabla se repoblará automáticamente a través de la señal del modelo de datos.
 
-    def update_character_name_in_main_table(self, old_name, new_name):
+    def update_multiple_character_names_in_main_table(self, old_names: list[str], new_name: str):
         if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
-            self.parent_main_window.tableWindow.update_character_name(old_name, new_name)
+            self.parent_main_window.tableWindow.update_multiple_character_names(old_names, new_name)
 
     def showEvent(self, event):
         super().showEvent(event)

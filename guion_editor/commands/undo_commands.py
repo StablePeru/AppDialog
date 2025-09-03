@@ -390,7 +390,6 @@ class HeaderEditCommand(QUndoCommand):
         self.tw.set_unsaved_changes(True)
         self.tw._update_toggle_header_button_text_and_icon()
 
-# -> INICIO: NUEVO COMANDO PARA MARCAPÁGINAS
 class ToggleBookmarkCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow', df_indices: List[int]):
         super().__init__()
@@ -398,7 +397,6 @@ class ToggleBookmarkCommand(QUndoCommand):
         self.df_indices = df_indices
         self.original_states: Dict[int, bool] = {}
 
-        # Guardar el estado original de cada fila a modificar
         for df_idx in self.df_indices:
             if 0 <= df_idx < self.tw.pandas_model.rowCount():
                 self.original_states[df_idx] = self.tw.pandas_model.dataframe().at[df_idx, 'BOOKMARK']
@@ -407,16 +405,13 @@ class ToggleBookmarkCommand(QUndoCommand):
 
     def _set_bookmark_state(self, is_bookmarked: bool, df_idx: int):
         """Método auxiliar para cambiar el estado de una fila."""
-        print(f"--- PASO 3: _set_bookmark_state() para fila {df_idx}. Nuevo estado: {is_bookmarked} ---")
         view_col_bookmark = self.tw.pandas_model.get_view_column_index('BOOKMARK')
         if view_col_bookmark is not None:
             model_idx = self.tw.pandas_model.index(df_idx, view_col_bookmark)
-            # Usamos setData para que la vista se actualice (cambie el color)
             self.tw.pandas_model.setData(model_idx, is_bookmarked, Qt.ItemDataRole.EditRole)
 
     def redo(self):
         """Aplica el estado contrario al original."""
-        print("--- PASO 2: ToggleBookmarkCommand.redo() llamado ---")
         for df_idx, original_state in self.original_states.items():
             self._set_bookmark_state(not original_state, df_idx)
         self.tw.set_unsaved_changes(True)
@@ -426,3 +421,135 @@ class ToggleBookmarkCommand(QUndoCommand):
         for df_idx, original_state in self.original_states.items():
             self._set_bookmark_state(original_state, df_idx)
         self.tw.set_unsaved_changes(True)
+
+# -> INICIO: NUEVO COMANDO PARA UNIFICAR PERSONAJES
+class UpdateMultipleCharactersCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow', old_names_list: List[str], new_name: str):
+        super().__init__()
+        self.tw = table_window
+        self.old_names_list = old_names_list
+        self.new_name = new_name
+        self.original_series: Optional[pd.Series] = None
+        
+        text = f"Unificar personajes a '{self.new_name}'"
+        if len(self.old_names_list) == 1:
+            text = f"Renombrar '{self.old_names_list[0]}' a '{self.new_name}'"
+        self.setText(text)
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+        
+        # Máscara para encontrar todas las filas cuyos nombres de personaje (limpios)
+        # están en la lista de nombres antiguos.
+        mask = df['PERSONAJE'].astype(str).str.strip().isin(self.old_names_list)
+        
+        if not mask.any():
+            # Si no se encuentra ninguna coincidencia, no hay nada que hacer.
+            # Esto puede ocurrir si los datos cambiaron entre la creación del comando y su ejecución.
+            return
+
+        # Si es la primera vez que se ejecuta, guardar los datos originales para poder deshacer.
+        if self.original_series is None:
+            self.original_series = df.loc[mask, 'PERSONAJE'].copy()
+
+        # Aplicar el nuevo nombre a todas las filas que coinciden.
+        # Usamos .loc para asegurar que estamos modificando el DataFrame original.
+        df.loc[mask, 'PERSONAJE'] = self.new_name
+        
+        # Notificar a la vista que los datos han cambiado. layoutChanged es una forma
+        # robusta de asegurar que todo se actualice (incluida la ventana de reparto).
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+    def undo(self):
+        if self.original_series is None or self.original_series.empty:
+            return
+
+        model = self.tw.pandas_model
+        df = model.dataframe()
+
+        # Restaurar los valores originales usando el índice guardado en la Serie.
+        df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+        
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+class SplitCharacterCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow', old_name: str, new_name1: str, new_name2: str):
+        super().__init__()
+        self.tw = table_window
+        self.old_name = old_name
+        self.new_name1 = new_name1
+        self.new_name2 = new_name2
+        
+        # Guardaremos los datos originales para poder deshacer
+        self.original_rows_data: Dict[int, pd.Series] = {}
+        # Guardaremos los IDs de las nuevas filas creadas para poder borrarlas al deshacer
+        self.added_row_ids: List[int] = []
+
+        self.setText(f"Separar '{old_name}' en '{new_name1}' y '{new_name2}'")
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+        
+        # Encontrar todas las filas que coinciden con el nombre antiguo
+        indices_to_split = df[df['PERSONAJE'] == self.old_name].index.tolist()
+        
+        if not indices_to_split:
+            return
+
+        view_col_char = model.get_view_column_index('PERSONAJE')
+        if view_col_char is None:
+            return
+
+        # Guardar datos originales si es la primera vez que se ejecuta
+        if not self.original_rows_data:
+            for df_idx in indices_to_split:
+                self.original_rows_data[df_idx] = df.iloc[df_idx].copy()
+
+        self.added_row_ids.clear()
+
+        # Iteramos en orden inverso para que las inserciones no afecten los índices de las filas pendientes
+        for df_idx in reversed(indices_to_split):
+            # 1. Renombrar la fila original al primer nombre nuevo
+            model.setData(model.index(df_idx, view_col_char), self.new_name1, Qt.ItemDataRole.EditRole)
+            
+            # 2. Preparar los datos para la nueva fila duplicada
+            original_row_data = df.iloc[df_idx].to_dict()
+            new_row_data = original_row_data.copy()
+            new_row_data['PERSONAJE'] = self.new_name2
+            
+            # 3. Asignar un ID único a la nueva fila
+            new_id = model.get_next_id()
+            new_row_data['ID'] = new_id
+            self.added_row_ids.append(new_id)
+            
+            # 4. Insertar la nueva fila justo después de la original
+            model.insert_row_data(df_idx + 1, new_row_data)
+
+        self.tw.set_unsaved_changes(True)
+        # Notificar a la vista que la estructura ha cambiado drásticamente
+        model.layoutChanged.emit()
+
+    def undo(self):
+        if not self.original_rows_data:
+            return
+
+        model = self.tw.pandas_model
+        
+        # 1. Eliminar las filas que se añadieron
+        for row_id in self.added_row_ids:
+            df_idx_to_remove = model.find_df_index_by_id(row_id)
+            if df_idx_to_remove is not None:
+                model.remove_row_by_df_index(df_idx_to_remove)
+        
+        # 2. Restaurar el nombre original en las filas que se modificaron
+        view_col_char = model.get_view_column_index('PERSONAJE')
+        if view_col_char is not None:
+            for df_idx in self.original_rows_data.keys():
+                model.setData(model.index(df_idx, view_col_char), self.old_name, Qt.ItemDataRole.EditRole)
+
+        self.tw.set_unsaved_changes(True)
+        model.layoutChanged.emit()
