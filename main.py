@@ -183,6 +183,58 @@ class MainWindow(QMainWindow):
             if "edit_redo" in self.actions:
                  self.actions["edit_redo"].setEnabled(self.tableWindow.undo_stack.canRedo())
 
+    # -> INICIO: NUEVO MÉTODO PARA GUARDAR DIRECTAMENTE
+    def save_script_directly(self):
+        """Guarda el guion actual directamente en la carpeta predefinida sin diálogo."""
+        TARGET_DIR = r"W:\Z_JSON\SinSubir"
+
+        if self.tableWindow.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Guardar", "No hay datos para guardar.")
+            return False
+
+        try:
+            if not os.path.exists(TARGET_DIR):
+                os.makedirs(TARGET_DIR)
+                if self.statusBar():
+                    self.statusBar().showMessage(f"Directorio creado: {TARGET_DIR}", 4000)
+        except OSError as e:
+            QMessageBox.critical(self, "Error de Directorio",
+                                 f"No se pudo crear el directorio de destino:\n{TARGET_DIR}\n\nError: {e}")
+            return False
+
+        filename = self.tableWindow._generate_default_filename("json")
+        full_path = os.path.join(TARGET_DIR, filename)
+
+        if os.path.exists(full_path) and full_path != self.tableWindow.current_script_path:
+            reply = QMessageBox.question(self, "Confirmar Sobrescritura",
+                                         f"El archivo '{filename}' ya existe en el destino.\n"
+                                         "¿Desea sobrescribirlo?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                         QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.No:
+                return False
+        try:
+            df = self.tableWindow.pandas_model.dataframe()
+            header = self.tableWindow._get_header_data_from_ui()
+            self.guion_manager.save_to_json(full_path, df, header)
+
+            self.tableWindow.current_script_path = full_path
+            self.tableWindow.current_script_name = filename
+            self.tableWindow.undo_stack.setClean()
+            self._delete_recovery_file()
+
+            if self.statusBar():
+                self.statusBar().showMessage(f"Guion guardado en: {full_path}", 5000)
+            
+            self.add_to_recent_files(full_path)
+            
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "Error al Guardar",
+                                 f"Ocurrió un error al guardar el archivo:\n{full_path}\n\nError: {e}")
+            return False
+    # -> FIN: NUEVO MÉTODO
+
     def create_all_actions(self):
         # File Menu Actions
         self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", "file_open_video")
@@ -191,7 +243,12 @@ class MainWindow(QMainWindow):
         # -> MODIFICADO: Apuntar a los nuevos métodos wrapper en MainWindow
         self.add_managed_action("Exportar Guion a Excel", self.export_script_to_excel, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
         self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
-        self.add_managed_action("Guardar Guion como JSON", self.save_script_as_json, "Ctrl+S", "save_json_icon.svg", "file_save_json")
+        
+        # -> MODIFICADO: La acción de Guardar (Ctrl+S) ahora guarda directamente. El texto también cambia.
+        self.add_managed_action("Guardar Guion", self.save_script_directly, "Ctrl+S", "save_json_icon.svg", "file_save_json")
+        # -> NUEVO: Añadir una acción "Guardar como..." que abre el diálogo de siempre.
+        self.add_managed_action("Guardar Guion como... (JSON)", self.save_script_as_json, "Ctrl+Shift+S", None, "file_save_json_as")
+
         self.add_managed_action("Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg", "file_load_json")
 
         # Edit Menu Actions
@@ -200,9 +257,7 @@ class MainWindow(QMainWindow):
 
         self.add_managed_action("Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N", "add_row_icon.svg", "edit_add_row")
         self.add_managed_action("Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del", "delete_row_icon.svg", "edit_delete_row")
-        # -> INICIO: AÑADIR LA NUEVA ACCIÓN DE MARCAPÁGINAS
         self.add_managed_action("Marcar/Desmarcar Fila", self.tableWindow.toggle_bookmark, "Ctrl+M", "bookmark_icon.svg", "edit_toggle_bookmark")
-        # -> FIN
         self.add_managed_action("Mover Arriba", self.tableWindow.move_row_up, "Alt+Up", "move_up_icon.svg", "edit_move_up")
         self.add_managed_action("Mover Abajo", self.tableWindow.move_row_down, "Alt+Down", "move_down_icon.svg", "edit_move_down")
         self.add_managed_action("Ajustar Diálogos", self.call_adjust_dialogs, None, "adjust_dialogs_icon.svg", "edit_adjust_dialogs")
@@ -288,7 +343,10 @@ class MainWindow(QMainWindow):
         fileMenu.addAction(self.actions["file_export_excel"])
         fileMenu.addAction(self.actions["file_import_excel"])
         fileMenu.addSeparator()
+        # -> MODIFICADO: Añadir las dos opciones de guardado
         fileMenu.addAction(self.actions["file_save_json"])
+        if "file_save_json_as" in self.actions:
+            fileMenu.addAction(self.actions["file_save_json_as"])
         fileMenu.addAction(self.actions["file_load_json"])
         fileMenu.addSeparator()
 
@@ -304,10 +362,8 @@ class MainWindow(QMainWindow):
 
         editMenu.addAction(self.actions["edit_add_row"])
         editMenu.addAction(self.actions["edit_delete_row"])
-        # -> INICIO: AÑADIR LA ACCIÓN DE MARCAPÁGINAS AL MENÚ
         if "edit_toggle_bookmark" in self.actions:
             editMenu.addAction(self.actions["edit_toggle_bookmark"])
-        # -> FIN
         editMenu.addAction(self.actions["edit_move_up"])
         editMenu.addAction(self.actions["edit_move_down"])
         editMenu.addSeparator()
@@ -565,7 +621,7 @@ class MainWindow(QMainWindow):
         if self.tableWindow and hasattr(self.tableWindow, 'undo_stack'):
             self.tableWindow.undo_stack.redo()
 
-    # -> MODIFICADO: closeEvent para limpiar el archivo de recuperación
+    # -> MODIFICADO: closeEvent para que la opción de Guardar use el nuevo método directo.
     def closeEvent(self, event):
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
             reply = QMessageBox.question(self, 
@@ -575,28 +631,33 @@ class MainWindow(QMainWindow):
                                          QMessageBox.StandardButton.Cancel)
             if reply == QMessageBox.StandardButton.Save:
                 saved_successfully = False
-                if self.tableWindow.current_script_path and self.tableWindow.current_script_path.endswith(".json"):
-                    self.guion_manager.save_to_json(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
-                    saved_successfully = True
-                elif self.tableWindow.current_script_path and self.tableWindow.current_script_path.endswith(".xlsx"):
-                    self.guion_manager.save_to_excel(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
-                    saved_successfully = True
+                # Si ya tiene una ruta, guarda sobreescribiendo en esa ruta
+                if self.tableWindow.current_script_path:
+                    if self.tableWindow.current_script_path.endswith(".json"):
+                        self.guion_manager.save_to_json(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
+                        saved_successfully = True
+                    elif self.tableWindow.current_script_path.endswith(".xlsx"):
+                        self.guion_manager.save_to_excel(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
+                        saved_successfully = True
+                    else:
+                        # Si es un tipo de archivo desconocido (ej. cargado de .docx), usa el guardado directo por defecto
+                        saved_successfully = self.save_script_directly()
                 else:
-                    # Usamos el método wrapper para que también elimine el archivo de recuperación
-                    saved_successfully = self.save_script_as_json()
+                    # Si no tiene ruta, es un guion nuevo, así que usa el guardado directo
+                    saved_successfully = self.save_script_directly()
 
                 if saved_successfully:
-                    self._delete_recovery_file() # Asegurarse de eliminar al guardar con éxito
+                    self._delete_recovery_file()
                     event.accept()
                 else:
                     event.ignore() 
             elif reply == QMessageBox.StandardButton.Discard:
-                self._delete_recovery_file() # Eliminar si el usuario descarta los cambios
+                self._delete_recovery_file()
                 event.accept()
             else:
                 event.ignore()
         else:
-            self._delete_recovery_file() # Eliminar si no había cambios pendientes
+            self._delete_recovery_file()
             event.accept()
             
     def get_icon_func_for_dialogs(self):
