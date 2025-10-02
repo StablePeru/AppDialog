@@ -422,7 +422,6 @@ class ToggleBookmarkCommand(QUndoCommand):
             self._set_bookmark_state(original_state, df_idx)
         self.tw.set_unsaved_changes(True)
 
-# -> INICIO: NUEVO COMANDO PARA UNIFICAR PERSONAJES
 class UpdateMultipleCharactersCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow', old_names_list: List[str], new_name: str):
         super().__init__()
@@ -440,25 +439,16 @@ class UpdateMultipleCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
         
-        # Máscara para encontrar todas las filas cuyos nombres de personaje (limpios)
-        # están en la lista de nombres antiguos.
         mask = df['PERSONAJE'].astype(str).str.strip().isin(self.old_names_list)
         
         if not mask.any():
-            # Si no se encuentra ninguna coincidencia, no hay nada que hacer.
-            # Esto puede ocurrir si los datos cambiaron entre la creación del comando y su ejecución.
             return
 
-        # Si es la primera vez que se ejecuta, guardar los datos originales para poder deshacer.
         if self.original_series is None:
             self.original_series = df.loc[mask, 'PERSONAJE'].copy()
 
-        # Aplicar el nuevo nombre a todas las filas que coinciden.
-        # Usamos .loc para asegurar que estamos modificando el DataFrame original.
         df.loc[mask, 'PERSONAJE'] = self.new_name
         
-        # Notificar a la vista que los datos han cambiado. layoutChanged es una forma
-        # robusta de asegurar que todo se actualice (incluida la ventana de reparto).
         model.layoutChanged.emit()
         self.tw.set_unsaved_changes(True)
 
@@ -469,7 +459,6 @@ class UpdateMultipleCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
 
-        # Restaurar los valores originales usando el índice guardado en la Serie.
         df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
         
         model.layoutChanged.emit()
@@ -483,9 +472,7 @@ class SplitCharacterCommand(QUndoCommand):
         self.new_name1 = new_name1
         self.new_name2 = new_name2
         
-        # Guardaremos los datos originales para poder deshacer
         self.original_rows_data: Dict[int, pd.Series] = {}
-        # Guardaremos los IDs de las nuevas filas creadas para poder borrarlas al deshacer
         self.added_row_ids: List[int] = []
 
         self.setText(f"Separar '{old_name}' en '{new_name1}' y '{new_name2}'")
@@ -494,7 +481,6 @@ class SplitCharacterCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
         
-        # Encontrar todas las filas que coinciden con el nombre antiguo
         indices_to_split = df[df['PERSONAJE'] == self.old_name].index.tolist()
         
         if not indices_to_split:
@@ -504,33 +490,26 @@ class SplitCharacterCommand(QUndoCommand):
         if view_col_char is None:
             return
 
-        # Guardar datos originales si es la primera vez que se ejecuta
         if not self.original_rows_data:
             for df_idx in indices_to_split:
                 self.original_rows_data[df_idx] = df.iloc[df_idx].copy()
 
         self.added_row_ids.clear()
 
-        # Iteramos en orden inverso para que las inserciones no afecten los índices de las filas pendientes
         for df_idx in reversed(indices_to_split):
-            # 1. Renombrar la fila original al primer nombre nuevo
             model.setData(model.index(df_idx, view_col_char), self.new_name1, Qt.ItemDataRole.EditRole)
             
-            # 2. Preparar los datos para la nueva fila duplicada
             original_row_data = df.iloc[df_idx].to_dict()
             new_row_data = original_row_data.copy()
             new_row_data['PERSONAJE'] = self.new_name2
             
-            # 3. Asignar un ID único a la nueva fila
             new_id = model.get_next_id()
             new_row_data['ID'] = new_id
             self.added_row_ids.append(new_id)
             
-            # 4. Insertar la nueva fila justo después de la original
             model.insert_row_data(df_idx + 1, new_row_data)
 
         self.tw.set_unsaved_changes(True)
-        # Notificar a la vista que la estructura ha cambiado drásticamente
         model.layoutChanged.emit()
 
     def undo(self):
@@ -539,13 +518,11 @@ class SplitCharacterCommand(QUndoCommand):
 
         model = self.tw.pandas_model
         
-        # 1. Eliminar las filas que se añadieron
         for row_id in self.added_row_ids:
             df_idx_to_remove = model.find_df_index_by_id(row_id)
             if df_idx_to_remove is not None:
                 model.remove_row_by_df_index(df_idx_to_remove)
         
-        # 2. Restaurar el nombre original en las filas que se modificaron
         view_col_char = model.get_view_column_index('PERSONAJE')
         if view_col_char is not None:
             for df_idx in self.original_rows_data.keys():
@@ -553,3 +530,48 @@ class SplitCharacterCommand(QUndoCommand):
 
         self.tw.set_unsaved_changes(True)
         model.layoutChanged.emit()
+
+# -> INICIO: NUEVO COMANDO PARA LIMPIAR ESPACIOS DE NOMBRES
+class TrimAllCharactersCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow'):
+        super().__init__("Limpiar espacios en nombres de personaje")
+        self.tw = table_window
+        self.original_series: Optional[pd.Series] = None
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+        
+        # 1. Encontrar qué filas necesitan ser cambiadas
+        mask = df['PERSONAJE'].astype(str) != df['PERSONAJE'].astype(str).str.strip()
+        
+        if not mask.any():
+            # Si ninguna fila necesita cambios, no hacemos nada.
+            # Esto evita que el comando se añada a la pila si no hay trabajo que hacer.
+            return
+            
+        # 2. Si es la primera ejecución, guardar los datos originales para el 'undo'
+        if self.original_series is None:
+            self.original_series = df.loc[mask, 'PERSONAJE'].copy()
+            
+        # 3. Aplicar la limpieza solo a las filas necesarias
+        df.loc[mask, 'PERSONAJE'] = df.loc[mask, 'PERSONAJE'].astype(str).str.strip()
+        
+        # 4. Notificar a la vista del cambio y actualizar estado
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+    def undo(self):
+        # Si no hay datos originales guardados, no se puede deshacer
+        if self.original_series is None or self.original_series.empty:
+            return
+
+        model = self.tw.pandas_model
+        df = model.dataframe()
+
+        # Restaurar los nombres originales usando el índice que guardamos en la serie
+        df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+        
+        # Notificar a la vista del cambio y actualizar estado
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)

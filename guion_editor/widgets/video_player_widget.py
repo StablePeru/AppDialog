@@ -4,7 +4,8 @@ import bisect
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QSlider, QLabel,
-    QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox, QComboBox # -> AÑADIDO QComboBox
+    QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox, QComboBox,
+    QSplitter # -> AÑADIDO QSplitter
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -37,7 +38,7 @@ class VideoPlayerWidget(QWidget):
         self.subtitle_timeline = [] 
         self.subtitle_start_times = [] 
         self.current_subtitle_timeline_idx = -1 
-        self.subtitle_source_column = 'DIÁLOGO' # -> NUEVO: Fuente por defecto
+        self.subtitle_source_column = 'DIÁLOGO'
 
         if self.get_icon:
             self.play_icon = self.get_icon("play_icon.svg")
@@ -61,7 +62,6 @@ class VideoPlayerWidget(QWidget):
     def set_table_window_reference(self, table_window):
         self.table_window_ref = table_window
         if self.table_window_ref and hasattr(self.table_window_ref, 'pandas_model'):
-            # Conectar a las señales para refrescar la caché de subtítulos
             model = self.table_window_ref.pandas_model
             model.modelReset.connect(self._refresh_subtitle_timeline)
             model.layoutChanged.connect(self._refresh_subtitle_timeline)
@@ -102,7 +102,8 @@ class VideoPlayerWidget(QWidget):
         self.subtitle_display_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.subtitle_display_label.setWordWrap(True)
         subtitle_layout.addWidget(self.subtitle_display_label)
-
+        
+        self.update_fonts(9)
         self.subtitle_container.setVisible(False)
 
         self.media_player.playbackStateChanged.connect(self.update_play_button_icon)
@@ -210,15 +211,14 @@ class VideoPlayerWidget(QWidget):
         self.subtitle_toggle_checkbox.setToolTip("Mostrar/Ocultar subtítulos del guion")
         self.subtitle_toggle_checkbox.stateChanged.connect(self._handle_subtitle_toggle)
 
-        # -> INICIO: NUEVO SELECTOR DE IDIOMA DE SUBTÍTULOS
         self.subtitle_source_selector = QComboBox()
         self.subtitle_source_selector.setObjectName("subtitle_source_selector")
         self.subtitle_source_selector.addItems(["Diálogo", "Euskera"])
         self.subtitle_source_selector.setToolTip("Seleccionar la columna de origen para los subtítulos")
-        self.subtitle_source_selector.setEnabled(False) # Deshabilitado hasta que se activen los subtítulos
+        self.subtitle_source_selector.setEnabled(False)
         self.subtitle_source_selector.currentIndexChanged.connect(self._handle_subtitle_source_change)
-        # -> FIN
     
+    # -> INICIO: MÉTODO COMPLETAMENTE REESTRUCTURADO CON QSplitter
     def setup_layouts(self) -> None:
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
@@ -233,8 +233,22 @@ class VideoPlayerWidget(QWidget):
         top_info_layout_container.setLayout(self.time_code_display_stack)
         
         layout.addWidget(top_info_layout_container)
-        layout.addWidget(self.video_widget, 1)
-        layout.addWidget(self.subtitle_container)
+
+        # 1. Crear el splitter vertical
+        self.video_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        # 2. Añadir el vídeo y los subtítulos al splitter
+        self.video_splitter.addWidget(self.video_widget)
+        self.video_splitter.addWidget(self.subtitle_container)
+
+        # 3. Configurar el splitter
+        self.video_splitter.setSizes([800, 200]) # Dar mucho más tamaño al vídeo inicialmente
+        self.video_splitter.setCollapsible(0, False) # Evitar que el vídeo se pueda colapsar
+        self.video_splitter.setCollapsible(1, True) # Permitir que los subtítulos se colapsen
+
+        # 4. Añadir el splitter al layout principal, dándole el factor de estiramiento
+        layout.addWidget(self.video_splitter, 1)
+
         layout.addWidget(self.slider) 
 
         self.video_controls_bar_widget = QWidget()
@@ -252,13 +266,14 @@ class VideoPlayerWidget(QWidget):
         video_buttons_internal_layout.addWidget(self.out_button)
         video_buttons_internal_layout.addWidget(self.me_toggle_checkbox) 
         video_buttons_internal_layout.addWidget(self.subtitle_toggle_checkbox)
-        video_buttons_internal_layout.addWidget(self.subtitle_source_selector) # -> AÑADIDO AL LAYOUT
+        video_buttons_internal_layout.addWidget(self.subtitle_source_selector)
         video_buttons_internal_layout.addStretch(1) 
         video_buttons_internal_layout.addWidget(self.volume_button)
         video_buttons_internal_layout.addWidget(self.volume_slider_vertical)
 
         layout.addWidget(self.video_controls_bar_widget)
         self.setLayout(layout)
+    # -> FIN
 
     def _refresh_subtitle_timeline(self):
         """Obtiene la caché de subtítulos de TableWindow y la prepara para la búsqueda."""
@@ -275,8 +290,6 @@ class VideoPlayerWidget(QWidget):
 
     def _trigger_subtitle_update(self, position_ms: int):
         if not self.subtitle_toggle_checkbox.isChecked() or not self.subtitle_timeline:
-            if self.subtitle_container.isVisible():
-                self.subtitle_container.setVisible(False)
             return
 
         idx = bisect.bisect_right(self.subtitle_start_times, position_ms)
@@ -294,25 +307,20 @@ class VideoPlayerWidget(QWidget):
         
         if self.current_subtitle_timeline_idx != found_subtitle_idx:
             self.subtitle_display_label.setText(text_to_display)
-            self.subtitle_container.setVisible(bool(text_to_display))
             self.current_subtitle_timeline_idx = found_subtitle_idx
 
-    # -> INICIO: MÉTODO MODIFICADO PARA CONTROLAR EL SELECTOR
     def _handle_subtitle_toggle(self, state: int):
         is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
         
-        self.subtitle_source_selector.setEnabled(is_checked) # Habilitar/deshabilitar selector
+        self.subtitle_source_selector.setEnabled(is_checked)
+        self.subtitle_container.setVisible(is_checked)
 
         if is_checked:
-            # Si se activa, forzar un recacheo por si la fuente ha cambiado mientras estaba apagado
             self._handle_subtitle_source_change() 
             self._trigger_subtitle_update(self.media_player.position())
         else:
             self.subtitle_display_label.setText("")
-            self.subtitle_container.setVisible(False)
-    # -> FIN
 
-    # -> INICIO: NUEVO MÉTODO PARA GESTIONAR CAMBIO DE IDIOMA
     def _handle_subtitle_source_change(self):
         """Se activa cuando el usuario cambia la selección en el ComboBox."""
         if not self.table_window_ref:
@@ -324,9 +332,7 @@ class VideoPlayerWidget(QWidget):
         elif selected_text == "Euskera":
             self.subtitle_source_column = 'EUSKera'
 
-        # Le decimos a TableWindow que regenere el caché con la nueva columna de origen
         self.table_window_ref.trigger_recache_with_source(self.subtitle_source_column)
-    # -> FIN
 
     def update_key_listeners(self):
         pass
@@ -518,7 +524,7 @@ class VideoPlayerWidget(QWidget):
 
             self._update_audio_outputs() 
             self.media_player.play()
-            self._refresh_subtitle_timeline() # Refrescar la caché al cargar nuevo video
+            self._refresh_subtitle_timeline()
         except Exception as e: QMessageBox.critical(self, "Error Crítico", f"Error crítico al cargar el video: {str(e)}")
 
     def load_me_file(self, audio_path: str) -> None:
@@ -611,7 +617,7 @@ class VideoPlayerWidget(QWidget):
         elif status == QMediaPlayer.MediaStatus.InvalidMedia:
             QMessageBox.warning(self, "Error de Medio", "El archivo de video es inválido o no soportado.")
             self.subtitle_display_label.setText("")
-            self._refresh_subtitle_timeline() # Limpiar la caché
+            self._refresh_subtitle_timeline()
         elif status == QMediaPlayer.MediaStatus.NoMedia: 
             self.time_code_label.setText("00:00:00:00")
             self.slider.setValue(0)
@@ -621,7 +627,7 @@ class VideoPlayerWidget(QWidget):
             self.me_toggle_checkbox.setChecked(False)
             self.use_me_audio = False
             self.subtitle_display_label.setText("") 
-            self._refresh_subtitle_timeline() # Limpiar la caché
+            self._refresh_subtitle_timeline()
             self._update_audio_outputs()
 
 
@@ -653,6 +659,7 @@ class VideoPlayerWidget(QWidget):
     def toggle_volume_slider_visibility(self) -> None:
         self.volume_slider_vertical.setVisible(not self.volume_slider_vertical.isVisible())
 
+    # -> INICIO: MÉTODO MODIFICADO PARA USAR ALTURA MÍNIMA EN LUGAR DE FIJA
     def update_fonts(self, font_size: int) -> None:
         base_font = QFont(); base_font.setPointSize(font_size)
         button_attribute_names = [
@@ -682,7 +689,20 @@ class VideoPlayerWidget(QWidget):
              subtitle_font.setPointSize(max(font_size + 3, 14))
              subtitle_font.setBold(True)
              self.subtitle_display_label.setFont(subtitle_font)
+             
+             font_metrics = QFontMetrics(subtitle_font)
+             line_height = font_metrics.height()
+             
+             layout_margins = self.subtitle_container.layout().contentsMargins()
+             top_margin = layout_margins.top()
+             bottom_margin = layout_margins.bottom()
+             
+             # Calculamos una altura mínima, no fija. Esto sirve como guía para el splitter.
+             min_height = (line_height * 5) + top_margin + bottom_margin
+             self.subtitle_container.setMinimumHeight(min_height)
+
              self.resizeEvent(None) 
+    # -> FIN
 
     def edit_time_code_label(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

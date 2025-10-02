@@ -27,7 +27,8 @@ from guion_editor.widgets.excel_mapping_dialog import ExcelMappingDialog
 from guion_editor.commands.undo_commands import (
     EditCommand, AddRowCommand, RemoveRowsCommand, MoveRowCommand, 
     SplitInterventionCommand, MergeInterventionsCommand, ChangeSceneCommand, HeaderEditCommand,
-    ToggleBookmarkCommand, UpdateMultipleCharactersCommand, SplitCharacterCommand
+    ToggleBookmarkCommand, UpdateMultipleCharactersCommand, SplitCharacterCommand,
+    TrimAllCharactersCommand # -> NUEVO: Importar el nuevo comando
 )
 
 
@@ -1192,7 +1193,6 @@ class TableWindow(QWidget):
         ms = self.convert_time_code_to_milliseconds(out_time_code)
         self.in_out_signal.emit("OUT", ms)
 
-    # -> MODIFICADO: Lógica corregida para limpiar los nombres ANTES de obtener los únicos.
     def get_character_names_from_model(self) -> List[str]:
         current_df = self.pandas_model.dataframe()
         if current_df.empty or 'PERSONAJE' not in current_df.columns: return []
@@ -1222,6 +1222,30 @@ class TableWindow(QWidget):
 
         command = UpdateMultipleCharactersCommand(self, old_names_list, new_name)
         self.undo_stack.push(command)
+
+    # -> INICIO: NUEVO MÉTODO PARA LIMPIAR NOMBRES DE PERSONAJE
+    def trim_all_character_names(self):
+        """
+        Crea y ejecuta un comando para eliminar los espacios en blanco iniciales y finales
+        de todos los nombres de personaje en el DataFrame.
+        """
+        df = self.pandas_model.dataframe()
+        if df.empty or 'PERSONAJE' not in df.columns:
+            return
+        
+        # Comprobar si hay algún nombre que necesite ser limpiado antes de crear el comando
+        needs_trimming = (df['PERSONAJE'].astype(str) != df['PERSONAJE'].astype(str).str.strip()).any()
+        
+        if not needs_trimming:
+            QMessageBox.information(self, "Limpiar Nombres", "No se encontraron nombres de personaje que necesiten limpieza.")
+            return
+
+        # Si hay algo que limpiar, creamos y ejecutamos el comando
+        command = TrimAllCharactersCommand(self)
+        self.undo_stack.push(command)
+        
+        QMessageBox.information(self, "Limpieza Completa", "Se han limpiado los espacios sobrantes de los nombres de personaje.")
+    # -> FIN
 
     def find_and_replace(self, find_text: str, replace_text: str,
                          search_in_character: bool = True,
