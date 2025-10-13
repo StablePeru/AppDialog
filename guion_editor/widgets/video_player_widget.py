@@ -5,7 +5,7 @@ import bisect
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QSlider, QLabel,
     QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox, QComboBox,
-    QSplitter # -> AÑADIDO QSplitter
+    QSplitter 
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -218,7 +218,6 @@ class VideoPlayerWidget(QWidget):
         self.subtitle_source_selector.setEnabled(False)
         self.subtitle_source_selector.currentIndexChanged.connect(self._handle_subtitle_source_change)
     
-    # -> INICIO: MÉTODO COMPLETAMENTE REESTRUCTURADO CON QSplitter
     def setup_layouts(self) -> None:
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
@@ -234,19 +233,15 @@ class VideoPlayerWidget(QWidget):
         
         layout.addWidget(top_info_layout_container)
 
-        # 1. Crear el splitter vertical
         self.video_splitter = QSplitter(Qt.Orientation.Vertical)
         
-        # 2. Añadir el vídeo y los subtítulos al splitter
         self.video_splitter.addWidget(self.video_widget)
         self.video_splitter.addWidget(self.subtitle_container)
 
-        # 3. Configurar el splitter
-        self.video_splitter.setSizes([800, 200]) # Dar mucho más tamaño al vídeo inicialmente
-        self.video_splitter.setCollapsible(0, False) # Evitar que el vídeo se pueda colapsar
-        self.video_splitter.setCollapsible(1, True) # Permitir que los subtítulos se colapsen
+        self.video_splitter.setSizes([800, 200]) 
+        self.video_splitter.setCollapsible(0, False) 
+        self.video_splitter.setCollapsible(1, True) 
 
-        # 4. Añadir el splitter al layout principal, dándole el factor de estiramiento
         layout.addWidget(self.video_splitter, 1)
 
         layout.addWidget(self.slider) 
@@ -273,10 +268,8 @@ class VideoPlayerWidget(QWidget):
 
         layout.addWidget(self.video_controls_bar_widget)
         self.setLayout(layout)
-    # -> FIN
 
     def _refresh_subtitle_timeline(self):
-        """Obtiene la caché de subtítulos de TableWindow y la prepara para la búsqueda."""
         if not self.table_window_ref:
             self.subtitle_timeline = []
             self.subtitle_start_times = []
@@ -322,7 +315,6 @@ class VideoPlayerWidget(QWidget):
             self.subtitle_display_label.setText("")
 
     def _handle_subtitle_source_change(self):
-        """Se activa cuando el usuario cambia la selección en el ComboBox."""
         if not self.table_window_ref:
             return
 
@@ -330,7 +322,7 @@ class VideoPlayerWidget(QWidget):
         if selected_text == "Diálogo":
             self.subtitle_source_column = 'DIÁLOGO'
         elif selected_text == "Euskera":
-            self.subtitle_source_column = 'EUSKera'
+            self.subtitle_source_column = 'EUSKERA' # -> CORREGIDO
 
         self.table_window_ref.trigger_recache_with_source(self.subtitle_source_column)
 
@@ -659,7 +651,6 @@ class VideoPlayerWidget(QWidget):
     def toggle_volume_slider_visibility(self) -> None:
         self.volume_slider_vertical.setVisible(not self.volume_slider_vertical.isVisible())
 
-    # -> INICIO: MÉTODO MODIFICADO PARA USAR ALTURA MÍNIMA EN LUGAR DE FIJA
     def update_fonts(self, font_size: int) -> None:
         base_font = QFont(); base_font.setPointSize(font_size)
         button_attribute_names = [
@@ -697,12 +688,10 @@ class VideoPlayerWidget(QWidget):
              top_margin = layout_margins.top()
              bottom_margin = layout_margins.bottom()
              
-             # Calculamos una altura mínima, no fija. Esto sirve como guía para el splitter.
              min_height = (line_height * 5) + top_margin + bottom_margin
              self.subtitle_container.setMinimumHeight(min_height)
 
              self.resizeEvent(None) 
-    # -> FIN
 
     def edit_time_code_label(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
