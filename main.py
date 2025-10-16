@@ -3,14 +3,12 @@ import sys
 import traceback
 import json
 import os
-# -> NUEVO: Importar time para obtener la fecha de modificación del archivo
 import time
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
     QMessageBox, QFileDialog
 )
-# -> MODIFICADO: Importar QTimer para el autoguardado y QSettings para la persistencia
 from PyQt6.QtCore import Qt, QSize, QTimer, QSettings
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 
@@ -53,7 +51,6 @@ def load_stylesheet_content(filename: str) -> str:
         return ""
 
 class MainWindow(QMainWindow):
-    # -> NUEVO: Constante para el archivo de recuperación
     RECOVERY_FILE_NAME = "autosave_recovery.json"
     
     def __init__(self):
@@ -98,49 +95,37 @@ class MainWindow(QMainWindow):
         self.tableWindow.setFocus()
         self._update_initial_undo_redo_actions_state()
 
-        # -> NUEVO: Comprobar si hay un archivo de recuperación al iniciar
         self._check_for_recovery_file()
-        # -> NUEVO: Configurar y arrancar el temporizador de autoguardado
         self._setup_autosave()
-
-        # -> INICIO: NUEVO BLOQUE PARA RESTAURAR LA CONFIGURACIÓN
         self._load_settings()
-        # -> FIN: NUEVO BLOQUE
 
 
-    # -> NUEVO: Método para obtener la ruta del archivo de recuperación
     def _get_recovery_file_path(self) -> str:
         """Devuelve la ruta completa al archivo de recuperación."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_dir, self.RECOVERY_FILE_NAME)
 
-    # -> NUEVO: Método para configurar el temporizador de autoguardado
     def _setup_autosave(self):
         """Configura e inicia el QTimer para el autoguardado."""
         self.autosave_timer = QTimer(self)
-        # Guardar cada 2 minutos (120000 milisegundos)
         self.autosave_timer.setInterval(120000) 
         self.autosave_timer.timeout.connect(self._perform_autosave)
         self.autosave_timer.start()
         print("Autoguardado activado (cada 2 minutos si hay cambios).")
 
-    # -> NUEVO: Método que realiza el autoguardado
     def _perform_autosave(self):
         """Guarda el estado actual en el archivo de recuperación si hay cambios."""
-        # Solo autoguarda si hay cambios sin guardar en el stack
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
             recovery_path = self._get_recovery_file_path()
             try:
                 current_df = self.tableWindow.pandas_model.dataframe()
                 header_data = self.tableWindow._get_header_data_from_ui()
                 self.guion_manager.save_to_json(recovery_path, current_df, header_data)
-                # Opcional: mostrar un mensaje en la barra de estado
                 if self.statusBar():
                     self.statusBar().showMessage("Progreso autoguardado.", 3000)
             except Exception as e:
                 print(f"Error durante el autoguardado: {e}")
 
-    # -> NUEVO: Método para comprobar y ofrecer la recuperación
     def _check_for_recovery_file(self):
         """Comprueba si existe un archivo de recuperación y pregunta al usuario si desea restaurarlo."""
         recovery_path = self._get_recovery_file_path()
@@ -159,18 +144,14 @@ class MainWindow(QMainWindow):
 
                 if reply == QMessageBox.StandardButton.Restore:
                     self.tableWindow.load_from_json_path(recovery_path)
-                    # Importante: Marcar el estado como "sucio" porque este trabajo recuperado
-                    # aún no ha sido guardado permanentemente por el usuario.
                     self.tableWindow.undo_stack.setClean(False)
                     QMessageBox.information(self, "Éxito", "El guion ha sido restaurado desde la última copia autoguardada.")
                 else:
-                    # Si el usuario descarta, eliminamos el archivo para no volver a preguntar.
                     self._delete_recovery_file()
             except Exception as e:
                 QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
                 self._delete_recovery_file()
                 
-    # -> NUEVO: Método para eliminar el archivo de recuperación
     def _delete_recovery_file(self):
         """Elimina el archivo de autoguardado de forma segura."""
         recovery_path = self._get_recovery_file_path()
@@ -188,7 +169,6 @@ class MainWindow(QMainWindow):
             if "edit_redo" in self.actions:
                  self.actions["edit_redo"].setEnabled(self.tableWindow.undo_stack.canRedo())
 
-    # -> INICIO: NUEVO MÉTODO PARA GUARDAR DIRECTAMENTE
     def save_script_directly(self):
         """Guarda el guion actual directamente en la carpeta predefinida sin diálogo."""
         TARGET_DIR = r"W:\Z_JSON\SinSubir"
@@ -238,28 +218,25 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error al Guardar",
                                  f"Ocurrió un error al guardar el archivo:\n{full_path}\n\nError: {e}")
             return False
-    # -> FIN: NUEVO MÉTODO
 
     def create_all_actions(self):
         # File Menu Actions
         self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", "file_open_video")
         self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", "file_load_me")
         self.add_managed_action("Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G", "open_document_icon.svg", "file_open_docx")
-        # -> MODIFICADO: Apuntar a los nuevos métodos wrapper en MainWindow
         self.add_managed_action("Exportar Guion a Excel", self.export_script_to_excel, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
+        # -> INICIO: NUEVA ACCIÓN
+        self.add_managed_action("Exportar a Subtítulos (SRT)...", self.export_to_srt, None, "export_srt_icon.svg", "file_export_srt")
+        # -> FIN: NUEVA ACCIÓN
         self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
         
-        # -> MODIFICADO: La acción de Guardar (Ctrl+S) ahora guarda directamente. El texto también cambia.
         self.add_managed_action("Guardar Guion", self.save_script_directly, "Ctrl+S", "save_json_icon.svg", "file_save_json")
-        # -> NUEVO: Añadir una acción "Guardar como..." que abre el diálogo de siempre.
         self.add_managed_action("Guardar Guion como... (JSON)", self.save_script_as_json, "Ctrl+Shift+S", None, "file_save_json_as")
-
         self.add_managed_action("Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg", "file_load_json")
 
         # Edit Menu Actions
         self.add_managed_action("Deshacer", self.undo_action, "Ctrl+Z", "undo_icon.svg", "edit_undo")
         self.add_managed_action("Rehacer", self.redo_action, "Ctrl+Y", "redo_icon.svg", "edit_redo")
-
         self.add_managed_action("Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N", "add_row_icon.svg", "edit_add_row")
         self.add_managed_action("Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del", "delete_row_icon.svg", "edit_delete_row")
         self.add_managed_action("Marcar/Desmarcar Fila", self.tableWindow.toggle_bookmark, "Ctrl+M", "bookmark_icon.svg", "edit_toggle_bookmark")
@@ -292,7 +269,6 @@ class MainWindow(QMainWindow):
         self.actions["video_mark_out_hold"] = action_mark_out_hold
         self.addAction(action_mark_out_hold)
 
-    # -> NUEVO: Métodos wrapper para guardar que eliminan el archivo de recuperación
     def save_script_as_json(self):
         """Llama al diálogo de guardado y elimina el archivo de recuperación si tiene éxito."""
         if self.tableWindow.save_to_json_dialog():
@@ -302,6 +278,33 @@ class MainWindow(QMainWindow):
         """Llama al diálogo de exportación y elimina el archivo de recuperación si tiene éxito."""
         if self.tableWindow.export_to_excel_dialog():
             self._delete_recovery_file()
+
+    # -> INICIO: NUEVO MÉTODO PARA EXPORTAR A SRT
+    def export_to_srt(self):
+        """Maneja la exportación del guion a formato SRT."""
+        if self.tableWindow.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Exportar a SRT", "No hay datos en el guion para exportar.")
+            return
+
+        # Preguntar al usuario qué columna exportar
+        items = ["DIÁLOGO", "EUSKERA"]
+        item, ok = QInputDialog.getItem(self, "Seleccionar Columna para Exportar",
+                                        "¿Qué columna de texto desea usar para los subtítulos?",
+                                        items, 0, False)
+        
+        if not ok or not item:
+            return # El usuario canceló
+
+        default_filename = self.tableWindow._generate_default_filename("srt")
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar a Subtítulos (.srt)", default_filename, "Archivos SubRip (*.srt)")
+
+        if path:
+            try:
+                self.guion_manager.save_to_srt(path, self.tableWindow.pandas_model.dataframe(), column_to_export=item)
+                QMessageBox.information(self, "Éxito", f"Subtítulos exportados a:\n{path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar el archivo SRT:\n{e}")
+    # -> FIN: NUEVO MÉTODO
             
     def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
         if not object_name:
@@ -324,10 +327,6 @@ class MainWindow(QMainWindow):
         return action
     
     def call_adjust_dialogs(self, checked=None):
-        """
-        Llama al ajuste de diálogos en TableWindow pasándole la longitud de línea configurada.
-        Acepta un argumento 'checked' del signal 'clicked' pero no lo usa.
-        """
         if self.tableWindow:
             self.tableWindow.adjust_dialogs(self.line_length)
 
@@ -347,9 +346,12 @@ class MainWindow(QMainWindow):
         fileMenu.addAction(self.actions["file_open_docx"])
         fileMenu.addSeparator()
         fileMenu.addAction(self.actions["file_export_excel"])
+        # -> INICIO: AÑADIR ACCIÓN AL MENÚ
+        if "file_export_srt" in self.actions:
+            fileMenu.addAction(self.actions["file_export_srt"])
+        # -> FIN: AÑADIR ACCIÓN AL MENÚ
         fileMenu.addAction(self.actions["file_import_excel"])
         fileMenu.addSeparator()
-        # -> MODIFICADO: Añadir las dos opciones de guardado
         fileMenu.addAction(self.actions["file_save_json"])
         if "file_save_json_as" in self.actions:
             fileMenu.addAction(self.actions["file_save_json_as"])
@@ -629,54 +631,36 @@ class MainWindow(QMainWindow):
         if self.tableWindow and hasattr(self.tableWindow, 'undo_stack'):
             self.tableWindow.undo_stack.redo()
 
-    # -> INICIO: NUEVOS MÉTODOS PARA GUARDAR/RESTAURAR LA CONFIGURACIÓN
     def _load_settings(self):
         """Carga la configuración de la aplicación al iniciar."""
-        # El primer argumento es el nombre de tu compañía/organización, el segundo es el nombre de la app.
-        # Esto determina dónde se guarda el archivo de configuración en el sistema del usuario.
         settings = QSettings("TuEmpresa", "EditorDeGuion")
-
-        # Restaurar geometría y estado de la ventana (tamaño, posición, maximizado)
         geometry = settings.value("geometry")
         if geometry:
             self.restoreGeometry(geometry)
 
-        # Restaurar estado del splitter (la división entre video y tabla)
         splitter_state = settings.value("splitter_state")
         if splitter_state:
             self.splitter.restoreState(splitter_state)
 
-        # Restaurar estado de las columnas de la tabla (orden, anchos, columnas ocultas)
         column_state = settings.value("column_state")
         if column_state:
             self.tableWindow.table_view.horizontalHeader().restoreState(column_state)
 
-        # Restaurar valores de configuración
         self.font_size = settings.value("font_size", 9, type=int)
         self.line_length = settings.value("line_length", 60, type=int)
         self.trim_value = settings.value("trim_value", 0, type=int)
         
-        # Aplicar la fuente cargada
         self.apply_font_size()
 
     def _save_settings(self):
         """Guarda la configuración de la aplicación al cerrar."""
         settings = QSettings("TuEmpresa", "EditorDeGuion")
-        
-        # Guardar geometría y estado de la ventana
         settings.setValue("geometry", self.saveGeometry())
-        
-        # Guardar estado del splitter
         settings.setValue("splitter_state", self.splitter.saveState())
-        
-        # Guardar estado de las columnas de la tabla
         settings.setValue("column_state", self.tableWindow.table_view.horizontalHeader().saveState())
-        
-        # Guardar valores de configuración
         settings.setValue("font_size", self.font_size)
         settings.setValue("line_length", self.line_length)
         settings.setValue("trim_value", self.trim_value)
-    # -> FIN: NUEVOS MÉTODOS
 
     def closeEvent(self, event):
         def save_and_accept():
@@ -693,7 +677,6 @@ class MainWindow(QMainWindow):
                                          QMessageBox.StandardButton.Cancel)
             if reply == QMessageBox.StandardButton.Save:
                 saved_successfully = False
-                # Si ya tiene una ruta, guarda sobreescribiendo en esa ruta
                 if self.tableWindow.current_script_path:
                     if self.tableWindow.current_script_path.endswith(".json"):
                         self.guion_manager.save_to_json(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
@@ -702,10 +685,8 @@ class MainWindow(QMainWindow):
                         self.guion_manager.save_to_excel(self.tableWindow.current_script_path, self.tableWindow.pandas_model.dataframe(), self.tableWindow._get_header_data_from_ui())
                         saved_successfully = True
                     else:
-                        # Si es un tipo de archivo desconocido (ej. cargado de .docx), usa el guardado directo por defecto
                         saved_successfully = self.save_script_directly()
                 else:
-                    # Si no tiene ruta, es un guion nuevo, así que usa el guardado directo
                     saved_successfully = self.save_script_directly()
 
                 if saved_successfully:
@@ -760,8 +741,7 @@ def main():
 
 
     mainWindow = MainWindow()
-    # mainWindow.showMaximized() # Quitado para probar mejor el guardado de geometría
-    mainWindow.show() # Usar show() normal para que la geometría se guarde/restaure correctamente
+    mainWindow.show()
     sys.exit(app.exec())
 
 if __name__ == "__main__":

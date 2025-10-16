@@ -212,6 +212,51 @@ class GuionManager:
         except Exception as e:
             raise
 
+    def _convert_tc_to_srt_format(self, tc: str) -> str:
+        """Convierte 'HH:MM:SS:FF' (a 25 FPS) a 'HH:MM:SS,mmm'."""
+        try:
+            parts = tc.split(':')
+            h, m, s, f = map(int, parts)
+            # Convertir todo a milisegundos
+            ms_total = (h * 3600 + m * 60 + s) * 1000 + int(round((f / 25.0) * 1000.0))
+            
+            # Reconvertir a formato SRT
+            s_total, mmm = divmod(ms_total, 1000)
+            h_srt, s_rem = divmod(s_total, 3600)
+            m_srt, s_srt = divmod(s_rem, 60)
+
+            return f"{int(h_srt):02d}:{int(m_srt):02d}:{int(s_srt):02d},{int(mmm):03d}"
+        except Exception:
+            # Si el timecode es inválido, devuelve un valor por defecto
+            return "00:00:00,000"
+
+    def save_to_srt(self, path: str, dataframe: pd.DataFrame, column_to_export: str = 'DIÁLOGO') -> None:
+        """Guarda el guion en formato de subtítulos SubRip (.srt)."""
+        if column_to_export not in dataframe.columns:
+            raise ValueError(f"La columna '{column_to_export}' no se encuentra en el guion.")
+
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                srt_index = 1
+                for _, row in dataframe.iterrows():
+                    in_tc = row['IN']
+                    out_tc = row['OUT']
+                    dialogue = str(row[column_to_export]).strip()
+
+                    # Solo exportar líneas que tengan diálogo y un tiempo de inicio/fin válido
+                    if dialogue and pd.notna(in_tc) and pd.notna(out_tc):
+                        start_srt = self._convert_tc_to_srt_format(in_tc)
+                        end_srt = self._convert_tc_to_srt_format(out_tc)
+
+                        f.write(f"{srt_index}\n")
+                        f.write(f"{start_srt} --> {end_srt}\n")
+                        f.write(f"{dialogue}\n\n")
+                        
+                        srt_index += 1
+        except Exception as e:
+            # Propagar la excepción para que la UI pueda manejarla
+            raise
+
     def load_from_docx(self, path: str) -> Tuple[pd.DataFrame, Dict[str, Any], bool]:
         try:
             guion_list_of_dicts = leer_guion(path)
