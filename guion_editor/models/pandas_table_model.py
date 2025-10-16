@@ -11,6 +11,9 @@ INVALID_TIME_BG_COLOR = QColor(139, 0, 0) # Rojo oscuro para inválido
 BOOKMARK_BG_COLOR = QColor(221, 211, 237, 40) # Lila claro con transparencia
 
 ROW_NUMBER_COL_IDENTIFIER = "__ROW_NUMBER__"
+# -> INICIO: NUEVO IDENTIFICADOR PARA LA COLUMNA CALCULADA
+DURATION_COL_IDENTIFIER = "__DURATION__"
+# -> FIN: NUEVO IDENTIFICADOR
 MAX_INTERVENTION_DURATION_MS = 30000 # Límite de 30 segundos en milisegundos
 
 class PandasTableModel(QAbstractTableModel):
@@ -22,7 +25,7 @@ class PandasTableModel(QAbstractTableModel):
         self.view_column_names = view_column_names
         self.df_column_order = [
             col_name for col_name in column_map.values()
-            if col_name != ROW_NUMBER_COL_IDENTIFIER
+            if col_name != ROW_NUMBER_COL_IDENTIFIER and col_name != DURATION_COL_IDENTIFIER
         ]
 
         self._dataframe = pd.DataFrame(columns=self.df_column_order)
@@ -30,10 +33,18 @@ class PandasTableModel(QAbstractTableModel):
 
         self.df_col_to_view_col: Dict[str, int] = {
             df_name: view_idx for view_idx, df_name in column_map.items()
-            if df_name != ROW_NUMBER_COL_IDENTIFIER
+            if df_name != ROW_NUMBER_COL_IDENTIFIER and df_name != DURATION_COL_IDENTIFIER # <-- CORRECCIÓN: 'col_name' cambiado a 'df_name'
         }
         self._time_validation_status: Dict[int, bool] = {}
         self._scene_validation_status: Dict[int, bool] = {}
+        
+    # -> INICIO: NUEVO MÉTODO AUXILIAR
+    def _convert_ms_to_duration_str(self, ms: int) -> str:
+        """Convierte milisegundos a un string de duración como '3.2s'."""
+        if ms < 0:
+            return "-.s"
+        return f"{ms / 1000.0:.1f}s"
+    # -> FIN: NUEVO MÉTODO AUXILIAR
 
     def _ensure_df_structure(self, df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         target_df = df if df is not None else self._dataframe
@@ -114,6 +125,22 @@ class PandasTableModel(QAbstractTableModel):
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 return Qt.AlignmentFlag.AlignCenter
             return None
+            
+        # -> INICIO: LÓGICA PARA LA COLUMNA DURACIÓN
+        if col_identifier == DURATION_COL_IDENTIFIER:
+            if role == Qt.ItemDataRole.DisplayRole:
+                in_tc = self._dataframe.at[df_row_idx, 'IN']
+                out_tc = self._dataframe.at[df_row_idx, 'OUT']
+                in_ms = self._convert_tc_to_ms(in_tc)
+                out_ms = self._convert_tc_to_ms(out_tc)
+                if in_ms is not None and out_ms is not None:
+                    duration_ms = out_ms - in_ms
+                    return self._convert_ms_to_duration_str(duration_ms)
+                return "?.?s"
+            if role == Qt.ItemDataRole.TextAlignmentRole:
+                return Qt.AlignmentFlag.AlignCenter
+            return None
+        # -> FIN: LÓGICA PARA LA COLUMNA DURACIÓN
 
         df_col_name = col_identifier
         if df_row_idx >= len(self._dataframe) or df_col_name not in self._dataframe.columns:
@@ -140,7 +167,7 @@ class PandasTableModel(QAbstractTableModel):
                 is_valid = self._scene_validation_status.get(df_row_idx, True)
                 if not is_valid:
                     return QBrush(INVALID_TIME_BG_COLOR)
-            
+
             is_bookmarked = self._dataframe.at[df_row_idx, 'BOOKMARK']
             if is_bookmarked:
                 print(f"--- PASO 5: data() para fila {df_row_idx} pide color. Marcapáginas: {is_bookmarked}. Devolviendo LILA. ---")
@@ -186,7 +213,7 @@ class PandasTableModel(QAbstractTableModel):
             return False
 
         current_df_value = self._dataframe.iat[df_row_idx, df_actual_col_idx]
-        
+
         if df_col_name == 'BOOKMARK':
             if current_df_value == new_typed_value:
                 return True
@@ -249,7 +276,15 @@ class PandasTableModel(QAbstractTableModel):
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
 
-        df_col_name = self.column_map.get(index.column())
+        # -> INICIO: MODIFICACIÓN PARA COLUMNA DE SOLO LECTURA
+        col_identifier = self.column_map.get(index.column())
+        if col_identifier == DURATION_COL_IDENTIFIER:
+            # La columna de duración es seleccionable pero no editable
+            return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+
+        df_col_name = col_identifier
+        # -> FIN: MODIFICACIÓN
+        
         if df_col_name in ['ID', 'BOOKMARK']:
             return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 

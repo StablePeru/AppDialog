@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
     QMessageBox, QFileDialog
 )
-# -> NUEVO: Importar QTimer para el autoguardado
-from PyQt6.QtCore import Qt, QSize, QTimer
+# -> MODIFICADO: Importar QTimer para el autoguardado y QSettings para la persistencia
+from PyQt6.QtCore import Qt, QSize, QTimer, QSettings
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 
 from guion_editor.widgets.video_player_widget import VideoPlayerWidget
@@ -55,7 +55,7 @@ def load_stylesheet_content(filename: str) -> str:
 class MainWindow(QMainWindow):
     # -> NUEVO: Constante para el archivo de recuperación
     RECOVERY_FILE_NAME = "autosave_recovery.json"
-
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Editor de Guion con Video")
@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         self.font_size = 9
         self.line_length = 60
         self.guion_manager = GuionManager()
-        self.actions = {}
+        self.actions = {} 
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -102,6 +102,10 @@ class MainWindow(QMainWindow):
         # -> NUEVO: Configurar y arrancar el temporizador de autoguardado
         self._setup_autosave()
 
+        # -> INICIO: NUEVO BLOQUE PARA RESTAURAR LA CONFIGURACIÓN
+        self._load_settings()
+        # -> FIN: NUEVO BLOQUE
+
 
     # -> NUEVO: Método para obtener la ruta del archivo de recuperación
     def _get_recovery_file_path(self) -> str:
@@ -114,7 +118,7 @@ class MainWindow(QMainWindow):
         """Configura e inicia el QTimer para el autoguardado."""
         self.autosave_timer = QTimer(self)
         # Guardar cada 2 minutos (120000 milisegundos)
-        self.autosave_timer.setInterval(120000)
+        self.autosave_timer.setInterval(120000) 
         self.autosave_timer.timeout.connect(self._perform_autosave)
         self.autosave_timer.start()
         print("Autoguardado activado (cada 2 minutos si hay cambios).")
@@ -143,7 +147,7 @@ class MainWindow(QMainWindow):
             try:
                 last_modified_timestamp = os.path.getmtime(recovery_path)
                 last_modified_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_modified_timestamp))
-
+                
                 reply = QMessageBox.question(self,
                                              "Recuperar Sesión",
                                              f"Se ha encontrado un archivo de recuperación de una sesión anterior no guardada.\n"
@@ -164,7 +168,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
                 self._delete_recovery_file()
-
+                
     # -> NUEVO: Método para eliminar el archivo de recuperación
     def _delete_recovery_file(self):
         """Elimina el archivo de autoguardado de forma segura."""
@@ -225,9 +229,9 @@ class MainWindow(QMainWindow):
 
             if self.statusBar():
                 self.statusBar().showMessage(f"Guion guardado en: {full_path}", 5000)
-
+            
             self.add_to_recent_files(full_path)
-
+            
             return True
         except Exception as e:
             QMessageBox.critical(self, "Error al Guardar",
@@ -243,7 +247,7 @@ class MainWindow(QMainWindow):
         # -> MODIFICADO: Apuntar a los nuevos métodos wrapper en MainWindow
         self.add_managed_action("Exportar Guion a Excel", self.export_script_to_excel, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
         self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
-
+        
         # -> MODIFICADO: La acción de Guardar (Ctrl+S) ahora guarda directamente. El texto también cambia.
         self.add_managed_action("Guardar Guion", self.save_script_directly, "Ctrl+S", "save_json_icon.svg", "file_save_json")
         # -> NUEVO: Añadir una acción "Guardar como..." que abre el diálogo de siempre.
@@ -261,9 +265,7 @@ class MainWindow(QMainWindow):
         self.add_managed_action("Mover Arriba", self.tableWindow.move_row_up, "Alt+Up", "move_up_icon.svg", "edit_move_up")
         self.add_managed_action("Mover Abajo", self.tableWindow.move_row_down, "Alt+Down", "move_down_icon.svg", "edit_move_down")
         self.add_managed_action("Ajustar Diálogos", self.call_adjust_dialogs, None, "adjust_dialogs_icon.svg", "edit_adjust_dialogs")
-        # -> INICIO: NUEVA ACCIÓN
         self.add_managed_action("Desplazar Timecodes (IN/OUT)...", self.tableWindow.open_shift_timecodes_dialog, "Ctrl+Shift+T", "shift_timecode_icon.svg", "edit_shift_timecodes")
-        # -> FIN: NUEVA ACCIÓN
         self.add_managed_action("Separar Intervención", self.tableWindow.split_intervention, "Alt+S", "split_intervention_icon.svg", "edit_split_intervention")
         self.add_managed_action("Juntar Intervenciones", self.tableWindow.merge_interventions, "Alt+M", "merge_intervention_icon.svg", "edit_merge_interventions")
         self.add_managed_action("Ver Reparto Completo", self.open_cast_window, None, "view_cast_icon.svg", "edit_view_cast")
@@ -299,7 +301,7 @@ class MainWindow(QMainWindow):
         """Llama al diálogo de exportación y elimina el archivo de recuperación si tiene éxito."""
         if self.tableWindow.export_to_excel_dialog():
             self._delete_recovery_file()
-
+            
     def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
         if not object_name:
             object_name = text.lower().replace("&", "").replace(" ", "_").replace("/", "_").replace(":", "").replace("(", "").replace(")", "")
@@ -308,8 +310,8 @@ class MainWindow(QMainWindow):
         action.setObjectName(object_name)
         if icon_name:
             action.setIcon(get_icon(icon_name))
-
-        if default_shortcut:
+        
+        if default_shortcut: 
             action.setShortcut(QKeySequence(default_shortcut))
 
         if slot:
@@ -319,7 +321,7 @@ class MainWindow(QMainWindow):
         if default_shortcut:
             self.addAction(action)
         return action
-
+    
     def call_adjust_dialogs(self, checked=None):
         """
         Llama al ajuste de diálogos en TableWindow pasándole la longitud de línea configurada.
@@ -371,10 +373,8 @@ class MainWindow(QMainWindow):
         editMenu.addAction(self.actions["edit_move_down"])
         editMenu.addSeparator()
         editMenu.addAction(self.actions["edit_adjust_dialogs"])
-        # -> INICIO: AÑADIR ACCIÓN AL MENÚ
         if "edit_shift_timecodes" in self.actions:
             editMenu.addAction(self.actions["edit_shift_timecodes"])
-        # -> FIN: AÑADIR ACCIÓN AL MENÚ
         editMenu.addAction(self.actions["edit_split_intervention"])
         editMenu.addAction(self.actions["edit_merge_interventions"])
         editMenu.addSeparator()
@@ -404,7 +404,7 @@ class MainWindow(QMainWindow):
                 action = QAction(config_name, self)
                 action.triggered.connect(lambda checked, name=config_name: self.shortcut_manager.apply_shortcuts(name))
                 load_config_menu.addAction(action)
-
+        
         if "config_delete_shortcut_profile" in self.actions:
             shortcutsMenu.addAction(self.actions["config_delete_shortcut_profile"])
         else:
@@ -420,7 +420,7 @@ class MainWindow(QMainWindow):
     def update_recent_files_menu(self):
         if not hasattr(self, 'recent_files_menu') or not self.recent_files_menu:
             return
-
+            
         self.recent_files_menu.clear()
         for file_path in self.recent_files:
             action = QAction(os.path.basename(file_path), self)
@@ -526,17 +526,17 @@ class MainWindow(QMainWindow):
         configs = list(self.shortcut_manager.configurations.keys())
         if "default" in configs:
             configs.remove("default")
-
+        
         if not configs:
             QMessageBox.information(self, "Información", "No hay configuraciones personalizadas para eliminar.")
             return
 
-        config_name, ok = QInputDialog.getItem(self,
-                                               "Eliminar Configuración de Shortcut",
-                                               "Seleccione una configuración para eliminar:",
+        config_name, ok = QInputDialog.getItem(self, 
+                                               "Eliminar Configuración de Shortcut", 
+                                               "Seleccione una configuración para eliminar:", 
                                                configs, 0, False)
         if ok and config_name:
-            confirm = QMessageBox.question(self, "Confirmar",
+            confirm = QMessageBox.question(self, "Confirmar", 
                                            f"¿Está seguro de que desea eliminar la configuración de shortcuts '{config_name}'?",
                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                            QMessageBox.StandardButton.No)
@@ -545,8 +545,8 @@ class MainWindow(QMainWindow):
                     QMessageBox.information(self, "Éxito", f"Configuración '{config_name}' eliminada exitosamente.")
 
     def open_video_file(self):
-        file_name, _ = QFileDialog.getOpenFileName(self,
-                                                   "Abrir Video", "",
+        file_name, _ = QFileDialog.getOpenFileName(self, 
+                                                   "Abrir Video", "", 
                                                    "Videos (*.mp4 *.avi *.mkv *.mov);;Todos los archivos (*.*)")
         if file_name:
             self.videoPlayerWidget.load_video(file_name)
@@ -561,13 +561,13 @@ class MainWindow(QMainWindow):
                 if self.splitter.widget(i) == video_widget_instance:
                     widget_index_in_splitter = i
                     break
-
+            
             if widget_index_in_splitter != -1:
                 self.videoWindow = VideoWindow(video_widget_instance, get_icon_func=get_icon, main_window=self)
-
+                
                 actions_for_detached_video = [
-                    "video_toggle_play", "video_rewind", "video_forward",
-                    "video_mark_in", "video_mark_out_hold"
+                    "video_toggle_play", "video_rewind", "video_forward", 
+                    "video_mark_in", "video_mark_out_hold" 
                 ]
                 for action_name in actions_for_detached_video:
                     if action_name in self.actions:
@@ -586,7 +586,7 @@ class MainWindow(QMainWindow):
             return
         try:
             video_widget_instance = self.videoWindow.video_widget
-
+            
             actions_for_detached_video = [
                 "video_toggle_play", "video_rewind", "video_forward",
                 "video_mark_in", "video_mark_out_hold"
@@ -604,7 +604,7 @@ class MainWindow(QMainWindow):
                  self.splitter.setSizes([total_width // 2, total_width // 2])
             else:
                  self.splitter.setSizes([100,100])
-
+            
             self.videoPlayerWidget.setFocus()
         except Exception as e:
             QMessageBox.warning(self,"Error",f"Error al adjuntar el video: {str(e)}\n{traceback.format_exc()}")
@@ -628,8 +628,62 @@ class MainWindow(QMainWindow):
         if self.tableWindow and hasattr(self.tableWindow, 'undo_stack'):
             self.tableWindow.undo_stack.redo()
 
-    # -> MODIFICADO: closeEvent para que la opción de Guardar use el nuevo método directo.
+    # -> INICIO: NUEVOS MÉTODOS PARA GUARDAR/RESTAURAR LA CONFIGURACIÓN
+    def _load_settings(self):
+        """Carga la configuración de la aplicación al iniciar."""
+        # El primer argumento es el nombre de tu compañía/organización, el segundo es el nombre de la app.
+        # Esto determina dónde se guarda el archivo de configuración en el sistema del usuario.
+        settings = QSettings("TuEmpresa", "EditorDeGuion")
+
+        # Restaurar geometría y estado de la ventana (tamaño, posición, maximizado)
+        geometry = settings.value("geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+
+        # Restaurar estado del splitter (la división entre video y tabla)
+        splitter_state = settings.value("splitter_state")
+        if splitter_state:
+            self.splitter.restoreState(splitter_state)
+
+        # Restaurar estado de las columnas de la tabla (orden, anchos, columnas ocultas)
+        column_state = settings.value("column_state")
+        if column_state:
+            self.tableWindow.table_view.horizontalHeader().restoreState(column_state)
+
+        # Restaurar valores de configuración
+        self.font_size = settings.value("font_size", 9, type=int)
+        self.line_length = settings.value("line_length", 60, type=int)
+        self.trim_value = settings.value("trim_value", 0, type=int)
+        
+        # Aplicar la fuente cargada
+        self.apply_font_size()
+
+    def _save_settings(self):
+        """Guarda la configuración de la aplicación al cerrar."""
+        settings = QSettings("TuEmpresa", "EditorDeGuion")
+        
+        # Guardar geometría y estado de la ventana
+        settings.setValue("geometry", self.saveGeometry())
+        
+        # Guardar estado del splitter
+        settings.setValue("splitter_state", self.splitter.saveState())
+        
+        # Guardar estado de las columnas de la tabla
+        settings.setValue("column_state", self.tableWindow.table_view.horizontalHeader().saveState())
+        
+        # Guardar valores de configuración
+        settings.setValue("font_size", self.font_size)
+        settings.setValue("line_length", self.line_length)
+        settings.setValue("trim_value", self.trim_value)
+    # -> FIN: NUEVOS MÉTODOS
+
     def closeEvent(self, event):
+        def save_and_accept():
+            """Función auxiliar para guardar ajustes y aceptar el evento."""
+            self._save_settings()
+            self._delete_recovery_file()
+            event.accept()
+
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
             reply = QMessageBox.question(self,
                                          "Guardar cambios",
@@ -654,19 +708,16 @@ class MainWindow(QMainWindow):
                     saved_successfully = self.save_script_directly()
 
                 if saved_successfully:
-                    self._delete_recovery_file()
-                    event.accept()
+                    save_and_accept()
                 else:
                     event.ignore()
             elif reply == QMessageBox.StandardButton.Discard:
-                self._delete_recovery_file()
-                event.accept()
-            else:
+                save_and_accept()
+            else: # Cancel
                 event.ignore()
         else:
-            self._delete_recovery_file()
-            event.accept()
-
+            save_and_accept()
+            
     def get_icon_func_for_dialogs(self):
         return get_icon
 
@@ -685,7 +736,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
             msg_box = QMessageBox()
             msg_box.setIcon(QMessageBox.Icon.Critical)
             msg_box.setWindowTitle("Error Inesperado")
-            msg_box.setText(user_message.split('\n\n')[0])
+            msg_box.setText(user_message.split('\n\n')[0]) 
             msg_box.setInformativeText('\n\n'.join(user_message.split('\n\n')[1:]))
             msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg_box.exec()
@@ -708,7 +759,8 @@ def main():
 
 
     mainWindow = MainWindow()
-    mainWindow.showMaximized()
+    # mainWindow.showMaximized() # Quitado para probar mejor el guardado de geometría
+    mainWindow.show() # Usar show() normal para que la geometría se guarde/restaure correctamente
     sys.exit(app.exec())
 
 if __name__ == "__main__":
