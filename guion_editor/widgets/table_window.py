@@ -552,6 +552,7 @@ class TableWindow(QWidget):
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table_view.setAlternatingRowColors(True)
+        self.table_view.horizontalHeader().setSectionsMovable(True)
         layout.addWidget(self.table_view)
         self.table_view.setColumnWidth(self.COL_NUM_INTERV_VIEW, 40) 
         self.table_view.setColumnHidden(self.COL_ID_VIEW, True) 
