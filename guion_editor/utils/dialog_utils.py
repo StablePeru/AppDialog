@@ -126,3 +126,33 @@ def guardar_dialogo(guion, personaje, dialogo_acumulado):
         'PERSONAJE': personaje,
         'DIÁLOGO': dialogo_ajustado
     })
+
+def tc_to_frames(tc: str, fps: int) -> int | None:
+    """Convierte un timecode string (HH:MM:SS:FF) a un número total de frames."""
+    tc = str(tc).strip()
+    if not tc or tc.lower() == "nan":
+        return None
+    parts = tc.split(":")
+    if len(parts) != 4:
+        # Devuelve None en lugar de lanzar una excepción para ser más robusto
+        return None
+    try:
+        h, m, s, f = [int(p) for p in parts]
+        return ((h * 3600 + m * 60 + s) * fps) + f
+    except (ValueError, TypeError):
+        return None
+
+def frames_to_tc(frames: int, fps: int) -> str:
+    """Convierte un número total de frames a un timecode string (HH:MM:SS:FF)."""
+    if frames is None:
+        return ""
+    if frames < 0:
+        frames = 0
+    
+    s_total, f = divmod(frames, fps)
+    h, s_rem = divmod(s_total, 3600)
+    m, s = divmod(s_rem, 60)
+    
+    # horas sin límite superior; se rellena a 2 si <100
+    h_str = f"{h:02d}" if h < 100 else str(h)
+    return f"{h_str}:{m:02d}:{s:02d}:{f:02d}"

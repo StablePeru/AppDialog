@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QAbstractItemView, QMessageBox
 if TYPE_CHECKING:
     from guion_editor.widgets.table_window import TableWindow
 
+from ..utils.dialog_utils import tc_to_frames, frames_to_tc
 
 class EditCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow', df_row_index: int, view_col_index: int, old_value: Any, new_value: Any):
@@ -573,5 +574,66 @@ class TrimAllCharactersCommand(QUndoCommand):
         df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
         
         # Notificar a la vista del cambio y actualizar estado
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+class ShiftTimecodesCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow', fps: int, offset_frames: int, sign: int):
+        super().__init__()
+        self.tw = table_window
+        self.fps = fps
+        self.offset_frames = offset_frames
+        self.sign = sign
+        
+        # Guardaremos los timecodes originales de las columnas IN y OUT
+        self.original_in_series: Optional[pd.Series] = None
+        self.original_out_series: Optional[pd.Series] = None
+        
+        operation_text = "Adelantar" if sign == 1 else "Retrasar"
+        offset_tc = frames_to_tc(offset_frames, fps)
+        self.setText(f"{operation_text} timecodes ({offset_tc})")
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+
+        if self.original_in_series is None:
+            self.original_in_series = df['IN'].copy()
+        if self.original_out_series is None:
+            self.original_out_series = df['OUT'].copy()
+
+        def shift_cell(tc_value: str) -> str:
+            """Función interna para desplazar un solo timecode."""
+            if pd.isna(tc_value) or str(tc_value).strip() == "":
+                return ""
+            
+            original_frames = tc_to_frames(tc_value, self.fps)
+            if original_frames is None:
+                return tc_value # Devolver el valor original si no es un TC válido
+            
+            new_frames = original_frames + (self.sign * self.offset_frames)
+            return frames_to_tc(new_frames, self.fps)
+
+        # Aplicar la función a las columnas IN y OUT
+        df['IN'] = df['IN'].apply(shift_cell)
+        df['OUT'] = df['OUT'].apply(shift_cell)
+
+        # Notificar a la vista que los datos han cambiado por completo
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+    def undo(self):
+        # Si no hemos guardado los datos originales, no hay nada que deshacer
+        if self.original_in_series is None or self.original_out_series is None:
+            return
+
+        model = self.tw.pandas_model
+        df = model.dataframe()
+
+        # Restaurar las columnas completas desde las series guardadas
+        df['IN'] = self.original_in_series
+        df['OUT'] = self.original_out_series
+
+        # Notificar a la vista que los datos han cambiado por completo
         model.layoutChanged.emit()
         self.tw.set_unsaved_changes(True)
