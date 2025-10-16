@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
 
         self.videoPlayerWidget.detach_requested.connect(self.detach_video)
         self.tableWindow.in_out_signal.connect(self.handle_set_position)
+        self.videoPlayerWidget.media_player.positionChanged.connect(self.tableWindow.sync_with_video_position)
         self.videoWindow = None
 
         self.create_menu_bar(exclude_shortcuts=True)

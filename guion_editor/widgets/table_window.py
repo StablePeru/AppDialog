@@ -6,6 +6,7 @@ import re
 from typing import Any, List, Dict, Optional, Tuple
 
 import pandas as pd
+import bisect
 
 from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer, QKeyCombination, QPoint
 from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, QKeySequence, QAction
@@ -122,6 +123,8 @@ class TableWindow(QWidget):
         self._current_bookmark_nav_idx: int = -1
         self._current_header_data_for_undo: Dict[str, Any] = {}
         self.cached_subtitle_timeline: List[Tuple[int, int, str]] = []
+        self._time_cache: List[Tuple[int, int]] = [] # Cache para (start_ms, row_index)
+        self._currently_synced_row: int = -1
 
     def _init_timers(self):
         self._resize_rows_timer = QTimer(self)
@@ -217,6 +220,7 @@ class TableWindow(QWidget):
         if source_column in self.DF_COLUMN_ORDER:
             self.subtitle_source_column = source_column
             self._request_recache_subtitles()
+            
 
     def get_subtitle_timeline(self) -> List[Tuple[int, int, str]]:
         return self.cached_subtitle_timeline
@@ -372,6 +376,10 @@ class TableWindow(QWidget):
         self.link_out_in_checkbox.setToolTip("Si está marcado, al definir un OUT también se definirá el IN de la siguiente fila.")
         self.link_out_in_checkbox.stateChanged.connect(self.toggle_link_out_to_next_in_checkbox)
         buttons_overall_container_layout.addWidget(self.link_out_in_checkbox)
+        self.sync_video_checkbox = QCheckBox("Sincronizar con Video")
+        self.sync_video_checkbox.setToolTip("Si está marcado, la tabla se desplazará y resaltará la fila correspondiente al tiempo del video.")
+        self.sync_video_checkbox.setChecked(True) # Activado por defecto
+        buttons_overall_container_layout.addWidget(self.sync_video_checkbox)
         layout.addWidget(self.top_controls_row_widget)
 
     def _handle_model_change_for_time_errors(self, top_left: QModelIndex, bottom_right: QModelIndex, roles: list[int]):
@@ -694,6 +702,7 @@ class TableWindow(QWidget):
         self._request_scene_error_indicator_update()
         self._request_bookmark_indicator_update()
         self._request_recache_subtitles()
+        self._recache_times()
 
     def open_docx_dialog(self) -> None:
         file_name, _ = QFileDialog.getOpenFileName(self, "Abrir Guion DOCX", "", "Documentos Word (*.docx)")
@@ -885,6 +894,7 @@ class TableWindow(QWidget):
         self._request_scene_error_indicator_update()
         self._request_bookmark_indicator_update()
         self.update_window_title()
+        self._recache_times()
 
     def _perform_resize_rows_to_contents(self):
         if self.table_view.isVisible() and self.pandas_model.rowCount() > 0:
@@ -902,6 +912,7 @@ class TableWindow(QWidget):
     def on_model_layout_changed(self):
         self.adjust_all_row_heights_and_validate()
         self.update_character_completer_and_notify()
+        self._recache_times()
 
     def on_model_data_changed(self, top_left_index: QModelIndex, bottom_right_index: QModelIndex, roles: List[int]):
         if not top_left_index.isValid(): return
@@ -913,6 +924,8 @@ class TableWindow(QWidget):
                 self.request_resize_rows_to_contents_deferred()
             elif df_col_name == 'PERSONAJE':
                 self.update_character_completer_and_notify()
+        if top_left_index.column() <= self.COL_OUT_VIEW and bottom_right_index.column() >= self.COL_IN_VIEW:
+            self._recache_times()
 
     def update_character_completer_and_notify(self):
         delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view, table_window_instance=self)
@@ -1226,6 +1239,63 @@ class TableWindow(QWidget):
         out_time_code = str(self.pandas_model.data(model_idx_out, Qt.ItemDataRole.EditRole))
         ms = self.convert_time_code_to_milliseconds(out_time_code)
         self.in_out_signal.emit("OUT", ms)
+
+    def _recache_times(self):
+        """
+        Crea o actualiza una lista ordenada de tiempos de inicio para una búsqueda rápida.
+        """
+        self._time_cache = []
+        df = self.pandas_model.dataframe()
+        if df.empty:
+            return
+
+        for row_index in range(len(df)):
+            in_tc = str(df.at[row_index, 'IN'])
+            start_ms = self.convert_time_code_to_milliseconds(in_tc)
+            self._time_cache.append((start_ms, row_index))
+        
+        # Es crucial que esté ordenado por tiempo de inicio para que bisect funcione
+        self._time_cache.sort(key=lambda x: x[0])
+
+    def sync_with_video_position(self, position_ms: int):
+        """
+        Slot que se activa cuando cambia la posición del video.
+        Busca y resalta la fila correspondiente.
+        """
+        if not self.sync_video_checkbox.isChecked() or not self._time_cache:
+            return
+
+        # Extraemos solo los tiempos de inicio para la búsqueda
+        start_times = [item[0] for item in self._time_cache]
+        
+        # bisect_right nos da el punto de inserción, que para una lista ordenada
+        # equivale a encontrar el índice del último elemento menor o igual al actual.
+        # Es extremadamente rápido (búsqueda binaria).
+        insertion_point = bisect.bisect_right(start_times, position_ms)
+        
+        active_row_index = -1
+        
+        if insertion_point > 0:
+            # El candidato a fila activa es el que está justo antes del punto de inserción.
+            candidate_start_ms, candidate_row_index = self._time_cache[insertion_point - 1]
+            
+            # Verificamos que la posición actual esté dentro del rango IN/OUT de esa fila.
+            out_tc = str(self.pandas_model.dataframe().at[candidate_row_index, 'OUT'])
+            end_ms = self.convert_time_code_to_milliseconds(out_tc)
+
+            if candidate_start_ms <= position_ms < end_ms:
+                active_row_index = candidate_row_index
+
+        # Para evitar trabajo innecesario (seleccionar y scrollear 60 veces por segundo),
+        # solo actuamos si la fila activa ha cambiado.
+        if active_row_index != self._currently_synced_row:
+            self._currently_synced_row = active_row_index
+            
+            self.table_view.selectionModel().clear() # Limpiar selección previa
+            if active_row_index != -1:
+                self.table_view.selectRow(active_row_index)
+                model_idx = self.pandas_model.index(active_row_index, 0)
+                self.table_view.scrollTo(model_idx, QAbstractItemView.ScrollHint.PositionAtCenter)
 
     def get_character_names_from_model(self) -> List[str]:
         current_df = self.pandas_model.dataframe()
