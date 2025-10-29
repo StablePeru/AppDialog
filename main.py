@@ -51,7 +51,7 @@ def load_stylesheet_content(filename: str) -> str:
         return ""
 
 class MainWindow(QMainWindow):
-    RECOVERY_FILE_NAME = "autosave_recovery.json"
+    # -> ELIMINADO: RECOVERY_FILE_NAME ya no es una constante global
     
     def __init__(self):
         super().__init__()
@@ -99,11 +99,7 @@ class MainWindow(QMainWindow):
         self._setup_autosave()
         self._load_settings()
 
-
-    def _get_recovery_file_path(self) -> str:
-        """Devuelve la ruta completa al archivo de recuperación."""
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(base_dir, self.RECOVERY_FILE_NAME)
+    # -> ELIMINADO: _get_recovery_file_path() ya no es necesario
 
     def _setup_autosave(self):
         """Configura e inicia el QTimer para el autoguardado."""
@@ -115,47 +111,86 @@ class MainWindow(QMainWindow):
 
     def _perform_autosave(self):
         """Guarda el estado actual en el archivo de recuperación si hay cambios."""
+        # -> MODIFICADO: Se apunta a la misma carpeta que el guardado manual (Ctrl+S)
+        TARGET_DIR = r"W:\Z_JSON\SinSubir"
+
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
-            recovery_path = self._get_recovery_file_path()
             try:
+                # -> NUEVO: Generar el nombre de archivo dinámico
+                base_filename = self.tableWindow._generate_default_filename("json")
+                autosave_filename = f"auto_{base_filename}"
+                recovery_path = os.path.join(TARGET_DIR, autosave_filename)
+
+                # Asegurarse de que el directorio exista
+                if not os.path.exists(TARGET_DIR):
+                    os.makedirs(TARGET_DIR)
+
                 current_df = self.tableWindow.pandas_model.dataframe()
                 header_data = self.tableWindow._get_header_data_from_ui()
                 self.guion_manager.save_to_json(recovery_path, current_df, header_data)
                 if self.statusBar():
-                    self.statusBar().showMessage("Progreso autoguardado.", 3000)
+                    self.statusBar().showMessage(f"Progreso autoguardado en {autosave_filename}", 3000)
             except Exception as e:
                 print(f"Error durante el autoguardado: {e}")
 
     def _check_for_recovery_file(self):
-        """Comprueba si existe un archivo de recuperación y pregunta al usuario si desea restaurarlo."""
-        recovery_path = self._get_recovery_file_path()
-        if os.path.exists(recovery_path):
-            try:
-                last_modified_timestamp = os.path.getmtime(recovery_path)
-                last_modified_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_modified_timestamp))
-                
+        """Comprueba si existen archivos de recuperación y pregunta al usuario si desea restaurar alguno."""
+        TARGET_DIR = r"W:\Z_JSON\SinSubir"
+        if not os.path.exists(TARGET_DIR):
+            return
+
+        try:
+            # -> NUEVO: Buscar todos los archivos de autoguardado en el directorio
+            recovery_files = [f for f in os.listdir(TARGET_DIR) if f.startswith("auto_") and f.endswith(".json")]
+
+            if not recovery_files:
+                return
+
+            chosen_file_to_restore = None
+            if len(recovery_files) == 1:
+                # Si solo hay un archivo, preguntar directamente por ese
+                chosen_file_to_restore = recovery_files[0]
                 reply = QMessageBox.question(self,
                                              "Recuperar Sesión",
-                                             f"Se ha encontrado un archivo de recuperación de una sesión anterior no guardada.\n"
-                                             f"Última modificación: {last_modified_str}\n\n"
-                                             "¿Desea restaurar el trabajo?",
+                                             f"Se ha encontrado un archivo de recuperación:\n\n{chosen_file_to_restore}\n\n"
+                                             "¿Desea restaurar este trabajo?",
                                              QMessageBox.StandardButton.Restore | QMessageBox.StandardButton.Discard,
                                              QMessageBox.StandardButton.Restore)
+                if reply == QMessageBox.StandardButton.Discard:
+                    chosen_file_to_restore = None # El usuario no quiere restaurar
+            else:
+                # Si hay varios, permitir al usuario elegir
+                item, ok = QInputDialog.getItem(self, "Múltiples Archivos de Recuperación",
+                                                "Se encontraron varios archivos autoguardados.\n"
+                                                "Por favor, seleccione uno para restaurar o cancele para ignorarlos:",
+                                                recovery_files, 0, False)
+                if ok and item:
+                    chosen_file_to_restore = item
 
-                if reply == QMessageBox.StandardButton.Restore:
-                    self.tableWindow.load_from_json_path(recovery_path)
-                    self.tableWindow.undo_stack.setClean(False)
-                    QMessageBox.information(self, "Éxito", "El guion ha sido restaurado desde la última copia autoguardada.")
-                else:
-                    self._delete_recovery_file()
-            except Exception as e:
-                QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
-                self._delete_recovery_file()
+            if chosen_file_to_restore:
+                recovery_path = os.path.join(TARGET_DIR, chosen_file_to_restore)
+                self.tableWindow.load_from_json_path(recovery_path)
+                self.tableWindow.undo_stack.setClean(False)
+                QMessageBox.information(self, "Éxito", f"El guion '{chosen_file_to_restore}' ha sido restaurado.")
+                
+                # -> NUEVO: Eliminar el archivo recuperado para no volver a preguntarlo
+                try:
+                    os.remove(recovery_path)
+                except OSError as e:
+                    print(f"No se pudo eliminar el archivo de recuperación restaurado '{recovery_path}': {e}")
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
                 
     def _delete_recovery_file(self):
-        """Elimina el archivo de autoguardado de forma segura."""
-        recovery_path = self._get_recovery_file_path()
+        """Elimina el archivo de autoguardado correspondiente al guion actual."""
+        TARGET_DIR = r"W:\Z_JSON\SinSubir"
         try:
+            # -> MODIFICADO: Construir el nombre del archivo de autoguardado a eliminar
+            base_filename = self.tableWindow._generate_default_filename("json")
+            autosave_filename = f"auto_{base_filename}"
+            recovery_path = os.path.join(TARGET_DIR, autosave_filename)
+            
             if os.path.exists(recovery_path):
                 os.remove(recovery_path)
         except OSError as e:
@@ -206,6 +241,8 @@ class MainWindow(QMainWindow):
             self.tableWindow.current_script_path = full_path
             self.tableWindow.current_script_name = filename
             self.tableWindow.undo_stack.setClean()
+            
+            # -> MODIFICADO: Llamar al nuevo método de limpieza centralizado
             self._delete_recovery_file()
 
             if self.statusBar():
@@ -225,9 +262,7 @@ class MainWindow(QMainWindow):
         self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", "file_load_me")
         self.add_managed_action("Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G", "open_document_icon.svg", "file_open_docx")
         self.add_managed_action("Exportar Guion a Excel", self.export_script_to_excel, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
-        # -> INICIO: NUEVA ACCIÓN
         self.add_managed_action("Exportar a Subtítulos (SRT)...", self.export_to_srt, None, "export_srt_icon.svg", "file_export_srt")
-        # -> FIN: NUEVA ACCIÓN
         self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
         
         self.add_managed_action("Guardar Guion", self.save_script_directly, "Ctrl+S", "save_json_icon.svg", "file_save_json")
@@ -279,21 +314,19 @@ class MainWindow(QMainWindow):
         if self.tableWindow.export_to_excel_dialog():
             self._delete_recovery_file()
 
-    # -> INICIO: NUEVO MÉTODO PARA EXPORTAR A SRT
     def export_to_srt(self):
         """Maneja la exportación del guion a formato SRT."""
         if self.tableWindow.pandas_model.dataframe().empty:
             QMessageBox.information(self, "Exportar a SRT", "No hay datos en el guion para exportar.")
             return
 
-        # Preguntar al usuario qué columna exportar
         items = ["DIÁLOGO", "EUSKERA"]
         item, ok = QInputDialog.getItem(self, "Seleccionar Columna para Exportar",
                                         "¿Qué columna de texto desea usar para los subtítulos?",
                                         items, 0, False)
         
         if not ok or not item:
-            return # El usuario canceló
+            return 
 
         default_filename = self.tableWindow._generate_default_filename("srt")
         path, _ = QFileDialog.getSaveFileName(self, "Exportar a Subtítulos (.srt)", default_filename, "Archivos SubRip (*.srt)")
@@ -304,7 +337,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Éxito", f"Subtítulos exportados a:\n{path}")
             except Exception as e:
                 QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar el archivo SRT:\n{e}")
-    # -> FIN: NUEVO MÉTODO
             
     def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
         if not object_name:
@@ -346,10 +378,8 @@ class MainWindow(QMainWindow):
         fileMenu.addAction(self.actions["file_open_docx"])
         fileMenu.addSeparator()
         fileMenu.addAction(self.actions["file_export_excel"])
-        # -> INICIO: AÑADIR ACCIÓN AL MENÚ
         if "file_export_srt" in self.actions:
             fileMenu.addAction(self.actions["file_export_srt"])
-        # -> FIN: AÑADIR ACCIÓN AL MENÚ
         fileMenu.addAction(self.actions["file_import_excel"])
         fileMenu.addSeparator()
         fileMenu.addAction(self.actions["file_save_json"])

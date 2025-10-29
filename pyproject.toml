@@ -1,0 +1,13 @@
+[project]
+[build-system]
+requires = ["setuptools>=61.0", "cx_Freeze"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "TakeoApp"
+version = "0.1.0"
+description = "Editor de guiones para Takeo."
+authors = [{ name = "Peru", email = "stableperu@email.com" }]
+
+[tool.setuptools]
+packages = ["guion_editor"]

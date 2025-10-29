@@ -231,7 +231,7 @@ class ScriptTakeOptimizer:
             if filtered_data.empty: messagebox.showerror("Error", "No hay líneas para los personajes seleccionados."); return
             detail_df, summary_df = self.create_optimized_takes_dp(filtered_data)
             self.save_results(detail_df, summary_df)
-            self.status_var.set("¡Optimización completada! Resultados guardados.")
+            self.status_var.set("¡Optimización completada! Revise los resultados guardados.")
         except Exception as e:
             self.status_var.set("Error durante la optimización.")
             messagebox.showerror("Error de Proceso", f"Ocurrió un error al procesar el guion: {str(e)}"); import traceback; traceback.print_exc()
@@ -406,26 +406,119 @@ class ScriptTakeOptimizer:
         return detail_df, summary_df
 
     def _save_segmentation_failures_report(self, save_dir):
-        if not self.segmentation_failures_report: return
-        try:
-            report_df = pd.DataFrame(self.segmentation_failures_report).drop_duplicates()
-            path = os.path.join(save_dir, "reporte_fallos_de_agrupacion.xlsx")
-            report_df.to_excel(path, index=False)
-            messagebox.showinfo("Reporte de Fallos de Agrupación", f"Se detectaron problemas al agrupar intervenciones. Reporte detallado guardado en:\n{path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo guardar el reporte de fallos: {str(e)}")
+        """
+        Guarda el informe de fallos de agrupación.
+        Devuelve la ruta del archivo si se guarda, o None si no hay nada que guardar.
+        Lanza una excepción si ocurre un error durante el guardado.
+        """
+        if not self.segmentation_failures_report:
+            return None
+        
+        report_df = pd.DataFrame(self.segmentation_failures_report).drop_duplicates()
+        path = os.path.join(save_dir, "reporte_fallos_de_agrupacion.xlsx")
+        report_df.to_excel(path, index=False)
+        return path
+
+    def _show_export_selection_dialog(self, has_details, has_summary, has_failures):
+        """
+        Muestra un diálogo modal para que el usuario seleccione qué archivos exportar.
+        Devuelve un diccionario con las selecciones del usuario.
+        """
+        results = {"cancelled": True} 
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Seleccionar Archivos a Exportar")
+        dialog.geometry("350x200")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        ttk.Label(main_frame, text="Marque los informes que desea guardar:").pack(anchor='w', pady=(0, 10))
+
+        detail_var = tk.BooleanVar(value=has_details)
+        summary_var = tk.BooleanVar(value=has_summary)
+        failures_var = tk.BooleanVar(value=has_failures)
+
+        if has_details:
+            ttk.Checkbutton(main_frame, text="Informe Detallado de Takes", variable=detail_var).pack(anchor='w', pady=2)
+        if has_summary:
+            ttk.Checkbutton(main_frame, text="Informe Resumido de Takes", variable=summary_var).pack(anchor='w', pady=2)
+        if has_failures:
+            ttk.Checkbutton(main_frame, text="Reporte de Fallos de Agrupación", variable=failures_var).pack(anchor='w', pady=2)
+
+        def on_export():
+            results["cancelled"] = False
+            results["save_detail"] = detail_var.get()
+            results["save_summary"] = summary_var.get()
+            results["save_failures"] = failures_var.get()
+            dialog.destroy()
+
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(20, 0))
+
+        export_btn = ttk.Button(button_frame, text="Exportar", command=on_export)
+        export_btn.pack(side=tk.RIGHT)
+        cancel_btn = ttk.Button(button_frame, text="Cancelar", command=dialog.destroy)
+        cancel_btn.pack(side=tk.RIGHT, padx=(0, 10))
+        
+        self.root.wait_window(dialog)
+        return results
 
     def save_results(self, detail_df, summary_df):
-        save_dir = filedialog.askdirectory(title="Seleccionar directorio para guardar resultados de optimización")
-        if not save_dir: return
+        has_details = not detail_df.empty
+        has_summary = not summary_df.empty
+        has_failures = bool(self.segmentation_failures_report)
+
+        if not has_details and not has_summary and not has_failures:
+            messagebox.showinfo("Proceso Completado", "La optimización finalizó, pero no se generaron resultados para exportar.")
+            return
+
+        export_choices = self._show_export_selection_dialog(has_details, has_summary, has_failures)
+
+        if export_choices["cancelled"]:
+            self.status_var.set("Exportación cancelada por el usuario.")
+            return
+
+        if not any([export_choices.get("save_detail"), export_choices.get("save_summary"), export_choices.get("save_failures")]):
+            messagebox.showinfo("Sin Selección", "No se ha seleccionado ningún archivo para exportar.")
+            self.status_var.set("Exportación omitida. No se seleccionó ningún archivo.")
+            return
+
+        save_dir = filedialog.askdirectory(title="Seleccionar directorio para guardar los informes seleccionados")
+        if not save_dir:
+            self.status_var.set("Exportación cancelada. No se seleccionó directorio.")
+            return
+
+        saved_files = []
         try:
-            detail_path = os.path.join(save_dir, "detalle_takes_optimizado.xlsx")
-            summary_path = os.path.join(save_dir, "resumen_takes_optimizado.xlsx")
-            if not detail_df.empty: detail_df.to_excel(detail_path, index=False)
-            if not summary_df.empty: summary_df.to_excel(summary_path, index=False)
-            self._save_segmentation_failures_report(save_dir)
-            sum_val = summary_df.iloc[-1]["TAKES (apariciones)"] if not summary_df.empty else "N/A"
-            messagebox.showinfo("Proceso Completado", f"Optimización finalizada.\n\nTakes únicos generados: {self.actual_takes_generated}\nSuma de apariciones: {sum_val}\n\nArchivos guardados en:\n{save_dir}")
+            if export_choices.get("save_detail", False) and has_details:
+                detail_path = os.path.join(save_dir, "detalle_takes_optimizado.xlsx")
+                detail_df.to_excel(detail_path, index=False)
+                saved_files.append(os.path.basename(detail_path))
+
+            if export_choices.get("save_summary", False) and has_summary:
+                summary_path = os.path.join(save_dir, "resumen_takes_optimizado.xlsx")
+                summary_df.to_excel(summary_path, index=False)
+                saved_files.append(os.path.basename(summary_path))
+            
+            if export_choices.get("save_failures", False) and has_failures:
+                failure_report_path = self._save_segmentation_failures_report(save_dir)
+                if failure_report_path:
+                    saved_files.append(os.path.basename(failure_report_path))
+
+            if saved_files:
+                sum_val = summary_df.iloc[-1]["TAKES (apariciones)"] if has_summary else "N/A"
+                files_str = "\n - ".join(saved_files)
+                messagebox.showinfo(
+                    "Proceso Completado",
+                    f"Optimización finalizada.\n\n"
+                    f"Takes únicos generados: {self.actual_takes_generated}\n"
+                    f"Suma de apariciones: {sum_val}\n\n"
+                    f"Archivos guardados en '{os.path.basename(save_dir)}':\n - {files_str}"
+                )
         except Exception as e:
             messagebox.showerror("Error al Guardar", f"Error al guardar los resultados: {str(e)}")
 
