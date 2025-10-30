@@ -151,11 +151,11 @@ class MainWindow(QMainWindow):
                 # Si solo hay un archivo, preguntar directamente por ese
                 chosen_file_to_restore = recovery_files[0]
                 reply = QMessageBox.question(self,
-                                             "Recuperar Sesión",
-                                             f"Se ha encontrado un archivo de recuperación:\n\n{chosen_file_to_restore}\n\n"
-                                             "¿Desea restaurar este trabajo?",
-                                             QMessageBox.StandardButton.Restore | QMessageBox.StandardButton.Discard,
-                                             QMessageBox.StandardButton.Restore)
+                             "Recuperar Sesión",
+                             f"Se ha encontrado un archivo de recuperación:\n\n{chosen_file_to_restore}\n\n"
+                             "¿Desea restaurar este trabajo?",
+                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Discard,
+                             QMessageBox.StandardButton.Yes)
                 if reply == QMessageBox.StandardButton.Discard:
                     chosen_file_to_restore = None # El usuario no quiere restaurar
             else:
@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
             if chosen_file_to_restore:
                 recovery_path = os.path.join(TARGET_DIR, chosen_file_to_restore)
                 self.tableWindow.load_from_json_path(recovery_path)
-                self.tableWindow.undo_stack.setClean(False)
+                self.tableWindow.undo_stack.setClean(False) # <--- Esta es la línea
                 QMessageBox.information(self, "Éxito", f"El guion '{chosen_file_to_restore}' ha sido restaurado.")
                 
                 # -> NUEVO: Eliminar el archivo recuperado para no volver a preguntarlo
@@ -288,9 +288,12 @@ class MainWindow(QMainWindow):
 
         # Config Menu Actions
         self.add_managed_action("Configuración App", self.open_config_dialog, "Ctrl+K", "settings_icon.svg", "config_app_settings")
+        self.add_managed_action("Optimizar Takes (Takeo)...", self.open_takeo_dialog, None, "takeo_icon.svg", "tools_run_takeo") # Sin icono
+        self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter") # Sin icono
 
         # Shortcuts Menu Actions
         self.add_managed_action("Configurar Shortcuts", self.open_shortcut_config_dialog, None, "configure_shortcuts_icon.svg", "config_shortcuts_dialog")
+
 
         # Video Player Actions
         self.add_managed_action("Video: Reproducir/Pausar", self.videoPlayerWidget.toggle_play, "F8", None, "video_toggle_play")
@@ -420,6 +423,9 @@ class MainWindow(QMainWindow):
     def create_config_menu(self, menuBar):
         configMenu = menuBar.addMenu("&Herramientas")
         configMenu.addAction(self.actions["config_app_settings"])
+        configMenu.addSeparator()
+        configMenu.addAction(self.actions["tools_run_takeo"])
+        configMenu.addAction(self.actions["tools_xlsx_converter"])
 
     def create_shortcuts_menu(self, menuBar):
         for action_menu_item in menuBar.actions():
@@ -652,6 +658,39 @@ class MainWindow(QMainWindow):
 
     def change_scene(self):
         self.tableWindow.change_scene()
+
+    def open_takeo_dialog(self):
+        """Abre el diálogo para la optimización de takes."""
+        if self.tableWindow.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Optimizar Takes", "No hay datos en el guion para optimizar.")
+            return
+            
+        from guion_editor.widgets.takeo_dialog import TakeoDialog
+        dialog = TakeoDialog(self.tableWindow, get_icon_func=get_icon, parent=self)
+        dialog.exec()
+
+    def launch_xlsx_converter(self):
+        """Lanza la herramienta externa para convertir Excel a TXT."""
+        try:
+            # Asumimos que la carpeta 'xlsx_converter' está al mismo nivel que 'main.py'
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            converter_script = os.path.join(current_dir, 'xlsx_converter', 'main.py')
+
+            if not os.path.exists(converter_script):
+                QMessageBox.critical(
+                    self, "Error",
+                    f"No se encontró el script del conversor en:\n{converter_script}"
+                )
+                return
+
+            python_executable = sys.executable
+            # Usamos Popen para que no bloquee la aplicación principal
+            subprocess.Popen([python_executable, converter_script])
+            if self.statusBar():
+                self.statusBar().showMessage("Lanzando conversor de Excel...", 3000)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error al Lanzar", f"No se pudo iniciar el conversor: {e}")
 
     def undo_action(self):
         if self.tableWindow and hasattr(self.tableWindow, 'undo_stack'):

@@ -1,0 +1,50 @@
+/* guion_editor/styles/takeo_styles.css */
+
+/* Usar un ID para asegurar que estos estilos solo se aplican al diálogo de Takeo */
+QDialog#TakeoDialog {
+    background-color: #2b2b2b;
+}
+
+/* Usar el mismo estilo de GroupBox que en la captura */
+QDialog#TakeoDialog QGroupBox {
+    color: #cccccc;
+    font-weight: bold;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+    margin-top: 6px;
+    padding: 10px;
+}
+
+QDialog#TakeoDialog QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 5px;
+    left: 10px; /* Desplaza el título un poco hacia adentro */
+}
+
+/* Alinear las etiquetas del formulario a la derecha para un look más limpio */
+QDialog#TakeoDialog QFormLayout QLabel {
+    color: #cccccc;
+    font-size: 9pt;
+    padding-top: 6px;
+    text-align: right;
+}
+
+/* Lista de personajes con mejor legibilidad */
+QDialog#TakeoDialog QListWidget {
+    background-color: #3c3f41;
+    color: #cccccc;
+    border: 1px solid #4a4a4a;
+    border-radius: 4px;
+    padding: 2px;
+    font-size: 10pt; /* Letra más grande para los nombres */
+}
+
+QDialog#TakeoDialog QListWidget::item {
+    padding: 6px; /* Más espacio vertical */
+    border-radius: 3px;
+}
+
+QDialog#TakeoDialog QListWidget::item:hover {
+    background-color: #4a4a4a;
+}

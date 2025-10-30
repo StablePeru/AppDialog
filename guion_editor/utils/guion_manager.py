@@ -43,9 +43,9 @@ class GuionManager:
         else:
             df['SCENE'] = df['SCENE'].astype(str)
             df['SCENE'] = df['SCENE'].str.strip()
-            df['SCENE'].replace(['', 'nan', 'none', 'NaN', 'None'], pd.NA, inplace=True)
-            df['SCENE'].ffill(inplace=True)
-            df['SCENE'].fillna("1", inplace=True)
+            df['SCENE'] = df['SCENE'].replace(['', 'nan', 'none', 'NaN', 'None'], pd.NA)
+            df['SCENE'] = df['SCENE'].ffill()
+            df['SCENE'] = df['SCENE'].fillna("1")
 
             def normalize_scene_value(scene_str: str) -> str:
                 scene_str_stripped = scene_str.strip()
