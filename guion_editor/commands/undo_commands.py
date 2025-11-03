@@ -637,3 +637,82 @@ class ShiftTimecodesCommand(QUndoCommand):
         # Notificar a la vista que los datos han cambiado por completo
         model.layoutChanged.emit()
         self.tw.set_unsaved_changes(True)
+
+class ResetScenesCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow'):
+        super().__init__("Reiniciar todas las escenas a '1'")
+        self.tw = table_window
+        self.original_scenes: Optional[pd.Series] = None
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+        
+        if df.empty:
+            return
+
+        # Guardar los valores originales solo la primera vez que se ejecuta
+        if self.original_scenes is None:
+            self.original_scenes = df['SCENE'].copy()
+            
+        # Actualizar todas las escenas a "1"
+        df['SCENE'] = "1"
+        
+        # Notificar a la vista que todo el modelo ha cambiado
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+    def undo(self):
+        if self.original_scenes is None:
+            return
+
+        model = self.tw.pandas_model
+        df = model.dataframe()
+
+        # Restaurar la columna de escenas original
+        df['SCENE'] = self.original_scenes
+        
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+
+class ResetTimecodesCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow'):
+        super().__init__("Reiniciar todos los IN/OUT a cero")
+        self.tw = table_window
+        self.original_ins: Optional[pd.Series] = None
+        self.original_outs: Optional[pd.Series] = None
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+
+        if df.empty:
+            return
+
+        # Guardar los valores originales solo la primera vez
+        if self.original_ins is None:
+            self.original_ins = df['IN'].copy()
+        if self.original_outs is None:
+            self.original_outs = df['OUT'].copy()
+            
+        # Actualizar todos los tiempos a "00:00:00:00"
+        df['IN'] = "00:00:00:00"
+        df['OUT'] = "00:00:00:00"
+        
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)
+
+    def undo(self):
+        if self.original_ins is None or self.original_outs is None:
+            return
+
+        model = self.tw.pandas_model
+        df = model.dataframe()
+
+        # Restaurar los tiempos originales
+        df['IN'] = self.original_ins
+        df['OUT'] = self.original_outs
+        
+        model.layoutChanged.emit()
+        self.tw.set_unsaved_changes(True)

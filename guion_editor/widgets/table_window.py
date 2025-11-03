@@ -31,7 +31,7 @@ from guion_editor.commands.undo_commands import (
     EditCommand, AddRowCommand, RemoveRowsCommand, MoveRowCommand,
     SplitInterventionCommand, MergeInterventionsCommand, ChangeSceneCommand, HeaderEditCommand,
     ToggleBookmarkCommand, UpdateMultipleCharactersCommand, SplitCharacterCommand,
-    TrimAllCharactersCommand, ShiftTimecodesCommand
+    TrimAllCharactersCommand, ShiftTimecodesCommand, ResetTimecodesCommand, ResetScenesCommand
 )
 # -> FIN: NUEVOS IMPORTS
 
@@ -1512,3 +1512,36 @@ class TableWindow(QWidget):
 
         command = SplitCharacterCommand(self, old_name, new_name1, new_name2)
         self.undo_stack.push(command)
+
+
+    def reset_all_scenes(self):
+        """Pide confirmación y ejecuta el comando para reiniciar todas las escenas a '1'."""
+        if self.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Reiniciar Escenas", "No hay datos en el guion para reiniciar.")
+            return
+
+        reply = QMessageBox.question(self, "Confirmar Acción",
+                                    "¿Está seguro de que desea cambiar TODAS las escenas a '1'?\n\n"
+                                    "(Esta acción se puede deshacer con Ctrl+Z)",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                    QMessageBox.StandardButton.No)
+
+        if reply == QMessageBox.StandardButton.Yes:
+            command = ResetScenesCommand(self)
+            self.undo_stack.push(command)
+
+    def reset_all_timecodes(self):
+        """Pide confirmación y ejecuta el comando para reiniciar todos los IN/OUT a cero."""
+        if self.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Reiniciar Tiempos", "No hay datos en el guion para reiniciar.")
+            return
+
+        reply = QMessageBox.question(self, "Confirmar Acción",
+                                    "¿Está seguro de que desea reiniciar TODOS los timecodes IN y OUT a 00:00:00:00?\n\n"
+                                    "(Esta acción se puede deshacer con Ctrl+Z)",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                    QMessageBox.StandardButton.No)
+
+        if reply == QMessageBox.StandardButton.Yes:
+            command = ResetTimecodesCommand(self)
+            self.undo_stack.push(command)

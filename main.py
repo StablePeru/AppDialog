@@ -4,6 +4,7 @@ import traceback
 import json
 import os
 import time
+import subprocess
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
@@ -52,7 +53,9 @@ def load_stylesheet_content(filename: str) -> str:
 
 class MainWindow(QMainWindow):
     # -> ELIMINADO: RECOVERY_FILE_NAME ya no es una constante global
-    
+    RECOVERY_DIR = r"W:\Z_JSON\Backup"
+    SAVE_DIR = r"W:\Z_JSON\SinSubir"
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Editor de Guion con Video")
@@ -112,7 +115,7 @@ class MainWindow(QMainWindow):
     def _perform_autosave(self):
         """Guarda el estado actual en el archivo de recuperación si hay cambios."""
         # -> MODIFICADO: Se apunta a la misma carpeta que el guardado manual (Ctrl+S)
-        TARGET_DIR = r"W:\Z_JSON\SinSubir"
+        TARGET_DIR = self.RECOVERY_DIR
 
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
             try:
@@ -135,7 +138,7 @@ class MainWindow(QMainWindow):
 
     def _check_for_recovery_file(self):
         """Comprueba si existen archivos de recuperación y pregunta al usuario si desea restaurar alguno."""
-        TARGET_DIR = r"W:\Z_JSON\SinSubir"
+        TARGET_DIR = self.RECOVERY_DIR
         if not os.path.exists(TARGET_DIR):
             return
 
@@ -184,7 +187,7 @@ class MainWindow(QMainWindow):
                 
     def _delete_recovery_file(self):
         """Elimina el archivo de autoguardado correspondiente al guion actual."""
-        TARGET_DIR = r"W:\Z_JSON\SinSubir"
+        TARGET_DIR = self.RECOVERY_DIR
         try:
             # -> MODIFICADO: Construir el nombre del archivo de autoguardado a eliminar
             base_filename = self.tableWindow._generate_default_filename("json")
@@ -206,7 +209,7 @@ class MainWindow(QMainWindow):
 
     def save_script_directly(self):
         """Guarda el guion actual directamente en la carpeta predefinida sin diálogo."""
-        TARGET_DIR = r"W:\Z_JSON\SinSubir"
+        TARGET_DIR = self.SAVE_DIR
 
         if self.tableWindow.pandas_model.dataframe().empty:
             QMessageBox.information(self, "Guardar", "No hay datos para guardar.")
@@ -289,7 +292,9 @@ class MainWindow(QMainWindow):
         # Config Menu Actions
         self.add_managed_action("Configuración App", self.open_config_dialog, "Ctrl+K", "settings_icon.svg", "config_app_settings")
         self.add_managed_action("Optimizar Takes (Takeo)...", self.open_takeo_dialog, None, "takeo_icon.svg", "tools_run_takeo") # Sin icono
-        self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter") # Sin icono
+        self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter") # Sin icono    
+        self.add_managed_action("Reiniciar Todas las Escenas a '1'", self.tableWindow.reset_all_scenes, None, "reset_scenes_icon.svg", "tools_reset_scenes")
+        self.add_managed_action("Reiniciar Todos los Tiempos a Cero", self.tableWindow.reset_all_timecodes, None, "reset_timecodes_icon.svg", "tools_reset_timecodes")
 
         # Shortcuts Menu Actions
         self.add_managed_action("Configurar Shortcuts", self.open_shortcut_config_dialog, None, "configure_shortcuts_icon.svg", "config_shortcuts_dialog")
@@ -426,6 +431,9 @@ class MainWindow(QMainWindow):
         configMenu.addSeparator()
         configMenu.addAction(self.actions["tools_run_takeo"])
         configMenu.addAction(self.actions["tools_xlsx_converter"])
+        configMenu.addSeparator()
+        configMenu.addAction(self.actions["tools_reset_scenes"])
+        configMenu.addAction(self.actions["tools_reset_timecodes"])
 
     def create_shortcuts_menu(self, menuBar):
         for action_menu_item in menuBar.actions():

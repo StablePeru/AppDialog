@@ -151,7 +151,8 @@ class TakeoOptimizerLogic:
     def generate_detail(self, blocks_with_takes, dialogue_source_column: str):
         rows = []
         df_blocks = pd.DataFrame(blocks_with_takes)
-        for (scene, take), group_df in df_blocks.groupby(["scene", "take"]):
+        
+        for take, group_df in df_blocks.groupby("take"):
             group_records = sorted(group_df.to_dict('records'), key=lambda x: x['in_time'])
             interventions = [{"char": d["personaje"], "lines": d["lines"], "in": b["in_time_str"], "out": b["out_time_str"]} for b in group_records for d in b["dialogues"]]
             if not interventions: continue
@@ -163,27 +164,42 @@ class TakeoOptimizerLogic:
                 else:
                     fused_lines = self._fuse_run_texts([r["lines"] for r in run])
                     for line in fused_lines:
-                        # --- CORRECCIÓN AQUÍ ---
-                        row_data = {"SCENE": scene, "TAKE": take, "PERSONAJE": run[0]["char"], dialogue_source_column: line, "IN": run[0]["in"], "OUT": run[-1]["out"]}
+                        row_data = {"TAKE": take, "PERSONAJE": run[0]["char"], dialogue_source_column: line, "IN": run[0]["in"], "OUT": run[-1]["out"]}
                         rows.append(row_data)
                     run = [interv]
             
             if run:
                 fused_lines = self._fuse_run_texts([r["lines"] for r in run])
                 for line in fused_lines:
-                    # --- Y CORRECCIÓN AQUÍ ---
-                    row_data = {"SCENE": scene, "TAKE": take, "PERSONAJE": run[0]["char"], dialogue_source_column: line, "IN": run[0]["in"], "OUT": run[-1]["out"]}
+                    row_data = {"TAKE": take, "PERSONAJE": run[0]["char"], dialogue_source_column: line, "IN": run[0]["in"], "OUT": run[-1]["out"]}
                     rows.append(row_data)
 
         if not rows: return pd.DataFrame()
         
         df = pd.DataFrame(rows)
-        # Asegurarse de que la columna de diálogo esté presente si no se generaron filas para ella
         if dialogue_source_column not in df.columns:
             df[dialogue_source_column] = ""
 
+        # --- INICIO DE LA LÓGICA DE ORDENACIÓN Y RENUMERACIÓN FINAL ---
+        
+        # 1. Crear columnas auxiliares para la ordenación cronológica.
         df['sort_key'] = df['IN'].apply(self.parse_time)
-        return df.sort_values(by=["SCENE", "TAKE", "sort_key"]).drop(columns=['sort_key'])
+        df['take_start_time'] = df.groupby('TAKE')['sort_key'].transform('min')
+
+        # 2. Ordenar el DataFrame cronológicamente.
+        df_sorted = df.sort_values(by=["take_start_time", "sort_key"])
+
+        # 3. Renumerar los takes para que sean secuenciales.
+        #    Obtenemos los números de take únicos en su nuevo orden cronológico.
+        chronological_take_order = df_sorted['TAKE'].unique()
+        #    Creamos un mapa de traducción: {take_antiguo: take_nuevo, ...}
+        #    Ej: {1: 1, 15: 2, 2: 3, 14: 4, ...}
+        take_renumber_map = {old_take_num: new_take_num for new_take_num, old_take_num in enumerate(chronological_take_order, 1)}
+        #    Aplicamos el mapa para reemplazar los números antiguos por los nuevos.
+        df_sorted['TAKE'] = df_sorted['TAKE'].map(take_renumber_map)
+
+        # 4. Eliminar las columnas auxiliares y devolver el resultado final.
+        return df_sorted.drop(columns=['take_start_time', 'sort_key'])
 
     def generate_summary(self, blocks_with_takes):
         summary = defaultdict(set)
