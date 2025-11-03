@@ -95,8 +95,21 @@ class CastWindow(QWidget):
         self.uppercase_button.setToolTip("Convierte todoss los nombres de personaje a mayúsculas en el guion principal.")
         self.uppercase_button.clicked.connect(self.convert_all_characters_to_uppercase)
 
+        self.delete_button = QPushButton(" Eliminar Personaje")
+        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
+            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
+            if get_icon:
+                try:
+                    self.delete_button.setIcon(get_icon("delete_row_icon.svg")) # Reutilizamos el icono de eliminar
+                    self.delete_button.setIconSize(QSize(16, 16))
+                except: pass
+        self.delete_button.setToolTip("Elimina TODAS las intervenciones del personaje seleccionado en el guion.")
+        self.delete_button.clicked.connect(self.delete_selected_character)
+        self.delete_button.setEnabled(False)
+
         bottom_button_layout.addWidget(self.split_button)
         bottom_button_layout.addWidget(self.merge_button)
+        bottom_button_layout.addWidget(self.delete_button)
         bottom_button_layout.addStretch()
         # -> AÑADIDO AL LAYOUT
         bottom_button_layout.addWidget(self.trim_spaces_button)
@@ -113,6 +126,7 @@ class CastWindow(QWidget):
         num_selected = len(selected_rows)
         self.split_button.setEnabled(num_selected == 1)
         self.merge_button.setEnabled(num_selected > 1)
+        self.delete_button.setEnabled(num_selected == 1)
 
     # -> INICIO: NUEVO MÉTODO PARA LLAMAR A LA LIMPIEZA
     def trim_all_character_names_in_script(self):
@@ -418,3 +432,21 @@ class CastWindow(QWidget):
             self.table_widget.horizontalHeader().setSortIndicatorShown(True)
         else:
             self.table_widget.horizontalHeader().setSortIndicatorShown(False)
+
+    def delete_selected_character(self):
+        """
+        Obtiene el personaje seleccionado y llama a la función de TableWindow para eliminarlo.
+        """
+        selected_rows = self.table_widget.selectionModel().selectedRows()
+        if len(selected_rows) != 1:
+            return
+
+        row_index = selected_rows[0].row()
+        item = self.table_widget.item(row_index, self.COL_PERSONAJE)
+        character_name = item.text()
+
+        if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
+            # Llamamos al nuevo método que crearemos en TableWindow
+            self.parent_main_window.tableWindow.delete_all_interventions_by_character(character_name)
+        else:
+            QMessageBox.critical(self, "Error", "No se pudo comunicar con la ventana principal del guion.")

@@ -1545,3 +1545,34 @@ class TableWindow(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             command = ResetTimecodesCommand(self)
             self.undo_stack.push(command)
+
+    def delete_all_interventions_by_character(self, character_name: str):
+        """
+        Busca todas las intervenciones de un personaje y las elimina usando el sistema de comandos.
+        """
+        df = self.pandas_model.dataframe()
+        if df.empty:
+            return
+
+        # 1. Encontrar todos los índices de las filas que pertenecen al personaje
+        df_indices_to_remove = df[df['PERSONAJE'] == character_name].index.tolist()
+
+        if not df_indices_to_remove:
+            QMessageBox.information(self, "Eliminar Personaje", f"No se encontraron intervenciones para el personaje '{character_name}'.")
+            return
+
+        # 2. Pedir confirmación al usuario (¡muy importante!)
+        reply = QMessageBox.question(
+            self,
+            "Confirmar Eliminación Masiva",
+            f"¿Está seguro de que desea eliminar las {len(df_indices_to_remove)} intervenciones del personaje '{character_name}'?\n\n"
+            "(Esta acción es reversible con Ctrl+Z)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # 3. Crear y ejecutar el comando de eliminación con los índices encontrados
+            #    Reutilizamos el comando que ya teníamos para eliminar filas.
+            command = RemoveRowsCommand(self, df_indices_to_remove)
+            self.undo_stack.push(command)
