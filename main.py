@@ -478,7 +478,7 @@ class MainWindow(QMainWindow):
 
     def open_cast_window(self):
         from guion_editor.widgets.cast_window import CastWindow
-        self.cast_window = CastWindow(self.tableWindow.pandas_model, parent_main_window=self)
+        self.cast_window = CastWindow(self.tableWindow.pandas_model, parent_main_window=self, parent=self)
         self.cast_window.show()
 
     def open_find_replace_dialog(self):

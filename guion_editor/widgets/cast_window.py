@@ -1,452 +1,386 @@
+# --- START OF FILE cast_window.py ---
+
 # guion_editor/widgets/cast_window.py
 from functools import partial
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-    QMessageBox, QHeaderView, QPushButton, QApplication, QHBoxLayout,
-    QInputDialog, QAbstractItemView, QLineEdit
-)
-from PyQt6.QtCore import Qt, QAbstractItemModel, QSize
-from PyQt6.QtGui import QIcon
-
-# -> NUEVO: Importar el delegado de personaje que vamos a reutilizar
-from guion_editor.delegates.custom_delegates import CharacterDelegate
-from guion_editor.widgets.split_character_dialog import SplitCharacterDialog
-# -> NUEVO: Importar pandas para la lógica del autocompletador
 import pandas as pd
 
-class CastWindow(QWidget):
-    HEADER_LABELS = ["Personaje", "Intervenciones", "Acción"]
-    COL_PERSONAJE = 0
-    COL_INTERVENCIONES = 1
-    COL_ACCION = 2
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QMessageBox,
+    QHeaderView, QPushButton, QHBoxLayout, QInputDialog, QAbstractItemView,
+    QLineEdit, QFileDialog, QMenu, QLabel
+)
+from PyQt6.QtCore import Qt, QAbstractItemModel, QSize
+from PyQt6.QtGui import QIcon, QColor, QAction, QFont
 
-    def __init__(self, pandas_table_model: QAbstractItemModel, parent_main_window=None):
-        super().__init__()
+from guion_editor.delegates.custom_delegates import CharacterDelegate, RepartoDelegate
+from guion_editor.widgets.split_character_dialog import SplitCharacterDialog
+
+class CastWindow(QWidget):
+    HEADER_LABELS = ["ID", "Personaje", "Reparto", "Intervenciones"]
+    COL_ID = 0
+    COL_PERSONAJE = 1
+    COL_REPARTO = 2
+    COL_INTERVENCIONES = 3
+
+    def __init__(self, pandas_table_model: QAbstractItemModel, parent_main_window=None, parent=None):
+        super().__init__(parent)
         self.pandas_model = pandas_table_model
         self.parent_main_window = parent_main_window
-        
+        self.reparto_data = {}
         self.current_sort_column = self.COL_INTERVENCIONES
         self.current_sort_order = Qt.SortOrder.DescendingOrder
         
         self.init_window()
         self.setup_ui()
+        
         self.pandas_model.dataChanged.connect(self.refresh_table_data)
         self.pandas_model.layoutChanged.connect(self.refresh_table_data)
+        self.pandas_model.modelReset.connect(self.refresh_table_data)
         self.table_widget.itemSelectionChanged.connect(self.update_button_states)
 
     def init_window(self):
         self.setWindowTitle("Reparto Completo")
-        self.setGeometry(200, 200, 500, 600) 
+        self.setGeometry(200, 200, 700, 600)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.Tool)
 
+    def on_item_changed(self, item: QTableWidgetItem):
+        row, col = item.row(), item.column()
+        character_item = self.table_widget.item(row, self.COL_PERSONAJE)
+        if not character_item: return
+
+        original_char_name = character_item.data(Qt.ItemDataRole.UserRole)
+        new_value = item.text().strip()
+
+        if col == self.COL_PERSONAJE:
+            if not new_value:
+                QMessageBox.warning(self, "Nombre no válido", "El nombre del personaje no puede estar vacío.")
+                self.table_widget.blockSignals(True)
+                item.setText(original_char_name)
+                self.table_widget.blockSignals(False)
+                return
+
+            if new_value != original_char_name:
+                try:
+                    self.pandas_model.layoutChanged.disconnect(self.refresh_table_data)
+                    self.parent_main_window.tableWindow.update_multiple_character_names([original_char_name], new_value)
+                    if original_char_name in self.reparto_data:
+                        self.reparto_data[new_value] = self.reparto_data.pop(original_char_name)
+                finally:
+                    self.pandas_model.layoutChanged.connect(self.refresh_table_data)
+                self.refresh_table_data()
+
+        elif col == self.COL_REPARTO:
+            if self.reparto_data.get(original_char_name) != new_value:
+                self.reparto_data[original_char_name] = new_value
+                item.setData(Qt.ItemDataRole.UserRole, new_value)
+    
     def setup_ui(self):
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filtrar:"))
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Buscar personaje...")
+        self.filter_edit.textChanged.connect(self.populate_table)
+        filter_layout.addWidget(self.filter_edit)
+        layout.addLayout(filter_layout)
         self.table_widget = self.create_table_widget()
         layout.addWidget(self.table_widget)
-        
+        stats_layout = QHBoxLayout()
+        stats_layout.setContentsMargins(5, 5, 5, 5)
+        self.char_count_label = QLabel("Personajes: 0")
+        self.intervention_count_label = QLabel("Intervenciones Totales: 0")
+        stats_layout.addStretch()
+        stats_layout.addWidget(self.char_count_label)
+        stats_layout.addSpacing(20)
+        stats_layout.addWidget(self.intervention_count_label)
+        layout.addLayout(stats_layout)
         bottom_button_layout = QHBoxLayout()
-
+        icon_size = QSize(16, 16)
+        get_icon = self.parent_main_window.get_icon_func_for_dialogs() if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs') else None
         self.split_button = QPushButton(" Separar Personaje")
-        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
-            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
-            if get_icon:
-                try:
-                    self.split_button.setIcon(get_icon("split_intervention_icon.svg"))
-                    self.split_button.setIconSize(QSize(16, 16))
-                except: pass
+        if get_icon: self.split_button.setIcon(get_icon("split_intervention_icon.svg")); self.split_button.setIconSize(icon_size)
         self.split_button.setToolTip("Separa un personaje compuesto (ej. 'KIMA / AMIK') en dos entradas.")
         self.split_button.clicked.connect(self.split_selected_character)
-        self.split_button.setEnabled(False) 
-
+        self.split_button.setEnabled(False)
         self.merge_button = QPushButton(" Unificar Personajes")
-        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
-            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
-            if get_icon:
-                try:
-                    self.merge_button.setIcon(get_icon("merge_intervention_icon.svg"))
-                    self.merge_button.setIconSize(QSize(16, 16))
-                except: pass
+        if get_icon: self.merge_button.setIcon(get_icon("merge_intervention_icon.svg")); self.merge_button.setIconSize(icon_size)
         self.merge_button.setToolTip("Unifica los personajes seleccionados bajo un único nombre.")
         self.merge_button.clicked.connect(self.merge_selected_characters)
-        self.merge_button.setEnabled(False) 
-        
-        # -> INICIO: NUEVO BOTÓN PARA LIMPIAR ESPACIOS
+        self.merge_button.setEnabled(False)
         self.trim_spaces_button = QPushButton(" Limpiar Nombres")
-        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
-            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
-            if get_icon:
-                try:
-                    # Reutilizamos un icono que sugiere ajuste o edición
-                    self.trim_spaces_button.setIcon(get_icon("adjust_dialogs_icon.svg"))
-                    self.trim_spaces_button.setIconSize(QSize(16, 16))
-                except: pass
-        self.trim_spaces_button.setToolTip("Elimina espacios en blanco al inicio y final de TODOS los nombres de personaje en el guion.")
+        if get_icon: self.trim_spaces_button.setIcon(get_icon("adjust_dialogs_icon.svg")); self.trim_spaces_button.setIconSize(icon_size)
+        self.trim_spaces_button.setToolTip("Elimina espacios en blanco al inicio y final de TODOS los nombres de personaje.")
         self.trim_spaces_button.clicked.connect(self.trim_all_character_names_in_script)
-        # -> FIN
-        
         self.uppercase_button = QPushButton(" Convertir a Mayúsculas")
-        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
-            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
-            if get_icon:
-                try:
-                    self.uppercase_button.setIcon(get_icon("uppercase_icon.svg"))
-                    self.uppercase_button.setIconSize(QSize(16, 16))
-                except: pass
-        
-        self.uppercase_button.setToolTip("Convierte todoss los nombres de personaje a mayúsculas en el guion principal.")
+        if get_icon: self.uppercase_button.setIcon(get_icon("uppercase_icon.svg")); self.uppercase_button.setIconSize(icon_size)
+        self.uppercase_button.setToolTip("Convierte todos los nombres de personaje a mayúsculas.")
         self.uppercase_button.clicked.connect(self.convert_all_characters_to_uppercase)
-
         self.delete_button = QPushButton(" Eliminar Personaje")
-        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
-            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
-            if get_icon:
-                try:
-                    self.delete_button.setIcon(get_icon("delete_row_icon.svg")) # Reutilizamos el icono de eliminar
-                    self.delete_button.setIconSize(QSize(16, 16))
-                except: pass
-        self.delete_button.setToolTip("Elimina TODAS las intervenciones del personaje seleccionado en el guion.")
+        if get_icon: self.delete_button.setIcon(get_icon("delete_row_icon.svg")); self.delete_button.setIconSize(icon_size)
+        self.delete_button.setToolTip("Elimina TODAS las intervenciones del personaje seleccionado.")
         self.delete_button.clicked.connect(self.delete_selected_character)
         self.delete_button.setEnabled(False)
-
+        self.import_button = QPushButton(" Importar Reparto")
+        if get_icon: self.import_button.setIcon(get_icon("import_excel_icon.svg")); self.import_button.setIconSize(icon_size)
+        self.import_button.setToolTip("Importa una lista de Personaje/Reparto desde un archivo Excel.")
+        self.import_button.clicked.connect(self.import_reparto)
+        self.export_button = QPushButton(" Exportar Reparto")
+        if get_icon: self.export_button.setIcon(get_icon("export_excel_icon.svg")); self.export_button.setIconSize(icon_size)
+        self.export_button.setToolTip("Exporta la lista de Personaje/Reparto a un archivo Excel.")
+        self.export_button.clicked.connect(self.export_reparto)
         bottom_button_layout.addWidget(self.split_button)
         bottom_button_layout.addWidget(self.merge_button)
         bottom_button_layout.addWidget(self.delete_button)
         bottom_button_layout.addStretch()
-        # -> AÑADIDO AL LAYOUT
+        bottom_button_layout.addWidget(self.import_button)
+        bottom_button_layout.addWidget(self.export_button)
         bottom_button_layout.addWidget(self.trim_spaces_button)
         bottom_button_layout.addWidget(self.uppercase_button)
-        
         layout.addLayout(bottom_button_layout)
-
         self.setLayout(layout)
         self.populate_table()
 
-    def update_button_states(self):
-        """Actualiza el estado de los botones según la selección en la tabla."""
+    def get_reparto_names_for_completer(self) -> list[str]:
+        if not self.reparto_data: return []
+        unique_actors = sorted(list(set(actor for actor in self.reparto_data.values() if actor and str(actor).strip())))
+        return unique_actors
+
+    def show_context_menu(self, position):
+        menu = QMenu(self)
         selected_rows = self.table_widget.selectionModel().selectedRows()
         num_selected = len(selected_rows)
+        if num_selected == 1:
+            row_index = selected_rows[0].row()
+            char_name = self.table_widget.item(row_index, self.COL_PERSONAJE).text()
+            find_action = menu.addAction(f"Buscar intervenciones de '{char_name}'")
+            find_action.triggered.connect(lambda: self.find_character_in_script(char_name))
+            menu.addSeparator()
+            split_action = menu.addAction("Separar Personaje...")
+            split_action.triggered.connect(self.split_selected_character)
+            delete_action = menu.addAction("Eliminar Personaje del Guion...")
+            delete_action.triggered.connect(self.delete_selected_character)
+        elif num_selected > 1:
+            merge_action = menu.addAction(f"Unificar {num_selected} Personajes...")
+            merge_action.triggered.connect(self.merge_selected_characters)
+        if num_selected > 0:
+            menu.exec(self.table_widget.mapToGlobal(position))
+
+    # -> NUEVO: Método para manejar clics en celdas
+    def handle_cell_click(self, row, column):
+        """Si se hace clic en la columna de intervenciones, inicia la búsqueda."""
+        if column == self.COL_INTERVENCIONES:
+            char_name_item = self.table_widget.item(row, self.COL_PERSONAJE)
+            if char_name_item:
+                self.find_character_in_script(char_name_item.text())
+
+    def update_button_states(self):
+        num_selected = len(self.table_widget.selectionModel().selectedRows())
         self.split_button.setEnabled(num_selected == 1)
         self.merge_button.setEnabled(num_selected > 1)
         self.delete_button.setEnabled(num_selected == 1)
 
-    # -> INICIO: NUEVO MÉTODO PARA LLAMAR A LA LIMPIEZA
     def trim_all_character_names_in_script(self):
-        """
-        Pide confirmación y luego le indica a TableWindow que limpie los espacios
-        de todos los nombres de personaje.
-        """
-        if not self.parent_main_window or not hasattr(self.parent_main_window, 'tableWindow'):
-            QMessageBox.warning(self, "Error", "No se puede acceder a la ventana principal del guion.")
-            return
-
+        if not self.parent_main_window or not hasattr(self.parent_main_window, 'tableWindow'): return
         reply = QMessageBox.question(self, "Confirmar Acción",
-                                     "¿Está seguro de que desea eliminar los espacios en blanco sobrantes (inicio y final) de TODOS los nombres de personaje?\n\n"
-                                     "Esta acción es reversible con Ctrl+Z en la ventana principal.",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.Yes)
-
+                                     "¿Eliminar espacios sobrantes de TODOS los nombres de personaje?\n(Reversible con Ctrl+Z)",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
         if reply == QMessageBox.StandardButton.Yes:
-            # Llamamos al nuevo método que estará en TableWindow
             self.parent_main_window.tableWindow.trim_all_character_names()
-    # -> FIN
 
     def split_selected_character(self):
-        """
-        Lanza el diálogo para separar un personaje seleccionado en dos.
-        """
         selected_rows = self.table_widget.selectionModel().selectedRows()
-        if len(selected_rows) != 1:
-            return
-
-        row_index = selected_rows[0].row()
-        item = self.table_widget.item(row_index, self.COL_PERSONAJE)
-        original_name = item.text()
-
+        if len(selected_rows) != 1: return
+        original_name = self.table_widget.item(selected_rows[0].row(), self.COL_PERSONAJE).text()
         dialog = SplitCharacterDialog(original_name, self)
         if dialog.exec():
             names = dialog.get_names()
-            if names:
+            if names and self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
                 name1, name2 = names
-                
-                message = (f"¿Está seguro de que desea reemplazar todas las intervenciones de:\n"
-                           f"'{original_name}'\n\n"
-                           f"por dos intervenciones idénticas para:\n"
-                           f"'{name1}' y '{name2}'?\n\n"
-                           "Esta acción es reversible con Ctrl+Z.")
-                
-                reply = QMessageBox.question(self, "Confirmar Separación", message,
-                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                             QMessageBox.StandardButton.Yes)
-                
+                reply = QMessageBox.question(self, "Confirmar Separación",
+                                             f"¿Reemplazar todas las intervenciones de '{original_name}' por dos intervenciones para '{name1}' y '{name2}'?\n(Reversible con Ctrl+Z)",
+                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
                 if reply == QMessageBox.StandardButton.Yes:
-                    if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
-                        self.parent_main_window.tableWindow.split_character_rows(original_name, name1, name2)
+                    self.parent_main_window.tableWindow.split_character_rows(original_name, name1, name2)
 
     def merge_selected_characters(self):
-        """
-        Toma los personajes seleccionados en la tabla de reparto y los unifica bajo un nuevo nombre.
-        """
         selected_rows = self.table_widget.selectionModel().selectedRows()
-        if len(selected_rows) < 2:
-            QMessageBox.information(self, "Unificar", "Por favor, seleccione dos o más personajes para unificar.")
-            return
-
-        old_names_to_merge = [self.table_widget.item(row.row(), self.COL_PERSONAJE).text() for row in selected_rows]
-        
-        suggested_name = max(old_names_to_merge, key=len)
-
-        new_name, ok = QInputDialog.getText(self, "Unificar Personajes",
-                                            "Introduzca el nombre final para los personajes seleccionados:",
-                                            QLineEdit.EchoMode.Normal,
-                                            suggested_name)
-
-        if ok and new_name and new_name.strip():
+        if len(selected_rows) < 2: return
+        old_names = [self.table_widget.item(row.row(), self.COL_PERSONAJE).text() for row in selected_rows]
+        new_name, ok = QInputDialog.getText(self, "Unificar Personajes", "Nombre final para los personajes:", QLineEdit.EchoMode.Normal, max(old_names, key=len))
+        if ok and new_name.strip() and self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
             final_name = new_name.strip()
-            
-            if final_name in old_names_to_merge and len(old_names_to_merge) > 1:
-                pass 
-            
-            message = (f"¿Está seguro de que desea renombrar los siguientes personajes a '{final_name}'?\n\n"
-                       f"- {', '.join(old_names_to_merge)}\n\n"
-                       "Esta acción es reversible con Ctrl+Z.")
-            
-            reply = QMessageBox.question(self, "Confirmar Unificación", message,
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                         QMessageBox.StandardButton.Yes)
-
+            reply = QMessageBox.question(self, "Confirmar Unificación",
+                                         f"¿Renombrar los personajes seleccionados a '{final_name}'?\n(Reversible con Ctrl+Z)",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
             if reply == QMessageBox.StandardButton.Yes:
-                if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
-                    self.parent_main_window.tableWindow.update_multiple_character_names(old_names_to_merge, final_name)
+                self.parent_main_window.tableWindow.update_multiple_character_names(old_names, final_name)
 
     def convert_all_characters_to_uppercase(self):
-        if not self.parent_main_window or not hasattr(self.parent_main_window, 'tableWindow'):
-            QMessageBox.warning(self, "Error", "No se puede acceder a la ventana principal del guion.")
-            return
-
+        if not self.parent_main_window or not hasattr(self.parent_main_window, 'tableWindow'): return
         reply = QMessageBox.question(self, "Confirmar Acción",
-                                     "¿Está seguro de que desea convertir todos los nombres de personaje a MAYÚSCULAS?\n\n"
-                                     "Podrá deshacer esta acción con Ctrl+Z en la ventana principal.",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.Yes)
-
+                                     "¿Convertir todos los nombres de personaje a MAYÚSCULAS?\n(Reversible con Ctrl+Z)",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
         if reply == QMessageBox.StandardButton.Yes:
             self.parent_main_window.tableWindow.convert_all_characters_to_uppercase()
-            QMessageBox.information(self, "Éxito", "Nombres de personaje convertidos a mayúsculas.")
 
     def get_character_names_for_completer(self) -> list[str]:
-        """Obtiene la lista de nombres de personajes únicos del modelo de datos principal."""
-        dataframe = self.pandas_model.dataframe()
-        if dataframe is None or dataframe.empty or 'PERSONAJE' not in dataframe.columns:
-            return []
-        
-        unique_names = pd.Series(dataframe['PERSONAJE'].unique()).astype(str).str.strip()
+        df = self.pandas_model.dataframe()
+        if df is None or df.empty or 'PERSONAJE' not in df.columns: return []
+        unique_names = pd.Series(df['PERSONAJE'].unique()).astype(str).str.strip()
         return sorted(list(unique_names[unique_names != ""]))
 
     def create_table_widget(self):
-        table_widget = QTableWidget()
-        table_widget.setColumnCount(len(self.HEADER_LABELS))
-        table_widget.setHorizontalHeaderLabels(self.HEADER_LABELS)
-        
-        table_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        table_widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        
-        char_delegate = CharacterDelegate(
-            get_names_callback=self.get_character_names_for_completer,
-            parent=table_widget,
-            table_window_instance=None 
-        )
-        table_widget.setItemDelegateForColumn(self.COL_PERSONAJE, char_delegate)
-
-        header = table_widget.horizontalHeader()
-        header.setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch) 
+        table = QTableWidget()
+        table.setColumnCount(len(self.HEADER_LABELS))
+        table.setHorizontalHeaderLabels(self.HEADER_LABELS)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        char_delegate = CharacterDelegate(get_names_callback=self.get_character_names_for_completer, parent=table)
+        table.setItemDelegateForColumn(self.COL_PERSONAJE, char_delegate)
+        reparto_delegate = RepartoDelegate(get_names_callback=self.get_reparto_names_for_completer, parent=table)
+        table.setItemDelegateForColumn(self.COL_REPARTO, reparto_delegate)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(self.COL_ID, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.COL_REPARTO, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(self.COL_INTERVENCIONES, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.COL_ACCION, QHeaderView.ResizeMode.ResizeToContents) 
-
         header.sectionClicked.connect(self.sort_by_column)
-        table_widget.verticalHeader().setVisible(False)
-        table_widget.itemChanged.connect(self.on_item_changed)
+        table.verticalHeader().setVisible(False)
+        table.itemChanged.connect(self.on_item_changed)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        table.customContextMenuRequested.connect(self.show_context_menu)
         
-        return table_widget
+        # -> REMOVED: Eliminamos la conexión del doble clic.
+        # table.itemDoubleClicked.connect(self.handle_double_click)
+        
+        # -> NEW: Conectamos el clic simple para manejar la nueva funcionalidad.
+        table.cellClicked.connect(self.handle_cell_click)
+        
+        return table
 
     def sort_by_column(self, logical_index):
-        if logical_index == self.COL_ACCION:
-            return
-
+        if logical_index == len(self.HEADER_LABELS): return
         if self.current_sort_column == logical_index:
             self.current_sort_order = Qt.SortOrder.AscendingOrder if self.current_sort_order == Qt.SortOrder.DescendingOrder else Qt.SortOrder.DescendingOrder
         else:
             self.current_sort_column = logical_index
-            self.current_sort_order = Qt.SortOrder.AscendingOrder if logical_index == self.COL_PERSONAJE else Qt.SortOrder.DescendingOrder
-        
+            self.current_sort_order = Qt.SortOrder.AscendingOrder if logical_index != self.COL_INTERVENCIONES else Qt.SortOrder.DescendingOrder
         self.populate_table()
 
     def refresh_table_data(self):
         self.populate_table()
+        if self.isVisible():
+            self.activateWindow()
+            self.raise_()
 
     def populate_table(self):
-        dataframe = self.pandas_model.dataframe()
-        if dataframe is None or dataframe.empty or 'PERSONAJE' not in dataframe.columns:
+        df = self.pandas_model.dataframe()
+        if df is None or df.empty or 'PERSONAJE' not in df.columns:
             self.table_widget.setRowCount(0)
             return
-
-        character_series = dataframe['PERSONAJE'].astype(str)
-        character_counts = character_series[character_series != ""].value_counts()
-        
-        items_to_sort = list(character_counts.items())
-
-        if self.current_sort_column == self.COL_PERSONAJE:
-            items_to_sort.sort(key=lambda item: str(item[0]).strip().lower(),
-                               reverse=(self.current_sort_order == Qt.SortOrder.DescendingOrder))
-        elif self.current_sort_column == self.COL_INTERVENCIONES:
-            items_to_sort.sort(key=lambda item: int(item[1]),
-                               reverse=(self.current_sort_order == Qt.SortOrder.DescendingOrder))
-
+        char_counts = df['PERSONAJE'].astype(str).str.strip().value_counts()
+        char_counts = char_counts[char_counts.index != ""]
+        items_to_sort = [{'personaje': char, 'reparto': self.reparto_data.get(char, ""), 'count': count} for char, count in char_counts.items()]
+        if hasattr(self, 'filter_edit'):
+            filter_text = self.filter_edit.text().lower().strip()
+            if filter_text:
+                items_to_sort = [item for item in items_to_sort if filter_text in item['personaje'].lower()]
+        items_to_sort.sort(key=lambda item: (-item['count'], str(item['personaje']).lower()))
         self.table_widget.blockSignals(True)
-        self.table_widget.setRowCount(0)
         self.table_widget.setRowCount(len(items_to_sort))
-
-        current_get_icon_func = None
-        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
-            current_get_icon_func = self.parent_main_window.get_icon_func_for_dialogs()
-
-        icon_button_size = QSize(28, 28)
-        icon_itself_size = QSize(16, 16)
-        
-        search_icon_instance = None
-        if current_get_icon_func:
-            try:
-                search_icon_instance = current_get_icon_func("find_next_icon.svg")
-            except Exception as e:
-                search_icon_instance = None 
-
-        for row, (character, count) in enumerate(items_to_sort):
-            self.set_table_item(row, self.COL_PERSONAJE, str(character))
-
-            count_item = QTableWidgetItem(str(count))
+        total_interventions_in_view = 0
+        for row_idx, item_data in enumerate(items_to_sort):
+            id_item = QTableWidgetItem(str(row_idx + 1)); id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table_widget.setItem(row_idx, self.COL_ID, id_item)
+            self.set_table_item(row_idx, self.COL_PERSONAJE, str(item_data['personaje']))
+            reparto_value = str(item_data['reparto'])
+            reparto_item = self.set_table_item(row_idx, self.COL_REPARTO, reparto_value)
+            if not reparto_value:
+                reparto_item.setBackground(QColor(60, 30, 30, 180))
+            
+            # -> MODIFIED: Aplicar estilo al item de intervenciones para que parezca un enlace
+            count_item = QTableWidgetItem(str(item_data['count']))
             count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             count_item.setFlags(count_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table_widget.setItem(row, self.COL_INTERVENCIONES, count_item)
+            # Estilo de enlace
+            font = count_item.font()
+            font.setUnderline(True)
+            count_item.setFont(font)
+            count_item.setForeground(QColor("#80aaff")) # Un azul claro legible
+            count_item.setToolTip(f"Hacer clic para buscar las {item_data['count']} intervenciones de {item_data['personaje']}")
 
-            find_button = QPushButton()
-            if search_icon_instance and not search_icon_instance.isNull():
-                find_button.setIcon(search_icon_instance)
-                find_button.setIconSize(icon_itself_size)
-                find_button.setFixedSize(icon_button_size)
-                find_button.setStyleSheet("QPushButton { border: none; background-color: transparent; padding: 0px; margin: 0px; }") 
-            else:
-                find_button.setText("...")
-                find_button.setFixedSize(icon_button_size)
-
-            find_button.setToolTip(f"Buscar intervenciones de {character}")
-            find_button.clicked.connect(partial(self.find_character_in_script, str(character)))
-            self.table_widget.setCellWidget(row, self.COL_ACCION, find_button)
+            self.table_widget.setItem(row_idx, self.COL_INTERVENCIONES, count_item)
+            total_interventions_in_view += item_data['count']
 
         self.table_widget.blockSignals(False)
-
-        if self.current_sort_column != self.COL_ACCION:
-            if self.table_widget.horizontalHeader().sortIndicatorSection() != self.current_sort_column or \
-               self.table_widget.horizontalHeader().sortIndicatorOrder() != self.current_sort_order:
-                self.table_widget.horizontalHeader().setSortIndicator(self.current_sort_column, self.current_sort_order)
-            self.table_widget.horizontalHeader().setSortIndicatorShown(True)
-        else:
-            self.table_widget.horizontalHeader().setSortIndicatorShown(False)
+        self.table_widget.resizeColumnsToContents()
+        self.table_widget.horizontalHeader().setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch)
+        self.table_widget.horizontalHeader().setSectionResizeMode(self.COL_REPARTO, QHeaderView.ResizeMode.Stretch)
+        if hasattr(self, 'char_count_label'):
+            self.char_count_label.setText(f"Personajes Mostrados: {len(items_to_sort)}")
+            self.intervention_count_label.setText(f"Suma de Intervenciones: {total_interventions_in_view}")
 
     def set_table_item(self, row, column, value):
         item = QTableWidgetItem(value)
-        if column == self.COL_PERSONAJE:
-            item.setData(Qt.ItemDataRole.UserRole, value) 
+        item.setData(Qt.ItemDataRole.UserRole, value)
         self.table_widget.setItem(row, column, item)
+        return item
 
     def find_character_in_script(self, character_name: str):
         from guion_editor.widgets.find_replace_dialog import FindReplaceDialog
-        
-        retrieved_get_icon_func = None
-        if self.parent_main_window and hasattr(self.parent_main_window, 'get_icon_func_for_dialogs'):
-            retrieved_get_icon_func = self.parent_main_window.get_icon_func_for_dialogs()
-        elif self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow') and \
-             hasattr(self.parent_main_window.tableWindow, 'get_icon'):
-            retrieved_get_icon_func = self.parent_main_window.tableWindow.get_icon 
-
-        if not self.parent_main_window or not hasattr(self.parent_main_window, 'tableWindow'):
-            QMessageBox.warning(self, "Error", "No se puede acceder a la ventana principal del guion.")
-            return
-
-        dialog = FindReplaceDialog(self.parent_main_window.tableWindow, get_icon_func=retrieved_get_icon_func)
-        
-        if hasattr(dialog, 'set_search_parameters'):
-            dialog.set_search_parameters(find_text=character_name, search_character=True, search_dialogue=False)
-        else: 
-            dialog.find_text_input.setText(character_name)
-            dialog.search_in_character.setChecked(True)
-            dialog.search_in_dialogue.setChecked(False)
-            dialog.reset_search() 
-
-        dialog.exec()
-
-    def on_item_changed(self, item: QTableWidgetItem):
-        if item.column() != self.COL_PERSONAJE:
-            return
-
-        old_name_clean = item.data(Qt.ItemDataRole.UserRole)
-        new_name_clean = item.text().strip()
-
-        if not new_name_clean:
-            QMessageBox.warning(self, "Entrada no válida", "El nombre del personaje no puede estar vacío.")
-            self.table_widget.blockSignals(True)
-            item.setText(old_name_clean)
-            self.table_widget.blockSignals(False)
-            return
-
-        if old_name_clean == new_name_clean:
-            return
-
-        all_other_character_names_lower = [
-            self.table_widget.item(r, self.COL_PERSONAJE).text().lower()
-            for r in range(self.table_widget.rowCount())
-            if r != item.row() and self.table_widget.item(r, self.COL_PERSONAJE)
-        ]
-        is_duplicate = new_name_clean.lower() in all_other_character_names_lower
-
-        if is_duplicate:
-            message = (f"El nombre de personaje '{new_name_clean}' ya existe.\n\n"
-                       f"¿Desea unificar todas las variantes de '{old_name_clean}' bajo el nombre '{new_name_clean}'?")
-            reply = QMessageBox.question(self, "Confirmar Fusión de Personajes", message,
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                         QMessageBox.StandardButton.Yes)
-            if reply == QMessageBox.StandardButton.No:
-                self.table_widget.blockSignals(True)
-                item.setText(old_name_clean)
-                self.table_widget.blockSignals(False)
-                return
-        
-        self.update_multiple_character_names_in_main_table([old_name_clean], new_name_clean)
-
-    def update_multiple_character_names_in_main_table(self, old_names: list[str], new_name: str):
         if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
-            self.parent_main_window.tableWindow.update_multiple_character_names(old_names, new_name)
+            get_icon = self.parent_main_window.get_icon_func_for_dialogs()
+            dialog = FindReplaceDialog(self.parent_main_window.tableWindow, get_icon_func=get_icon)
+            dialog.set_search_parameters(find_text=character_name, search_character=True, search_dialogue=False)
+            dialog.exec()
+
+    def export_reparto(self):
+        if self.table_widget.rowCount() == 0:
+            QMessageBox.information(self, "Exportar", "No hay datos para exportar.")
+            return
+        reparto_data = [{"PERSONAJE": self.table_widget.item(row, self.COL_PERSONAJE).text(),
+                         "REPARTO": self.table_widget.item(row, self.COL_REPARTO).text()}
+                        for row in range(self.table_widget.rowCount())]
+        reparto_df = pd.DataFrame(reparto_data)
+        filename = "Reparto.xlsx"
+        try:
+            tw = self.parent_main_window.tableWindow
+            filename = tw._generate_default_filename("xlsx").replace(".xlsx", "")
+            filename = f"Reparto_{filename}.xlsx"
+        except Exception: pass
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar Reparto", filename, "Archivos Excel (*.xlsx)")
+        if path:
+            try:
+                reparto_df.to_excel(path, index=False)
+                QMessageBox.information(self, "Éxito", f"Reparto exportado a:\n{path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar el archivo:\n{e}")
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.populate_table() 
-        if self.current_sort_column != self.COL_ACCION:
-            self.table_widget.horizontalHeader().setSortIndicator(self.current_sort_column, self.current_sort_order)
-            self.table_widget.horizontalHeader().setSortIndicatorShown(True)
-        else:
-            self.table_widget.horizontalHeader().setSortIndicatorShown(False)
+        self.populate_table()
+        self.table_widget.horizontalHeader().setSortIndicator(self.current_sort_column, self.current_sort_order)
+        self.table_widget.horizontalHeader().setSortIndicatorShown(True)
 
     def delete_selected_character(self):
-        """
-        Obtiene el personaje seleccionado y llama a la función de TableWindow para eliminarlo.
-        """
         selected_rows = self.table_widget.selectionModel().selectedRows()
-        if len(selected_rows) != 1:
-            return
-
-        row_index = selected_rows[0].row()
-        item = self.table_widget.item(row_index, self.COL_PERSONAJE)
-        character_name = item.text()
-
+        if len(selected_rows) != 1: return
+        character_name = self.table_widget.item(selected_rows[0].row(), self.COL_PERSONAJE).text()
         if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
-            # Llamamos al nuevo método que crearemos en TableWindow
             self.parent_main_window.tableWindow.delete_all_interventions_by_character(character_name)
-        else:
-            QMessageBox.critical(self, "Error", "No se pudo comunicar con la ventana principal del guion.")
+
+    def import_reparto(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Importar Reparto", "", "Archivos Excel (*.xlsx)")
+        if not path: return
+        try:
+            df = pd.read_excel(path)
+            if 'PERSONAJE' not in df.columns or 'REPARTO' not in df.columns:
+                QMessageBox.warning(self, "Error de Formato", "El archivo Excel debe contener las columnas 'PERSONAJE' y 'REPARTO'.")
+                return
+            df['REPARTO'] = df['REPARTO'].fillna('').astype(str)
+            imported_data = pd.Series(df.REPARTO.values, index=df.PERSONAJE).to_dict()
+            self.reparto_data.update(imported_data)
+            self.populate_table()
+            QMessageBox.information(self, "Éxito", "Datos de reparto importados y fusionados correctamente.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Importación", f"No se pudo leer el archivo:\n{e}")

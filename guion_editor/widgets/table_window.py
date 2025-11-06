@@ -8,7 +8,7 @@ from typing import Any, List, Dict, Optional, Tuple
 import pandas as pd
 import bisect
 
-from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer, QKeyCombination, QPoint
+from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer, QPoint
 from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, QKeySequence, QAction
 from PyQt6.QtWidgets import (
     QWidget, QFileDialog, QAbstractItemView,
@@ -25,7 +25,6 @@ from guion_editor.utils.dialog_utils import ajustar_dialogo
 from guion_editor.utils.guion_manager import GuionManager
 from guion_editor.widgets.custom_text_edit import CustomTextEdit
 from guion_editor.widgets.excel_mapping_dialog import ExcelMappingDialog
-# -> INICIO: NUEVOS IMPORTS
 from guion_editor.widgets.shift_timecode_dialog import ShiftTimecodeDialog
 from guion_editor.commands.undo_commands import (
     EditCommand, AddRowCommand, RemoveRowsCommand, MoveRowCommand,
@@ -33,8 +32,6 @@ from guion_editor.commands.undo_commands import (
     ToggleBookmarkCommand, UpdateMultipleCharactersCommand, SplitCharacterCommand,
     TrimAllCharactersCommand, ShiftTimecodesCommand, ResetTimecodesCommand, ResetScenesCommand
 )
-# -> FIN: NUEVOS IMPORTS
-
 
 class TableWindow(QWidget):
     in_out_signal = pyqtSignal(str, int)
@@ -45,7 +42,7 @@ class TableWindow(QWidget):
     COL_SCENE_VIEW = 2
     COL_IN_VIEW = 3
     COL_OUT_VIEW = 4
-    COL_DURATION_VIEW = 5  # <-- NUEVA COLUMNA
+    COL_DURATION_VIEW = 5
     COL_CHARACTER_VIEW = 6
     COL_DIALOGUE_VIEW = 7
     COL_EUSKERA_VIEW = 8
@@ -60,7 +57,7 @@ class TableWindow(QWidget):
         COL_SCENE_VIEW: 'SCENE',
         COL_IN_VIEW: 'IN',
         COL_OUT_VIEW: 'OUT',
-        COL_DURATION_VIEW: '__DURATION__', # Identificador especial, no existe en el DataFrame
+        COL_DURATION_VIEW: '__DURATION__',
         COL_CHARACTER_VIEW: 'PERSONAJE',
         COL_DIALOGUE_VIEW: 'DIÁLOGO',
         COL_EUSKERA_VIEW: 'EUSKERA',
@@ -123,7 +120,7 @@ class TableWindow(QWidget):
         self._current_bookmark_nav_idx: int = -1
         self._current_header_data_for_undo: Dict[str, Any] = {}
         self.cached_subtitle_timeline: List[Tuple[int, int, str]] = []
-        self._time_cache: List[Tuple[int, int]] = [] # Cache para (start_ms, row_index)
+        self._time_cache: List[Tuple[int, int]] = []
         self._currently_synced_row: int = -1
 
     def _init_timers(self):
@@ -193,7 +190,6 @@ class TableWindow(QWidget):
     def _request_bookmark_indicator_update(self):
         self._update_bookmark_indicator_timer.start()
 
-
     def _request_recache_subtitles(self):
         self._recache_timer.start()
 
@@ -209,10 +205,9 @@ class TableWindow(QWidget):
                 subtitle_text = str(df.at[i, self.subtitle_source_column])
                 in_ms = self.convert_time_code_to_milliseconds(in_tc)
                 out_ms = self.convert_time_code_to_milliseconds(out_tc)
-                if in_ms < out_ms:
+                if in_ms is not None and out_ms is not None and in_ms < out_ms:
                     self.cached_subtitle_timeline.append((in_ms, out_ms, subtitle_text))
-            except (KeyError, ValueError, TypeError) as e:
-                print(f"Advertencia: Omitiendo fila {i} del caché de subtítulos por error: {e}")
+            except (KeyError, ValueError, TypeError):
                 continue
         self.cached_subtitle_timeline.sort(key=lambda x: x[0])
 
@@ -220,7 +215,6 @@ class TableWindow(QWidget):
         if source_column in self.DF_COLUMN_ORDER:
             self.subtitle_source_column = source_column
             self._request_recache_subtitles()
-            
 
     def get_subtitle_timeline(self) -> List[Tuple[int, int, str]]:
         return self.cached_subtitle_timeline
@@ -296,8 +290,7 @@ class TableWindow(QWidget):
             self.undo_stack.push(command)
 
     def toggle_header_visibility(self) -> None:
-        current_visibility = self.header_details_widget.isVisible()
-        self.header_details_widget.setVisible(not current_visibility)
+        self.header_details_widget.setVisible(not self.header_details_widget.isVisible())
         self._update_toggle_header_button_text_and_icon()
 
     def setup_buttons(self, layout: QVBoxLayout) -> None:
@@ -328,17 +321,13 @@ class TableWindow(QWidget):
             if self.get_icon and icon_name:
                 button.setIcon(self.get_icon(icon_name))
                 button.setIconSize(action_icon_size)
-            final_tooltip = tooltip_override
+            final_tooltip = tooltip_override if tooltip_override else btn_text.strip()
             if is_only_icon:
                 button.setProperty("iconOnlyButton", True)
-                if not final_tooltip:
-                    final_tooltip = method.__name__.replace("_", " ").title()
+                final_tooltip = tooltip_override if tooltip_override else method.__name__.replace("_", " ").title()
             else:
                 button.setText(btn_text)
-                if not final_tooltip:
-                    final_tooltip = btn_text.strip()
-            if final_tooltip:
-                button.setToolTip(final_tooltip)
+            button.setToolTip(final_tooltip)
             button.clicked.connect(method)
             actions_bar_internal_layout.addWidget(button)
             self.action_buttons[action_obj_name] = button
@@ -378,187 +367,102 @@ class TableWindow(QWidget):
         buttons_overall_container_layout.addWidget(self.link_out_in_checkbox)
         self.sync_video_checkbox = QCheckBox("Sincronizar con Video")
         self.sync_video_checkbox.setToolTip("Si está marcado, la tabla se desplazará y resaltará la fila correspondiente al tiempo del video.")
-        self.sync_video_checkbox.setChecked(True) # Activado por defecto
+        self.sync_video_checkbox.setChecked(True)
         buttons_overall_container_layout.addWidget(self.sync_video_checkbox)
         layout.addWidget(self.top_controls_row_widget)
 
     def _handle_model_change_for_time_errors(self, top_left: QModelIndex, bottom_right: QModelIndex, roles: list[int]):
         if not top_left.isValid(): return
-        col_in_view = self.COL_IN_VIEW
-        col_out_view = self.COL_OUT_VIEW
-        update_needed = False
         if Qt.ItemDataRole.BackgroundRole in roles or Qt.ItemDataRole.DisplayRole in roles or Qt.ItemDataRole.EditRole in roles:
-            for col_idx in range(top_left.column(), bottom_right.column() + 1):
-                if col_idx == col_in_view or col_idx == col_out_view:
-                    update_needed = True
-                    break
-        if update_needed:
-            self._request_error_indicator_update()
+            if top_left.column() <= self.COL_OUT_VIEW and bottom_right.column() >= self.COL_IN_VIEW:
+                self._request_error_indicator_update()
 
     def update_time_error_indicator(self):
-        if not hasattr(self, 'time_error_indicator_button') or self.time_error_indicator_button is None:
+        if not hasattr(self, 'time_error_indicator_button') or self.time_error_indicator_button is None or not hasattr(self.pandas_model, '_time_validation_status'):
             return
-        if not hasattr(self.pandas_model, '_time_validation_status'):
-            return
-        has_errors = False
-        error_rows_interventions_str = []
-        old_error_count = len(self.error_df_indices)
-        self.error_df_indices.clear()
-        if self.pandas_model.rowCount() > 0 and isinstance(self.pandas_model._time_validation_status, dict):
-            for df_row_idx, is_valid in sorted(list(self.pandas_model._time_validation_status.items())):
-                if not is_valid:
-                    has_errors = True
-                    self.error_df_indices.append(df_row_idx)
-                    error_rows_interventions_str.append(str(df_row_idx + 1))
-        if len(self.error_df_indices) != old_error_count or not self.error_df_indices:
+        
+        self.error_df_indices = [idx for idx, valid in self.pandas_model._time_validation_status.items() if not valid]
+        self.error_df_indices.sort()
+        
+        has_errors = bool(self.error_df_indices)
+        if not has_errors:
             self._current_error_nav_idx = -1
-        elif self.error_df_indices and self._current_error_nav_idx >= len(self.error_df_indices):
-             self._current_error_nav_idx = len(self.error_df_indices) -1
+        
+        self.time_error_indicator_button.setVisible(has_errors)
         if has_errors:
             self.time_error_indicator_button.setText("⚠️ TIEMPOS")
             self.time_error_indicator_button.setProperty("hasErrors", True)
-            tooltip_text = "Errores de tiempo detectados. Pulse para ir al siguiente.\nFilas con errores: " + ", ".join(error_rows_interventions_str)
-            self.time_error_indicator_button.setToolTip(tooltip_text)
-            self.time_error_indicator_button.setVisible(True)
-            self.time_error_indicator_button.setEnabled(True)
-        else:
-            self.time_error_indicator_button.setText("")
-            self.time_error_indicator_button.setProperty("hasErrors", False)
-            self.time_error_indicator_button.setToolTip("")
-            self.time_error_indicator_button.setVisible(False)
-            self.time_error_indicator_button.setEnabled(False)
-            self._current_error_nav_idx = -1
-        if self.time_error_indicator_button.style() is not None:
+            self.time_error_indicator_button.setToolTip(f"Errores de tiempo detectados. Pulse para ir al siguiente.\nFilas: {', '.join(map(str, [i+1 for i in self.error_df_indices]))}")
+        
+        if self.time_error_indicator_button.style():
             self.time_error_indicator_button.style().unpolish(self.time_error_indicator_button)
             self.time_error_indicator_button.style().polish(self.time_error_indicator_button)
 
     def update_scene_error_indicator(self):
-        if not hasattr(self, 'scene_error_indicator_button') or self.scene_error_indicator_button is None:
+        if not hasattr(self, 'scene_error_indicator_button') or self.scene_error_indicator_button is None or not hasattr(self.pandas_model, '_scene_validation_status'):
             return
-        if not hasattr(self.pandas_model, '_scene_validation_status'):
-            return
-        has_errors = False
-        error_rows_interventions_str = []
-        old_error_count = len(self.scene_error_df_indices)
-        self.scene_error_df_indices.clear()
-        if self.pandas_model.rowCount() > 0 and isinstance(self.pandas_model._scene_validation_status, dict):
-            for df_row_idx, is_valid in sorted(list(self.pandas_model._scene_validation_status.items())):
-                if not is_valid:
-                    has_errors = True
-                    self.scene_error_df_indices.append(df_row_idx)
-                    error_rows_interventions_str.append(str(df_row_idx + 1))
-        if len(self.scene_error_df_indices) != old_error_count or not self.scene_error_df_indices:
+            
+        self.scene_error_df_indices = [idx for idx, valid in self.pandas_model._scene_validation_status.items() if not valid]
+        self.scene_error_df_indices.sort()
+        
+        has_errors = bool(self.scene_error_df_indices)
+        if not has_errors:
             self._current_scene_error_nav_idx = -1
-        elif self.scene_error_df_indices and self._current_scene_error_nav_idx >= len(self.scene_error_df_indices):
-            self._current_scene_error_nav_idx = len(self.scene_error_df_indices) - 1
+        
+        self.scene_error_indicator_button.setVisible(has_errors)
         if has_errors:
             self.scene_error_indicator_button.setText("⚠️ ESCENAS")
             self.scene_error_indicator_button.setProperty("hasErrors", True)
-            tooltip_text = "Errores de escena detectados. Pulse para ir al siguiente.\nFilas con errores: " + ", ".join(error_rows_interventions_str)
-            self.scene_error_indicator_button.setToolTip(tooltip_text)
-            self.scene_error_indicator_button.setVisible(True)
-            self.scene_error_indicator_button.setEnabled(True)
-        else:
-            self.scene_error_indicator_button.setText("")
-            self.scene_error_indicator_button.setProperty("hasErrors", False)
-            self.scene_error_indicator_button.setToolTip("")
-            self.scene_error_indicator_button.setVisible(False)
-            self.scene_error_indicator_button.setEnabled(False)
-            self._current_scene_error_nav_idx = -1
-        if self.scene_error_indicator_button.style() is not None:
+            self.scene_error_indicator_button.setToolTip(f"Errores de escena detectados. Pulse para ir al siguiente.\nFilas: {', '.join(map(str, [i+1 for i in self.scene_error_df_indices]))}")
+            
+        if self.scene_error_indicator_button.style():
             self.scene_error_indicator_button.style().unpolish(self.scene_error_indicator_button)
             self.scene_error_indicator_button.style().polish(self.scene_error_indicator_button)
 
     def update_bookmark_indicator(self):
-        if not hasattr(self, 'bookmark_indicator_button') or self.bookmark_indicator_button is None:
-            return
+        if not hasattr(self, 'bookmark_indicator_button') or self.bookmark_indicator_button is None: return
 
         df = self.pandas_model.dataframe()
         if df.empty or 'BOOKMARK' not in df.columns:
             self.bookmark_indicator_button.setVisible(False)
             return
 
-        bookmarked_rows = df[df['BOOKMARK'] == True]
-        num_bookmarks = len(bookmarked_rows)
+        self.bookmark_df_indices = df.index[df['BOOKMARK']].tolist()
+        num_bookmarks = len(self.bookmark_df_indices)
 
-        old_bookmark_count = len(self.bookmark_df_indices)
-        self.bookmark_df_indices = bookmarked_rows.index.tolist()
-
-        if num_bookmarks != old_bookmark_count:
-            self._current_bookmark_nav_idx = -1
-        elif self.bookmark_df_indices and self._current_bookmark_nav_idx >= num_bookmarks:
-            self._current_bookmark_nav_idx = num_bookmarks - 1
-
+        self.bookmark_indicator_button.setVisible(num_bookmarks > 0)
         if num_bookmarks > 0:
             self.bookmark_indicator_button.setText(f"🔖 {num_bookmarks}")
             self.bookmark_indicator_button.setToolTip(f"{num_bookmarks} marcapáginas. Pulse para ir al siguiente.")
-            self.bookmark_indicator_button.setVisible(True)
-            self.bookmark_indicator_button.setEnabled(True)
-        else:
-            self.bookmark_indicator_button.setText("")
-            self.bookmark_indicator_button.setToolTip("")
-            self.bookmark_indicator_button.setVisible(False)
-            self.bookmark_indicator_button.setEnabled(False)
-            self._current_bookmark_nav_idx = -1
-
-        if self.bookmark_indicator_button.style() is not None:
-            self.bookmark_indicator_button.style().unpolish(self.bookmark_indicator_button)
-            self.bookmark_indicator_button.style().polish(self.bookmark_indicator_button)
+        
+        if not self.bookmark_df_indices: self._current_bookmark_nav_idx = -1
 
     def go_to_next_bookmark(self):
-        if not self.bookmark_df_indices:
-            self._current_bookmark_nav_idx = -1
-            return
-
-        self._current_bookmark_nav_idx += 1
-        if self._current_bookmark_nav_idx >= len(self.bookmark_df_indices):
-            self._current_bookmark_nav_idx = 0
-
-        if 0 <= self._current_bookmark_nav_idx < len(self.bookmark_df_indices):
-            target_df_idx = self.bookmark_df_indices[self._current_bookmark_nav_idx]
-            if 0 <= target_df_idx < self.pandas_model.rowCount():
-                self.table_view.clearSelection()
-                self.table_view.selectRow(target_df_idx)
-                model_idx_to_scroll = self.pandas_model.index(target_df_idx, 0)
-                if model_idx_to_scroll.isValid():
-                    self.table_view.scrollTo(model_idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
-                self.table_view.setFocus()
+        if not self.bookmark_df_indices: return
+        self._current_bookmark_nav_idx = (self._current_bookmark_nav_idx + 1) % len(self.bookmark_df_indices)
+        target_df_idx = self.bookmark_df_indices[self._current_bookmark_nav_idx]
+        self.table_view.clearSelection()
+        self.table_view.selectRow(target_df_idx)
+        self.table_view.scrollTo(self.pandas_model.index(target_df_idx, 0), QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.table_view.setFocus()
 
     def go_to_next_time_error(self):
-        if not self.error_df_indices:
-            self._current_error_nav_idx = -1
-            return
-        self._current_error_nav_idx += 1
-        if self._current_error_nav_idx >= len(self.error_df_indices):
-            self._current_error_nav_idx = 0
-        if 0 <= self._current_error_nav_idx < len(self.error_df_indices):
-            target_df_idx = self.error_df_indices[self._current_error_nav_idx]
-            if 0 <= target_df_idx < self.pandas_model.rowCount():
-                self.table_view.clearSelection()
-                self.table_view.selectRow(target_df_idx)
-                col_to_focus = self.COL_IN_VIEW
-                model_idx_to_scroll = self.pandas_model.index(target_df_idx, col_to_focus)
-                if model_idx_to_scroll.isValid():
-                    self.table_view.scrollTo(model_idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
-                self.table_view.setFocus()
+        if not self.error_df_indices: return
+        self._current_error_nav_idx = (self._current_error_nav_idx + 1) % len(self.error_df_indices)
+        target_df_idx = self.error_df_indices[self._current_error_nav_idx]
+        self.table_view.clearSelection()
+        self.table_view.selectRow(target_df_idx)
+        self.table_view.scrollTo(self.pandas_model.index(target_df_idx, self.COL_IN_VIEW), QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.table_view.setFocus()
 
     def go_to_next_scene_error(self):
-        if not self.scene_error_df_indices:
-            self._current_scene_error_nav_idx = -1
-            return
-        self._current_scene_error_nav_idx += 1
-        if self._current_scene_error_nav_idx >= len(self.scene_error_df_indices):
-            self._current_scene_error_nav_idx = 0
-        if 0 <= self._current_scene_error_nav_idx < len(self.scene_error_df_indices):
-            target_df_idx = self.scene_error_df_indices[self._current_scene_error_nav_idx]
-            if 0 <= target_df_idx < self.pandas_model.rowCount():
-                self.table_view.clearSelection()
-                self.table_view.selectRow(target_df_idx)
-                col_to_focus = self.COL_SCENE_VIEW
-                model_idx_to_scroll = self.pandas_model.index(target_df_idx, col_to_focus)
-                if model_idx_to_scroll.isValid():
-                    self.table_view.scrollTo(model_idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
-                self.table_view.setFocus()
+        if not self.scene_error_df_indices: return
+        self._current_scene_error_nav_idx = (self._current_scene_error_nav_idx + 1) % len(self.scene_error_df_indices)
+        target_df_idx = self.scene_error_df_indices[self._current_scene_error_nav_idx]
+        self.table_view.clearSelection()
+        self.table_view.selectRow(target_df_idx)
+        self.table_view.scrollTo(self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW), QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.table_view.setFocus()
 
     def setup_table_view(self, layout: QVBoxLayout) -> None:
         self.table_view = CustomTableView()
@@ -570,15 +474,20 @@ class TableWindow(QWidget):
         self.table_view.setColumnWidth(self.COL_NUM_INTERV_VIEW, 40)
         self.table_view.setColumnHidden(self.COL_ID_VIEW, True)
         self.table_view.selectionModel().selectionChanged.connect(self.update_action_buttons_state)
-        time_delegate = TimeCodeDelegate(self.table_view, table_window_instance=self)
+        
+        # -> FIX: La llamada ahora usa argumentos con nombre para ser más explícita y segura.
+        time_delegate = TimeCodeDelegate(parent=self.table_view, table_window_instance=self)
         self.table_view.setItemDelegateForColumn(self.COL_IN_VIEW, time_delegate)
         self.table_view.setItemDelegateForColumn(self.COL_OUT_VIEW, time_delegate)
-        char_delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view, table_window_instance=self)
+        
+        char_delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view)
         self.table_view.setItemDelegateForColumn(self.COL_CHARACTER_VIEW, char_delegate)
+        
         self.dialog_delegate = DialogDelegate(parent=self.table_view, font_size=self.current_font_size, table_window_instance=self)
         self.table_view.setItemDelegateForColumn(self.COL_DIALOGUE_VIEW, self.dialog_delegate)
         self.table_view.setItemDelegateForColumn(self.COL_EUSKERA_VIEW, self.dialog_delegate)
         self.table_view.setItemDelegateForColumn(self.COL_OHARRAK_VIEW, self.dialog_delegate)
+        
         self.table_view.cellCtrlClicked.connect(self.handle_ctrl_click_on_cell)
         self.table_view.cellAltClicked.connect(self.handle_alt_click_on_cell)
         self.pandas_model.dataChanged.connect(self.on_model_data_changed)
@@ -593,8 +502,7 @@ class TableWindow(QWidget):
         menu = QMenu(self)
         header = self.table_view.horizontalHeader()
         for view_col_idx, col_view_name in enumerate(self.VIEW_COLUMN_NAMES):
-            if view_col_idx == self.COL_ID_VIEW:
-                continue
+            if view_col_idx == self.COL_ID_VIEW: continue
             action = QAction(col_view_name, self, checkable=True)
             action.setChecked(not self.table_view.isColumnHidden(view_col_idx))
             action.setData(view_col_idx)
@@ -604,10 +512,8 @@ class TableWindow(QWidget):
 
     def toggle_column_visibility(self, checked: bool) -> None:
         action = self.sender()
-        if isinstance(action, QAction):
-            view_col_idx = action.data()
-            if isinstance(view_col_idx, int):
-                self.table_view.setColumnHidden(view_col_idx, not checked)
+        if isinstance(action, QAction) and isinstance(action.data(), int):
+            self.table_view.setColumnHidden(action.data(), not checked)
 
     def handle_column_resized(self, logical_index: int, old_size: int, new_size: int):
         if logical_index in [self.COL_DIALOGUE_VIEW, self.COL_EUSKERA_VIEW, self.COL_OHARRAK_VIEW]:
@@ -615,16 +521,10 @@ class TableWindow(QWidget):
 
     def load_stylesheet(self) -> None:
         try:
-            current_file_dir = os.path.dirname(os.path.abspath(__file__))
-            css_path = os.path.join(current_file_dir, '..', 'styles', 'table_styles.css')
-            if not os.path.exists(css_path):
-                alt_css_path = os.path.join(os.path.dirname(current_file_dir), 'styles', 'table_styles.css')
-                if os.path.exists(alt_css_path):
-                    css_path = alt_css_path
-                else:
-                    return
-            with open(css_path, 'r', encoding='utf-8') as f:
-                self.table_view.setStyleSheet(f.read())
+            css_path = os.path.join(os.path.dirname(__file__), '..', 'styles', 'table_styles.css')
+            if os.path.exists(css_path):
+                with open(css_path, 'r', encoding='utf-8') as f:
+                    self.table_view.setStyleSheet(f.read())
         except Exception as e:
             QMessageBox.warning(self, "Error de Estilos", f"Error al cargar CSS para TableView: {str(e)}")
 
@@ -632,51 +532,39 @@ class TableWindow(QWidget):
         pass
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if not self.main_window or not hasattr(self.main_window, 'mark_out_hold_key_sequence'):
-            super().keyPressEvent(event)
-            return
-        current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
-        key_match = False
-        if not current_mark_out_shortcut.isEmpty():
-            if event.keyCombination() == current_mark_out_shortcut[0]:
-                key_match = True
-        if key_match and not event.isAutoRepeat() and not self.f6_key_pressed_internally:
-            self.f6_key_pressed_internally = True
-            if self.video_player_widget and hasattr(self.video_player_widget, 'handle_out_button_pressed'):
-                self.video_player_widget.handle_out_button_pressed()
-            event.accept()
-            return
+        if self.main_window and hasattr(self.main_window, 'mark_out_hold_key_sequence'):
+            current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
+            if not current_mark_out_shortcut.isEmpty() and event.keyCombination() == current_mark_out_shortcut[0]:
+                if not event.isAutoRepeat() and not self.f6_key_pressed_internally:
+                    self.f6_key_pressed_internally = True
+                    if self.video_player_widget:
+                        self.video_player_widget.handle_out_button_pressed()
+                    event.accept()
+                    return
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
-        if not self.main_window or not hasattr(self.main_window, 'mark_out_hold_key_sequence') or not self.video_player_widget:
-            super().keyReleaseEvent(event)
-            return
-        current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
-        key_match = False
-        if not current_mark_out_shortcut.isEmpty():
-            if event.keyCombination() == current_mark_out_shortcut[0]:
-                key_match = True
-        if key_match and not event.isAutoRepeat() and self.f6_key_pressed_internally:
-            self.f6_key_pressed_internally = False
-            if hasattr(self.video_player_widget, 'handle_out_button_released'):
-                self.video_player_widget.handle_out_button_released()
-            event.accept()
-            return
+        if self.main_window and hasattr(self.main_window, 'mark_out_hold_key_sequence'):
+            current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
+            if not current_mark_out_shortcut.isEmpty() and event.keyCombination() == current_mark_out_shortcut[0]:
+                if not event.isAutoRepeat() and self.f6_key_pressed_internally:
+                    self.f6_key_pressed_internally = False
+                    if self.video_player_widget:
+                        self.video_player_widget.handle_out_button_released()
+                    event.accept()
+                    return
         super().keyReleaseEvent(event)
 
     def _populate_header_ui(self, header_data: Dict[str, Any]):
         widgets_to_block = [self.reference_edit, self.product_edit, self.chapter_edit, self.type_combo]
-        for widget in widgets_to_block:
-            widget.blockSignals(True)
+        for widget in widgets_to_block: widget.blockSignals(True)
         self.reference_edit.setText(str(header_data.get("reference_number", "")))
         self.product_edit.setText(str(header_data.get("product_name", "")))
         self.chapter_edit.setText(str(header_data.get("chapter_number", "")))
         tipo = str(header_data.get("type", "Ficcion"))
         idx = self.type_combo.findText(tipo, Qt.MatchFlag.MatchFixedString | Qt.MatchFlag.MatchCaseSensitive)
         self.type_combo.setCurrentIndex(idx if idx != -1 else 0)
-        for widget in widgets_to_block:
-            widget.blockSignals(False)
+        for widget in widgets_to_block: widget.blockSignals(False)
         self._current_header_data_for_undo = self._get_header_data_from_ui()
 
     def _get_header_data_from_ui(self) -> Dict[str, Any]:
@@ -693,8 +581,8 @@ class TableWindow(QWidget):
         self.current_script_path = file_path
         if self.main_window and hasattr(self.main_window, 'add_to_recent_files'):
             self.main_window.add_to_recent_files(file_path)
-        status_bar = self.main_window.statusBar() if self.main_window else None
-        if status_bar: status_bar.showMessage(f"Guion '{self.current_script_name}' cargado.", 5000)
+        if self.main_window and self.main_window.statusBar():
+            self.main_window.statusBar().showMessage(f"Guion '{self.current_script_name}' cargado.", 5000)
         self.update_window_title()
         self.adjust_all_row_heights_and_validate()
         self._update_toggle_header_button_text_and_icon()
@@ -708,33 +596,17 @@ class TableWindow(QWidget):
         file_name, _ = QFileDialog.getOpenFileName(self, "Abrir Guion DOCX", "", "Documentos Word (*.docx)")
         if file_name: self.load_from_docx_path(file_name)
         
-    # -> INICIO: NUEVO MÉTODO
     def open_shift_timecodes_dialog(self):
-        """
-        Abre el diálogo para desplazar los timecodes y ejecuta el comando si se acepta.
-        """
         if self.pandas_model.dataframe().empty:
             QMessageBox.information(self, "Desplazar Timecodes", "No hay datos en el guion para desplazar.")
             return
-
-        # El FPS por defecto podría obtenerse de alguna configuración en el futuro.
-        # Por ahora, 25 es un valor seguro.
         dialog = ShiftTimecodeDialog(default_fps=25, get_icon_func=self.get_icon, parent=self)
-
         if dialog.exec():
             values = dialog.get_values()
-            if values:
-                fps, offset_frames, sign = values
-
-                # No procesar si el offset es cero
-                if offset_frames == 0:
-                    QMessageBox.information(self, "Información", "El desplazamiento es cero, no se realizaron cambios.")
-                    return
-
-                command = ShiftTimecodesCommand(self, fps, offset_frames, sign)
+            if values and values[1] > 0:
+                command = ShiftTimecodesCommand(self, *values)
                 self.undo_stack.push(command)
                 QMessageBox.information(self, "Éxito", "Los timecodes han sido desplazados.")
-    # -> FIN: NUEVO MÉTODO
 
     def load_from_docx_path(self, file_path: str):
         try:
@@ -759,10 +631,7 @@ class TableWindow(QWidget):
                     mapped_df = pd.DataFrame()
                     for app_col, excel_col in mapping.items():
                         if excel_col != "--- NO ASIGNAR / USAR VALOR POR DEFECTO ---":
-                            if excel_col in raw_df.columns:
-                                mapped_df[app_col] = raw_df[excel_col]
-                            else:
-                                mapped_df[app_col] = ""
+                            mapped_df[app_col] = raw_df.get(excel_col, "")
                     final_df = mapped_df
                 else:
                     return
@@ -811,7 +680,6 @@ class TableWindow(QWidget):
                 return True
             except Exception as e:
                 self.handle_exception(e, "Error al guardar en Excel")
-                return False
         return False
 
     def save_to_json_dialog(self) -> bool:
@@ -831,57 +699,32 @@ class TableWindow(QWidget):
                 return True
             except Exception as e:
                 self.handle_exception(e, "Error al guardar como JSON")
-                return False
         return False
 
     def update_action_buttons_state(self):
-        selected_model_indices = self.table_view.selectionModel().selectedRows()
-        num_selected = len(selected_model_indices)
+        selected_rows = self.table_view.selectionModel().selectedRows()
+        num_selected = len(selected_rows)
         is_main_window_available = self.main_window and hasattr(self.main_window, 'actions')
+        
         can_select_multiple = num_selected > 0
-
-        if is_main_window_available and "edit_delete_row" in self.main_window.actions:
-            self.main_window.actions["edit_delete_row"].setEnabled(can_select_multiple)
-        if "edit_delete_row" in self.action_buttons:
-            self.action_buttons["edit_delete_row"].setEnabled(can_select_multiple)
-
-        if is_main_window_available and "edit_toggle_bookmark" in self.main_window.actions:
-            self.main_window.actions["edit_toggle_bookmark"].setEnabled(can_select_multiple)
-        if "edit_toggle_bookmark" in self.action_buttons:
-            self.action_buttons["edit_toggle_bookmark"].setEnabled(can_select_multiple)
-
         can_move = num_selected == 1
-        if is_main_window_available:
-            if "edit_move_up" in self.main_window.actions:
-                df_idx = selected_model_indices[0].row() if can_move else -1
-                self.main_window.actions["edit_move_up"].setEnabled(can_move and df_idx > 0)
-            if "edit_move_down" in self.main_window.actions:
-                df_idx = selected_model_indices[0].row() if can_move else -1
-                self.main_window.actions["edit_move_down"].setEnabled(can_move and df_idx < self.pandas_model.rowCount() - 1)
-        if "edit_move_up" in self.action_buttons:
-            df_idx = selected_model_indices[0].row() if can_move else -1
-            self.action_buttons["edit_move_up"].setEnabled(can_move and df_idx > 0)
-        if "edit_move_down" in self.action_buttons:
-            df_idx = selected_model_indices[0].row() if can_move else -1
-            self.action_buttons["edit_move_down"].setEnabled(can_move and df_idx < self.pandas_model.rowCount() - 1)
-        can_split = num_selected == 1
-        if is_main_window_available and "edit_split_intervention" in self.main_window.actions:
-            self.main_window.actions["edit_split_intervention"].setEnabled(can_split)
-        if "edit_split_intervention" in self.action_buttons:
-            self.action_buttons["edit_split_intervention"].setEnabled(can_split)
-        can_merge_check = num_selected >= 1
-        if is_main_window_available and "edit_merge_interventions" in self.main_window.actions:
-            self.main_window.actions["edit_merge_interventions"].setEnabled(can_merge_check)
-        if "edit_merge_interventions" in self.action_buttons:
-            self.action_buttons["edit_merge_interventions"].setEnabled(can_merge_check)
-        can_copy_in_out = (num_selected == 1 and selected_model_indices[0].row() < self.pandas_model.rowCount() - 1)
-        if is_main_window_available and "edit_copy_in_out" in self.main_window.actions:
-            self.main_window.actions["edit_copy_in_out"].setEnabled(can_copy_in_out)
-        if "edit_copy_in_out" in self.action_buttons:
-            self.action_buttons["edit_copy_in_out"].setEnabled(can_copy_in_out)
-        can_change_scene = num_selected == 1
-        if is_main_window_available and "edit_increment_scene" in self.main_window.actions:
-            self.main_window.actions["edit_increment_scene"].setEnabled(can_change_scene)
+        df_idx = selected_rows[0].row() if can_move else -1
+        can_move_up = can_move and df_idx > 0
+        can_move_down = can_move and df_idx < self.pandas_model.rowCount() - 1
+        can_copy_in_out = can_move and df_idx < self.pandas_model.rowCount() - 1
+
+        actions_state = {
+            "edit_delete_row": can_select_multiple, "edit_toggle_bookmark": can_select_multiple,
+            "edit_move_up": can_move_up, "edit_move_down": can_move_down,
+            "edit_split_intervention": can_move, "edit_merge_interventions": num_selected >= 1,
+            "edit_copy_in_out": can_copy_in_out, "edit_increment_scene": can_move,
+        }
+
+        for name, is_enabled in actions_state.items():
+            if is_main_window_available and name in self.main_window.actions:
+                self.main_window.actions[name].setEnabled(is_enabled)
+            if name in self.action_buttons:
+                self.action_buttons[name].setEnabled(is_enabled)
 
     def clear_script_state(self):
         self.pandas_model.set_dataframe(pd.DataFrame(columns=self.DF_COLUMN_ORDER))
@@ -918,81 +761,62 @@ class TableWindow(QWidget):
         if not top_left_index.isValid(): return
         self.set_unsaved_changes(True)
         for row in range(top_left_index.row(), bottom_right_index.row() + 1):
-            view_col_idx = top_left_index.column()
-            df_col_name = self.pandas_model.get_df_column_name(view_col_idx)
+            df_col_name = self.pandas_model.get_df_column_name(top_left_index.column())
             if df_col_name in ['DIÁLOGO', 'EUSKERA', 'OHARRAK']:
                 self.request_resize_rows_to_contents_deferred()
             elif df_col_name == 'PERSONAJE':
+                # -> FIX: Esta llamada es la que estaba causando el error. Ahora funcionará.
                 self.update_character_completer_and_notify()
         if top_left_index.column() <= self.COL_OUT_VIEW and bottom_right_index.column() >= self.COL_IN_VIEW:
             self._recache_times()
 
     def update_character_completer_and_notify(self):
-        delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view, table_window_instance=self)
+        # -> FIX: Eliminado el argumento 'table_window_instance=self' que causaba el TypeError.
+        delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view)
         self.table_view.setItemDelegateForColumn(self.COL_CHARACTER_VIEW, delegate)
         self.character_name_changed.emit()
 
     def copy_selected_time(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: return
-        current_index = selected_indexes[0]
-        view_col_idx = current_index.column()
-        if view_col_idx == self.COL_IN_VIEW or view_col_idx == self.COL_OUT_VIEW:
-            self.clipboard_text = str(self.pandas_model.data(current_index, Qt.ItemDataRole.EditRole))
+        idx = self.table_view.currentIndex()
+        if idx.isValid() and idx.column() in [self.COL_IN_VIEW, self.COL_OUT_VIEW]:
+            self.clipboard_text = str(self.pandas_model.data(idx, Qt.ItemDataRole.EditRole))
 
     def paste_time(self) -> None:
-        if not self.clipboard_text: return
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: return
-        current_index = selected_indexes[0]
-        df_idx, view_col_idx = current_index.row(), current_index.column()
-        if view_col_idx == self.COL_IN_VIEW or view_col_idx == self.COL_OUT_VIEW:
-            old_value = str(self.pandas_model.data(current_index, Qt.ItemDataRole.EditRole))
+        idx = self.table_view.currentIndex()
+        if self.clipboard_text and idx.isValid() and idx.column() in [self.COL_IN_VIEW, self.COL_OUT_VIEW]:
+            old_value = str(self.pandas_model.data(idx, Qt.ItemDataRole.EditRole))
             if old_value != self.clipboard_text:
-                command = EditCommand(self, df_idx, view_col_idx, old_value, self.clipboard_text)
+                command = EditCommand(self, idx.row(), idx.column(), old_value, self.clipboard_text)
                 self.undo_stack.push(command)
 
     def adjust_dialogs(self, max_chars: int) -> None:
-        if self.pandas_model.dataframe().empty:
-            return
+        if self.pandas_model.dataframe().empty: return
         self.undo_stack.beginMacro("Ajustar Diálogos (DIÁLOGO y EUSKERA)")
-        changed_any = False
-        view_col_dialogue = self.pandas_model.get_view_column_index('DIÁLOGO')
-        view_col_euskera = self.pandas_model.get_view_column_index('EUSKERA')
-        for df_idx in range(self.pandas_model.rowCount()):
-            if view_col_dialogue is not None:
-                dialog_text_original = str(self.pandas_model.dataframe().at[df_idx, 'DIÁLOGO'])
-                adjusted_dialog_text = ajustar_dialogo(dialog_text_original, max_chars)
-                if dialog_text_original != adjusted_dialog_text:
-                    command_dialog = EditCommand(self, df_idx, view_col_dialogue, dialog_text_original, adjusted_dialog_text)
-                    self.undo_stack.push(command_dialog)
-                    changed_any = True
-            if view_col_euskera is not None:
-                euskera_text_original = str(self.pandas_model.dataframe().at[df_idx, 'EUSKERA'])
-                adjusted_euskera_text = ajustar_dialogo(euskera_text_original, max_chars)
-                if euskera_text_original != adjusted_euskera_text:
-                    command_euskera = EditCommand(self, df_idx, view_col_euskera, euskera_text_original, adjusted_euskera_text)
-                    self.undo_stack.push(command_euskera)
-                    changed_any = True
+        for col_name in ['DIÁLOGO', 'EUSKERA']:
+            view_col_idx = self.pandas_model.get_view_column_index(col_name)
+            if view_col_idx is not None:
+                for df_idx in range(self.pandas_model.rowCount()):
+                    original_text = str(self.pandas_model.dataframe().at[df_idx, col_name])
+                    adjusted_text = ajustar_dialogo(original_text, max_chars)
+                    if original_text != adjusted_text:
+                        self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, adjusted_text))
         self.undo_stack.endMacro()
-        if changed_any:
+        if not self.undo_stack.isClean() and self.undo_stack.command(self.undo_stack.count() - 1).text().startswith("Ajustar"):
             QMessageBox.information(self, "Éxito", "Diálogos y textos en Euskera ajustados.")
         else:
-            QMessageBox.information(self, "Info", "No hubo diálogos ni textos en Euskera que necesitaran ajuste.")
+            QMessageBox.information(self, "Info", "No se encontraron textos que necesitaran ajuste.")
 
     def copy_in_out_to_next(self) -> None:
-        selected_model_indices = self.table_view.selectionModel().selectedRows()
-        if not selected_model_indices or len(selected_model_indices) != 1:
-            QMessageBox.warning(self, "Copiar Tiempos", "Por favor, seleccione exactamente una fila.")
-            return
-        df_idx_selected = selected_model_indices[0].row()
-        if df_idx_selected >= self.pandas_model.rowCount() - 1:
-            QMessageBox.warning(self, "Copiar Tiempos", "No se puede copiar a la siguiente fila desde la última fila.")
-            return
+        selected_rows = self.table_view.selectionModel().selectedRows()
+        if not selected_rows or len(selected_rows) != 1: return
+        df_idx_selected = selected_rows[0].row()
+        if df_idx_selected >= self.pandas_model.rowCount() - 1: return
+        
         current_df = self.pandas_model.dataframe()
         in_time = str(current_df.at[df_idx_selected, 'IN'])
         out_time = str(current_df.at[df_idx_selected, 'OUT'])
         df_idx_next = df_idx_selected + 1
+        
         self.undo_stack.beginMacro("Copiar IN/OUT a Siguiente")
         old_in_next = str(current_df.at[df_idx_next, 'IN'])
         if in_time != old_in_next:
@@ -1003,58 +827,39 @@ class TableWindow(QWidget):
         self.undo_stack.endMacro()
 
     def add_new_row(self) -> None:
-        selected_model_indices = self.table_view.selectionModel().selectedRows()
-        current_view_row = selected_model_indices[0].row() if selected_model_indices else self.pandas_model.rowCount() -1
-        if current_view_row == -1 and self.pandas_model.rowCount() == 0:
-            df_insert_idx = 0
-        elif current_view_row != -1:
-            df_insert_idx = current_view_row + 1
-        else:
-            df_insert_idx = self.pandas_model.rowCount()
-        command = AddRowCommand(self, df_insert_idx, df_insert_idx)
+        selected_rows = self.table_view.selectionModel().selectedRows()
+        insert_at_view_row = selected_rows[0].row() + 1 if selected_rows else self.pandas_model.rowCount()
+        insert_at_df_row = insert_at_view_row
+        command = AddRowCommand(self, insert_at_view_row, insert_at_df_row)
         self.undo_stack.push(command)
 
     def remove_row(self) -> None:
-        selected_model_indices = self.table_view.selectionModel().selectedRows()
-        if not selected_model_indices:
-            QMessageBox.warning(self, "Eliminar Fila", "Por favor, seleccione una o más filas para eliminar.")
-            return
-        df_indices_to_remove = sorted([index.row() for index in selected_model_indices])
-        num_filas_a_eliminar = len(df_indices_to_remove)
-        confirm_msg = f"¿Está seguro de que desea eliminar {num_filas_a_eliminar} fila(s)?" \
-            if num_filas_a_eliminar > 1 else "¿Está seguro de que desea eliminar la fila seleccionada?"
-        confirm = QMessageBox.question(self, "Confirmar Eliminación", confirm_msg,
-                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                    QMessageBox.StandardButton.Yes)
-        if confirm == QMessageBox.StandardButton.Yes:
+        selected_rows = self.table_view.selectionModel().selectedRows()
+        if not selected_rows: return
+        
+        df_indices_to_remove = sorted([index.row() for index in selected_rows])
+        reply = QMessageBox.question(self, "Confirmar Eliminación", f"¿Eliminar {len(df_indices_to_remove)} fila(s)?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
+        if reply == QMessageBox.StandardButton.Yes:
             command = RemoveRowsCommand(self, df_indices_to_remove)
             self.undo_stack.push(command)
 
     def toggle_bookmark(self) -> None:
-        selected_model_indices = self.table_view.selectionModel().selectedRows()
-        if not selected_model_indices:
-            QMessageBox.warning(self, "Marcapáginas", "Por favor, seleccione una o más filas.")
-            return
-
-        df_indices_to_toggle = sorted([index.row() for index in selected_model_indices])
+        selected_rows = self.table_view.selectionModel().selectedRows()
+        if not selected_rows: return
+        df_indices_to_toggle = sorted([index.row() for index in selected_rows])
         command = ToggleBookmarkCommand(self, df_indices_to_toggle)
         self.undo_stack.push(command)
 
     def move_row_up(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: return
-        df_source_idx = selected_indexes[0].row()
-        if df_source_idx > 0:
-            command = MoveRowCommand(self, df_source_idx, df_source_idx - 1)
-            self.undo_stack.push(command)
+        idx = self.table_view.currentIndex()
+        if idx.isValid() and idx.row() > 0:
+            self.undo_stack.push(MoveRowCommand(self, idx.row(), idx.row() - 1))
 
     def move_row_down(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: return
-        df_source_idx = selected_indexes[0].row()
-        if df_source_idx < self.pandas_model.rowCount() - 1:
-            command = MoveRowCommand(self, df_source_idx, df_source_idx + 1)
-            self.undo_stack.push(command)
+        idx = self.table_view.currentIndex()
+        if idx.isValid() and idx.row() < self.pandas_model.rowCount() - 1:
+            self.undo_stack.push(MoveRowCommand(self, idx.row(), idx.row() + 1))
 
     def handle_dialog_editor_state_on_focus_out(self, text: str, cursor_pos: int, index_edited: QModelIndex):
         self.last_focused_dialog_text = text
@@ -1062,349 +867,215 @@ class TableWindow(QWidget):
         self.last_focused_dialog_index = index_edited
 
     def split_intervention(self) -> None:
-        current_model_index = self.table_view.currentIndex()
-        if not current_model_index.isValid():
-            QMessageBox.warning(self, "Separar", "Seleccione una celda en la columna 'DIÁLOGO' o 'EUSKERA' para separar.")
+        current_idx = self.table_view.currentIndex()
+        if not current_idx.isValid():
+            QMessageBox.warning(self, "Separar", "Seleccione una celda de diálogo o euskera.")
             return
-        current_row_index = current_model_index.row()
-        current_view_col_idx = current_model_index.column()
-        df_column_name_to_split = self.pandas_model.get_df_column_name(current_view_col_idx)
-        if df_column_name_to_split not in ['DIÁLOGO', 'EUSKERA']:
-            QMessageBox.warning(self, "Separar", "Por favor, seleccione una celda en la columna 'DIÁLOGO' o 'EUSKERA'.")
+            
+        df_col_name = self.pandas_model.get_df_column_name(current_idx.column())
+        if df_col_name not in ['DIÁLOGO', 'EUSKERA']:
+            QMessageBox.warning(self, "Separar", "Por favor, seleccione una celda en 'DIÁLOGO' o 'EUSKERA'.")
             return
-        cell_to_split_qmodelindex = self.pandas_model.index(current_row_index, current_view_col_idx)
-        cursor_pos = -1
-        text_that_was_split = None
-        if self.last_focused_dialog_index and \
-           self.last_focused_dialog_index.row() == cell_to_split_qmodelindex.row() and \
-           self.last_focused_dialog_index.column() == cell_to_split_qmodelindex.column() and \
-           self.last_focused_dialog_cursor_pos != -1:
-            cursor_pos = self.last_focused_dialog_cursor_pos
-            text_that_was_split = self.last_focused_dialog_text
-        else:
-            QMessageBox.information(self, "Separar Intervención",
-                                    f"Por favor, edite la celda '{df_column_name_to_split}' (fila {current_row_index + 1}) "
-                                    "y coloque el cursor en el punto de división deseado.\n\n"
-                                    "Luego, asegúrese de que la celda pierda el foco (ej. haciendo clic fuera o presionando Enter) "
-                                    "antes de intentar 'Separar'.")
-            self.last_focused_dialog_index = None
-            self.last_focused_dialog_cursor_pos = -1
+            
+        if not self.last_focused_dialog_index or self.last_focused_dialog_index != current_idx:
+            QMessageBox.information(self, "Separar", f"Edite la celda y coloque el cursor en el punto de división. Luego, haga clic fuera para que la celda pierda el foco antes de separar.")
             return
+            
+        text_to_split = self.last_focused_dialog_text or ""
+        cursor_pos = self.last_focused_dialog_cursor_pos
         self.last_focused_dialog_index = None
-        self.last_focused_dialog_cursor_pos = -1
-        if text_that_was_split is None:
-            QMessageBox.warning(self, "Error Interno", f"No se pudo obtener el texto de la celda '{df_column_name_to_split}' para dividir.")
+
+        if not (0 <= cursor_pos <= len(text_to_split)):
+            QMessageBox.warning(self, "Separar", "La posición del cursor es inválida.")
             return
-        if not text_that_was_split.strip():
-            QMessageBox.information(self, "Separar", f"No hay texto significativo en la celda '{df_column_name_to_split}' para dividir.")
-            return
-        if not (0 <= cursor_pos <= len(text_that_was_split)):
-            QMessageBox.information(self, "Separar",
-                                    f"Posición de cursor inválida ({cursor_pos}) para el texto actual. "
-                                    f"Debe estar entre 0 y {len(text_that_was_split)}.")
-            return
-        before_text = text_that_was_split[:cursor_pos].strip()
-        after_text = text_that_was_split[cursor_pos:].strip()
+
+        before_text, after_text = text_to_split[:cursor_pos].strip(), text_to_split[cursor_pos:].strip()
         if not after_text:
-            QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después de la posición del cursor.")
+            QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después del cursor.")
             return
-        command = SplitInterventionCommand(self, current_row_index,
-                                           before_text, after_text,
-                                           text_that_was_split, df_column_name_to_split)
+
+        command = SplitInterventionCommand(self, current_idx.row(), before_text, after_text, text_to_split, df_col_name)
         self.undo_stack.push(command)
 
     def merge_interventions(self) -> None:
-        selected_model_indices = self.table_view.selectionModel().selectedRows()
-        if not selected_model_indices:
-            QMessageBox.warning(self, "Juntar", "Por favor, seleccione la primera de las dos filas a juntar.")
-            return
-        df_idx_curr = selected_model_indices[0].row()
+        selected_rows = self.table_view.selectionModel().selectedRows()
+        if not selected_rows: return
+        
+        df_idx_curr = selected_rows[0].row()
         df_idx_next = df_idx_curr + 1
         if df_idx_next >= self.pandas_model.rowCount():
-            QMessageBox.warning(self, "Juntar", "No se puede juntar la última fila con una inexistente o no hay fila siguiente a la primera seleccionada.")
+            QMessageBox.warning(self, "Juntar", "No se puede juntar la última fila.")
             return
-        current_df = self.pandas_model.dataframe()
-        char_curr = str(current_df.at[df_idx_curr, 'PERSONAJE'])
-        char_next = str(current_df.at[df_idx_next, 'PERSONAJE'])
-        if char_curr != char_next:
+            
+        df = self.pandas_model.dataframe()
+        if str(df.at[df_idx_curr, 'PERSONAJE']) != str(df.at[df_idx_next, 'PERSONAJE']):
             QMessageBox.warning(self, "Juntar", "Solo se pueden juntar intervenciones del mismo personaje.")
             return
-        dialog_curr = str(current_df.at[df_idx_curr, 'DIÁLOGO'])
-        dialog_next = str(current_df.at[df_idx_next, 'DIÁLOGO'])
-        merged_dialog = f"{dialog_curr.strip()} {dialog_next.strip()}".strip()
-        euskera_curr = str(current_df.at[df_idx_curr, 'EUSKERA'])
-        euskera_next = str(current_df.at[df_idx_next, 'EUSKERA'])
-        merged_euskera = f"{euskera_curr.strip()} {euskera_next.strip()}".strip()
-        original_out_first = str(current_df.at[df_idx_curr, 'OUT'])
-        command = MergeInterventionsCommand(
-            self,
-            df_idx_curr,
-            merged_dialog,
-            merged_euskera,
-            df_idx_next,
-            original_out_first
-        )
+            
+        merged_dialog = f"{str(df.at[df_idx_curr, 'DIÁLOGO'])} {str(df.at[df_idx_next, 'DIÁLOGO'])}".strip()
+        merged_euskera = f"{str(df.at[df_idx_curr, 'EUSKERA'])} {str(df.at[df_idx_next, 'EUSKERA'])}".strip()
+        
+        command = MergeInterventionsCommand(self, df_idx_curr, merged_dialog, merged_euskera, df_idx_next, str(df.at[df_idx_curr, 'OUT']))
         self.undo_stack.push(command)
 
-    def convert_time_code_to_milliseconds(self, time_code: str) -> int:
+    def convert_time_code_to_milliseconds(self, time_code: str) -> Optional[int]:
         try:
-            FPS_RATE = 25.0
-            parts = time_code.split(':'); h, m, s, f = map(int, parts)
-            if len(parts) != 4 or not (0 <= m < 60 and 0 <= s < 60 and 0 <= f < FPS_RATE):
-                raise ValueError(f"Formato o rango de Timecode inválido (MM:SS < 60, FF < {int(FPS_RATE)})")
-            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / FPS_RATE) * 1000.0))
-        except ValueError:
-            return 0
-        except Exception as e:
-            self.handle_exception(e, f"Error convirtiendo '{time_code}' a milisegundos")
-            return 0
+            h, m, s, f = map(int, time_code.split(':'))
+            return (h * 3600 + m * 60 + s) * 1000 + int(round((f / 25.0) * 1000.0))
+        except (ValueError, TypeError):
+            return None
 
     def convert_milliseconds_to_time_code(self, ms: int) -> str:
-        try:
-            if ms < 0: ms = 0
-            total_seconds, rem_ms = divmod(ms, 1000)
-            h, rem_seconds = divmod(total_seconds, 3600)
-            m, s = divmod(rem_seconds, 60)
-            f = int(round(rem_ms / (1000.0 / 25.0)))
-            if f >= 25: f = 24
-            return f"{int(h):02}:{int(m):02}:{int(s):02}:{int(f):02}"
-        except Exception: return "00:00:00:00"
+        if ms < 0: ms = 0
+        total_seconds, rem_ms = divmod(ms, 1000)
+        h, rem_seconds = divmod(total_seconds, 3600)
+        m, s = divmod(rem_seconds, 60)
+        f = min(int(round(rem_ms / (1000.0 / 25.0))), 24)
+        return f"{int(h):02}:{int(m):02}:{int(s):02}:{int(f):02}"
 
     def update_in_out_from_player(self, action_type: str, position_ms: int) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: return
-        df_idx = selected_indexes[0].row()
-        if df_idx >= self.pandas_model.rowCount(): return
+        idx = self.table_view.currentIndex()
+        if not idx.isValid(): return
+        
         time_code_str = self.convert_milliseconds_to_time_code(position_ms)
-        view_col_to_update = -1
-        if action_type.upper() == "IN": view_col_to_update = self.COL_IN_VIEW
-        elif action_type.upper() == "OUT": view_col_to_update = self.COL_OUT_VIEW
-        else: return
-        model_idx_to_update = self.pandas_model.index(df_idx, view_col_to_update)
-        old_value = str(self.pandas_model.data(model_idx_to_update, Qt.ItemDataRole.EditRole))
+        view_col = self.COL_IN_VIEW if action_type.upper() == "IN" else self.COL_OUT_VIEW
+        
+        model_idx = self.pandas_model.index(idx.row(), view_col)
+        old_value = str(self.pandas_model.data(model_idx, Qt.ItemDataRole.EditRole))
         if time_code_str != old_value:
-            command = EditCommand(self, df_idx, view_col_to_update, old_value, time_code_str)
-            self.undo_stack.push(command)
+            self.undo_stack.push(EditCommand(self, idx.row(), view_col, old_value, time_code_str))
 
     def toggle_link_out_to_next_in_checkbox(self, state: int):
         self.link_out_to_next_in_enabled = (Qt.CheckState(state) == Qt.CheckState.Checked)
 
     def select_next_row_after_out_release(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: return
-        current_view_row = selected_indexes[0].row()
-        if not self.link_out_to_next_in_enabled:
-            if current_view_row < self.pandas_model.rowCount() - 1:
-                df_idx_next = current_view_row + 1
-                self.table_view.selectRow(df_idx_next)
-                idx_to_scroll = self.pandas_model.index(df_idx_next, 0)
-                if idx_to_scroll.isValid(): self.table_view.scrollTo(idx_to_scroll, QAbstractItemView.ScrollHint.PositionAtCenter)
-            return
-        if current_view_row >= self.pandas_model.rowCount() - 1: return
-        df_idx_curr = current_view_row
-        current_out_time_str = str(self.pandas_model.dataframe().at[df_idx_curr, 'OUT'])
-        df_idx_next = current_view_row + 1
-        self.table_view.selectRow(df_idx_next)
-        model_idx_in_next = self.pandas_model.index(df_idx_next, self.COL_IN_VIEW)
-        old_in_next = str(self.pandas_model.data(model_idx_in_next, Qt.ItemDataRole.EditRole))
-        if current_out_time_str != old_in_next:
-            command = EditCommand(self, df_idx_next, self.COL_IN_VIEW, old_in_next, current_out_time_str)
-            self.undo_stack.push(command)
-        self.table_view.scrollTo(model_idx_in_next, QAbstractItemView.ScrollHint.PositionAtCenter)
+        idx = self.table_view.currentIndex()
+        if not idx.isValid(): return
+
+        next_row = idx.row() + 1
+        if next_row >= self.pandas_model.rowCount(): return
+
+        self.table_view.selectRow(next_row)
+        self.table_view.scrollTo(self.pandas_model.index(next_row, 0), QAbstractItemView.ScrollHint.PositionAtCenter)
+
+        if self.link_out_to_next_in_enabled:
+            out_time = str(self.pandas_model.dataframe().at[idx.row(), 'OUT'])
+            old_in_next = str(self.pandas_model.dataframe().at[next_row, 'IN'])
+            if out_time != old_in_next:
+                self.undo_stack.push(EditCommand(self, next_row, self.COL_IN_VIEW, old_in_next, out_time))
 
     def change_scene(self) -> None:
-        selected_indexes = self.table_view.selectedIndexes()
-        if not selected_indexes: QMessageBox.warning(self, "Cambiar Escena", "Por favor, seleccione una fila."); return
-        df_idx = selected_indexes[0].row()
-        command = ChangeSceneCommand(self, df_idx)
-        self.undo_stack.push(command)
+        idx = self.table_view.currentIndex()
+        if idx.isValid():
+            self.undo_stack.push(ChangeSceneCommand(self, idx.row()))
 
     def has_scene_numbers(self) -> bool:
-        current_df = self.pandas_model.dataframe()
-        if 'SCENE' not in current_df.columns or current_df.empty: return False
-        unique_scenes = set(str(s).strip() for s in current_df['SCENE'].unique() if pd.notna(s) and str(s).strip())
-        return len(unique_scenes) > 1 or \
-               (len(unique_scenes) == 1 and ("1" not in unique_scenes and "" not in unique_scenes))
+        df = self.pandas_model.dataframe()
+        if df.empty or 'SCENE' not in df.columns: return False
+        unique_scenes = set(str(s).strip() for s in df['SCENE'].unique() if pd.notna(s) and str(s).strip())
+        return len(unique_scenes) > 1 or (len(unique_scenes) == 1 and ("1" not in unique_scenes))
 
     def handle_ctrl_click_on_cell(self, view_row_idx: int) -> None:
-        if view_row_idx >= self.pandas_model.rowCount(): return
-        model_idx_in = self.pandas_model.index(view_row_idx, self.COL_IN_VIEW)
-        in_time_code = str(self.pandas_model.data(model_idx_in, Qt.ItemDataRole.EditRole))
-        ms = self.convert_time_code_to_milliseconds(in_time_code)
-        self.in_out_signal.emit("IN", ms)
+        if 0 <= view_row_idx < self.pandas_model.rowCount():
+            in_tc = str(self.pandas_model.dataframe().at[view_row_idx, 'IN'])
+            ms = self.convert_time_code_to_milliseconds(in_tc)
+            if ms is not None: self.in_out_signal.emit("IN", ms)
 
     def handle_alt_click_on_cell(self, view_row_idx: int) -> None:
-        if view_row_idx >= self.pandas_model.rowCount(): return
-        model_idx_out = self.pandas_model.index(view_row_idx, self.COL_OUT_VIEW)
-        out_time_code = str(self.pandas_model.data(model_idx_out, Qt.ItemDataRole.EditRole))
-        ms = self.convert_time_code_to_milliseconds(out_time_code)
-        self.in_out_signal.emit("OUT", ms)
+        if 0 <= view_row_idx < self.pandas_model.rowCount():
+            out_tc = str(self.pandas_model.dataframe().at[view_row_idx, 'OUT'])
+            ms = self.convert_time_code_to_milliseconds(out_tc)
+            if ms is not None: self.in_out_signal.emit("OUT", ms)
 
     def _recache_times(self):
-        """
-        Crea o actualiza una lista ordenada de tiempos de inicio para una búsqueda rápida.
-        """
         self._time_cache = []
         df = self.pandas_model.dataframe()
-        if df.empty:
-            return
-
-        for row_index in range(len(df)):
-            in_tc = str(df.at[row_index, 'IN'])
-            start_ms = self.convert_time_code_to_milliseconds(in_tc)
-            self._time_cache.append((start_ms, row_index))
-        
-        # Es crucial que esté ordenado por tiempo de inicio para que bisect funcione
+        if df.empty: return
+        for row_index, row in df.iterrows():
+            start_ms = self.convert_time_code_to_milliseconds(str(row['IN']))
+            if start_ms is not None:
+                self._time_cache.append((start_ms, row_index))
         self._time_cache.sort(key=lambda x: x[0])
 
     def sync_with_video_position(self, position_ms: int):
-        """
-        Slot que se activa cuando cambia la posición del video.
-        Busca y resalta la fila correspondiente.
-        """
-        if not self.sync_video_checkbox.isChecked() or not self._time_cache:
-            return
+        if not self.sync_video_checkbox.isChecked() or not self._time_cache: return
 
-        # Extraemos solo los tiempos de inicio para la búsqueda
-        start_times = [item[0] for item in self._time_cache]
-        
-        # bisect_right nos da el punto de inserción, que para una lista ordenada
-        # equivale a encontrar el índice del último elemento menor o igual al actual.
-        # Es extremadamente rápido (búsqueda binaria).
-        insertion_point = bisect.bisect_right(start_times, position_ms)
-        
+        insertion_point = bisect.bisect_right([item[0] for item in self._time_cache], position_ms)
         active_row_index = -1
         
         if insertion_point > 0:
-            # El candidato a fila activa es el que está justo antes del punto de inserción.
             candidate_start_ms, candidate_row_index = self._time_cache[insertion_point - 1]
-            
-            # Verificamos que la posición actual esté dentro del rango IN/OUT de esa fila.
-            out_tc = str(self.pandas_model.dataframe().at[candidate_row_index, 'OUT'])
-            end_ms = self.convert_time_code_to_milliseconds(out_tc)
-
-            if candidate_start_ms <= position_ms < end_ms:
+            end_ms = self.convert_time_code_to_milliseconds(str(self.pandas_model.dataframe().at[candidate_row_index, 'OUT']))
+            if end_ms is not None and candidate_start_ms <= position_ms < end_ms:
                 active_row_index = candidate_row_index
 
-        # Para evitar trabajo innecesario (seleccionar y scrollear 60 veces por segundo),
-        # solo actuamos si la fila activa ha cambiado.
         if active_row_index != self._currently_synced_row:
             self._currently_synced_row = active_row_index
-            
-            self.table_view.selectionModel().clear() # Limpiar selección previa
+            self.table_view.selectionModel().clear()
             if active_row_index != -1:
                 self.table_view.selectRow(active_row_index)
-                model_idx = self.pandas_model.index(active_row_index, 0)
-                self.table_view.scrollTo(model_idx, QAbstractItemView.ScrollHint.PositionAtCenter)
+                self.table_view.scrollTo(self.pandas_model.index(active_row_index, 0), QAbstractItemView.ScrollHint.PositionAtCenter)
 
     def get_character_names_from_model(self) -> List[str]:
-        current_df = self.pandas_model.dataframe()
-        if current_df.empty or 'PERSONAJE' not in current_df.columns: return []
-
-        return sorted(list(set(str(name) for name in current_df['PERSONAJE'].unique() if pd.notna(name) and str(name).strip())))
-
-    def update_character_name(self, old_name: str, new_name: str) -> None:
-        """
-        Renombra todas las apariciones de un personaje.
-        Ahora busca por el nombre limpio para encontrar todas las variantes.
-        """
-        if not new_name.strip():
-            QMessageBox.warning(self, "Nombre de Personaje Inválido", "El nombre del personaje no puede estar vacío.")
-            return
-
-        self.update_multiple_character_names([old_name], new_name)
+        df = self.pandas_model.dataframe()
+        if df.empty or 'PERSONAJE' not in df.columns: return []
+        return sorted(list(set(str(name).strip() for name in df['PERSONAJE'].unique() if pd.notna(name) and str(name).strip())))
 
     def update_multiple_character_names(self, old_names_list: List[str], new_name: str):
-        """
-        Crea un comando para reemplazar múltiples nombres de personajes por uno nuevo.
-        Busca todas las filas donde el nombre del personaje (limpio de espacios)
-        coincide con cualquiera de los nombres en `old_names_list`.
-        """
         if not new_name.strip():
-            QMessageBox.warning(self, "Nombre de Personaje Inválido", "El nombre del personaje no puede estar vacío.")
+            QMessageBox.warning(self, "Nombre Inválido", "El nombre del personaje no puede estar vacío.")
             return
-
         command = UpdateMultipleCharactersCommand(self, old_names_list, new_name)
         self.undo_stack.push(command)
 
     def trim_all_character_names(self):
-        """
-        Crea y ejecuta un comando para eliminar los espacios en blanco iniciales y finales
-        de todos los nombres de personaje en el DataFrame.
-        """
         df = self.pandas_model.dataframe()
-        if df.empty or 'PERSONAJE' not in df.columns:
+        if df.empty or 'PERSONAJE' not in df.columns: return
+        if not (df['PERSONAJE'].astype(str) != df['PERSONAJE'].astype(str).str.strip()).any():
+            QMessageBox.information(self, "Limpiar Nombres", "No se encontraron nombres que necesiten limpieza.")
             return
-
-        # Comprobar si hay algún nombre que necesite ser limpiado antes de crear el comando
-        needs_trimming = (df['PERSONAJE'].astype(str) != df['PERSONAJE'].astype(str).str.strip()).any()
-
-        if not needs_trimming:
-            QMessageBox.information(self, "Limpiar Nombres", "No se encontraron nombres de personaje que necesiten limpieza.")
-            return
-
-        # Si hay algo que limpiar, creamos y ejecutamos el comando
-        command = TrimAllCharactersCommand(self)
-        self.undo_stack.push(command)
-
+        self.undo_stack.push(TrimAllCharactersCommand(self))
         QMessageBox.information(self, "Limpieza Completa", "Se han limpiado los espacios sobrantes de los nombres de personaje.")
 
-    def find_and_replace(self, find_text: str, replace_text: str,
-                         search_in_character: bool = True,
-                         search_in_dialogue: bool = True,
-                         search_in_euskera: bool = False) -> None:
-        if self.pandas_model.dataframe().empty or not find_text:
-            return
+    def find_and_replace(self, find_text: str, replace_text: str, search_in_character: bool, search_in_dialogue: bool, search_in_euskera: bool) -> None:
+        if self.pandas_model.dataframe().empty or not find_text: return
         self.undo_stack.beginMacro("Buscar y Reemplazar Todo")
-        changed_count = 0
-        view_col_char = self.pandas_model.get_view_column_index('PERSONAJE')
-        view_col_dialog = self.pandas_model.get_view_column_index('DIÁLOGO')
-        view_col_euskera = self.pandas_model.get_view_column_index('EUSKERA')
-        for df_idx in range(self.pandas_model.rowCount()):
-            if search_in_character and view_col_char is not None:
-                char_text_orig = str(self.pandas_model.dataframe().at[df_idx, 'PERSONAJE'])
-                new_char_text, num_subs = re.subn(re.escape(find_text), replace_text, char_text_orig, flags=re.IGNORECASE)
-                if num_subs > 0:
-                    self.undo_stack.push(EditCommand(self, df_idx, view_col_char, char_text_orig, new_char_text))
-                    changed_count += num_subs
-            if search_in_dialogue and view_col_dialog is not None:
-                dialog_text_orig = str(self.pandas_model.dataframe().at[df_idx, 'DIÁLOGO'])
-                new_dialog_text, num_subs = re.subn(re.escape(find_text), replace_text, dialog_text_orig, flags=re.IGNORECASE)
-                if num_subs > 0:
-                    self.undo_stack.push(EditCommand(self, df_idx, view_col_dialog, dialog_text_orig, new_dialog_text))
-                    changed_count += num_subs
-            if search_in_euskera and view_col_euskera is not None:
-                euskera_text_orig = str(self.pandas_model.dataframe().at[df_idx, 'EUSKERA'])
-                new_euskera_text, num_subs = re.subn(re.escape(find_text), replace_text, euskera_text_orig, flags=re.IGNORECASE)
-                if num_subs > 0:
-                    self.undo_stack.push(EditCommand(self, df_idx, view_col_euskera, euskera_text_orig, new_euskera_text))
-                    changed_count += num_subs
-        self.undo_stack.endMacro()
-        QMessageBox.information(self, "Reemplazar Todo",
-                                f"{changed_count} reemplazo(s) realizado(s)." if changed_count > 0 else "No se encontraron coincidencias para reemplazar.")
+        
+        cols_to_search = []
+        if search_in_character: cols_to_search.append('PERSONAJE')
+        if search_in_dialogue: cols_to_search.append('DIÁLOGO')
+        if search_in_euskera: cols_to_search.append('EUSKERA')
 
-    def replace_in_current_match(self, df_idx: int, find_text: str, replace_text: str,
-                                 in_char: bool, in_dialogue: bool, in_euskera: bool) -> bool:
-        if self.pandas_model.dataframe().empty or not find_text or not (0 <= df_idx < self.pandas_model.rowCount()):
-            return False
-        self.undo_stack.beginMacro(f"Reemplazar en fila {df_idx + 1}")
-        changed = False
-        columns_to_check = []
-        if in_char: columns_to_check.append('PERSONAJE')
-        if in_dialogue: columns_to_check.append('DIÁLOGO')
-        if in_euskera: columns_to_check.append('EUSKERA')
-        for col_name in columns_to_check:
+        changed_count = 0
+        for col_name in cols_to_search:
             view_col_idx = self.pandas_model.get_view_column_index(col_name)
-            if view_col_idx is None:
-                continue
-            original_text = str(self.pandas_model.dataframe().at[df_idx, col_name])
-            new_text, num_subs = re.subn(re.escape(find_text), replace_text, original_text, count=1, flags=re.IGNORECASE)
-            if num_subs > 0:
-                self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, new_text))
-                changed = True
-                break
+            if view_col_idx is not None:
+                for df_idx in range(self.pandas_model.rowCount()):
+                    original_text = str(self.pandas_model.dataframe().at[df_idx, col_name])
+                    new_text, num_subs = re.subn(re.escape(find_text), replace_text, original_text, flags=re.IGNORECASE)
+                    if num_subs > 0:
+                        self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, new_text))
+                        changed_count += num_subs
         self.undo_stack.endMacro()
-        return changed
+        QMessageBox.information(self, "Reemplazar Todo", f"{changed_count} reemplazo(s) realizado(s).")
+
+    def replace_in_current_match(self, df_idx: int, find_text: str, replace_text: str, in_char: bool, in_dialogue: bool, in_euskera: bool) -> bool:
+        if self.pandas_model.dataframe().empty or not find_text or not (0 <= df_idx < self.pandas_model.rowCount()): return False
+        
+        cols_to_check = []
+        if in_char: cols_to_check.append('PERSONAJE')
+        if in_dialogue: cols_to_check.append('DIÁLOGO')
+        if in_euskera: cols_to_check.append('EUSKERA')
+        
+        for col_name in cols_to_check:
+            original_text = str(self.pandas_model.dataframe().at[df_idx, col_name])
+            if re.search(re.escape(find_text), original_text, flags=re.IGNORECASE):
+                new_text, _ = re.subn(re.escape(find_text), replace_text, original_text, count=1, flags=re.IGNORECASE)
+                view_col_idx = self.pandas_model.get_view_column_index(col_name)
+                if view_col_idx is not None:
+                    self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, new_text))
+                    return True
+        return False
 
     def update_window_title(self) -> None:
         prefix = "*" if self.unsaved_changes else ""
@@ -1416,20 +1087,6 @@ class TableWindow(QWidget):
             self.unsaved_changes = changed
             self.update_window_title()
 
-    def renumerar_escenas_a_uno(self) -> None:
-        current_df = self.pandas_model.dataframe()
-        if not self.has_scene_numbers() and not current_df.empty:
-            self.undo_stack.beginMacro("Renumerar Escenas a '1'")
-            view_col_scene = self.pandas_model.get_view_column_index('SCENE')
-            if view_col_scene is not None:
-                for df_idx in range(len(current_df)):
-                    old_scene = str(current_df.at[df_idx, 'SCENE'])
-                    if old_scene != "1":
-                        self.undo_stack.push(EditCommand(self, df_idx, view_col_scene, old_scene, "1"))
-            self.undo_stack.endMacro()
-            if self.undo_stack.count() > 0 and self.undo_stack.command(self.undo_stack.count()-1).text().startswith("Renumerar"):
-                 QMessageBox.information(self, "Escenas", "Escenas renumeradas a '1'.")
-
     def get_next_id(self) -> int: return self.pandas_model.get_next_id()
     def find_dataframe_index_by_id(self, id_value: int) -> Optional[int]: return self.pandas_model.find_df_index_by_id(id_value)
     def get_dataframe_column_name(self, table_col_index: int) -> Optional[str]: return self.pandas_model.get_df_column_name(table_col_index)
@@ -1437,142 +1094,75 @@ class TableWindow(QWidget):
     def handle_exception(self, exception: Exception, message: str) -> None:
         import traceback
         error_details = f"ERROR: {message}\n{str(exception)}\n{traceback.format_exc()}"
-        print(error_details)
         QMessageBox.critical(self, "Error", f"{message}:\n{str(exception)}")
 
     def apply_font_size_to_dialogs(self, font_size: int) -> None:
         self.current_font_size = font_size
-        if hasattr(self, 'dialog_delegate') and self.dialog_delegate:
-            self.dialog_delegate.setFontSize(font_size)
-        table_font = self.table_view.font()
-        table_font.setPointSize(font_size)
-        self.table_view.setFont(table_font)
-        header = self.table_view.horizontalHeader()
-        header_font = header.font()
-        header_font.setPointSize(font_size)
-        header.setFont(header_font)
+        if hasattr(self, 'dialog_delegate'): self.dialog_delegate.setFontSize(font_size)
+        font = self.table_view.font(); font.setPointSize(font_size)
+        self.table_view.setFont(font)
+        header = self.table_view.horizontalHeader(); header_font = header.font(); header_font.setPointSize(font_size); header.setFont(header_font)
 
     def _check_header_fields_completeness(self) -> bool:
-        if not hasattr(self, 'reference_edit') or \
-           not hasattr(self, 'product_edit') or \
-           not hasattr(self, 'chapter_edit'):
-            return True
-        ref_empty = not self.reference_edit.text().strip()
-        prod_empty = not self.product_edit.text().strip()
-        chap_empty = not self.chapter_edit.text().strip()
-        return not (ref_empty or prod_empty or chap_empty)
+        if hasattr(self, 'reference_edit'):
+            return all(w.text().strip() for w in [self.reference_edit, self.product_edit, self.chapter_edit])
+        return True
 
     def _update_toggle_header_button_text_and_icon(self):
-        if not hasattr(self, 'toggle_header_button') or not hasattr(self, 'header_details_widget'):
-            return
+        if not hasattr(self, 'toggle_header_button'): return
         is_visible = self.header_details_widget.isVisible()
-        if not is_visible:
-            text = " Mostrar Detalles del Guion"
-            if not self._check_header_fields_completeness():
-                text += " (Campos Incompletos)"
-            icon_to_set = self.icon_expand_more
-        else:
-            text = " Ocultar Detalles del Guion"
-            icon_to_set = self.icon_expand_less
+        text = " Ocultar Detalles del Guion" if is_visible else " Mostrar Detalles del Guion"
+        icon = self.icon_expand_less if is_visible else self.icon_expand_more
+        if not is_visible and not self._check_header_fields_completeness():
+            text += " (Campos Incompletos)"
         self.toggle_header_button.setText(text)
-        if self.get_icon and icon_to_set:
-            self.toggle_header_button.setIcon(icon_to_set)
-        elif not self.get_icon:
-            self.toggle_header_button.setIcon(QIcon())
+        if self.get_icon: self.toggle_header_button.setIcon(icon)
 
     def convert_all_characters_to_uppercase(self):
-        if self.pandas_model.dataframe().empty:
-            return
-        view_col_char = self.pandas_model.get_view_column_index('PERSONAJE')
-        if view_col_char is None:
-            QMessageBox.critical(self, "Error Interno", "No se encontró la columna de personaje.")
-            return
-        changed_any = False
+        if self.pandas_model.dataframe().empty: return
         self.undo_stack.beginMacro("Convertir Personajes a Mayúsculas")
-        for df_idx in range(self.pandas_model.rowCount()):
-            old_name = str(self.pandas_model.dataframe().at[df_idx, 'PERSONAJE'])
-            if old_name.strip():
+        view_col_char = self.pandas_model.get_view_column_index('PERSONAJE')
+        if view_col_char is not None:
+            for df_idx in range(self.pandas_model.rowCount()):
+                old_name = str(self.pandas_model.dataframe().at[df_idx, 'PERSONAJE'])
                 new_name = old_name.upper()
                 if old_name != new_name:
-                    command = EditCommand(self, df_idx, view_col_char, old_name, new_name)
-                    self.undo_stack.push(command)
-                    changed_any = True
+                    self.undo_stack.push(EditCommand(self, df_idx, view_col_char, old_name, new_name))
         self.undo_stack.endMacro()
-        if not changed_any:
+        if not self.undo_stack.isClean() and self.undo_stack.command(self.undo_stack.count()-1).text().startswith("Convertir"):
             QMessageBox.information(self, "Información", "Todos los nombres de personaje ya estaban en mayúsculas.")
 
     def split_character_rows(self, old_name: str, new_name1: str, new_name2: str):
-        """
-        Crea un comando para buscar todas las filas con 'old_name',
-        renombrar esa fila a 'new_name1' y duplicarla con 'new_name2'.
-        """
         if not all([old_name, new_name1, new_name2]):
             QMessageBox.warning(self, "Error", "Los nombres de personaje no pueden estar vacíos.")
             return
-
-        command = SplitCharacterCommand(self, old_name, new_name1, new_name2)
-        self.undo_stack.push(command)
-
+        self.undo_stack.push(SplitCharacterCommand(self, old_name, new_name1, new_name2))
 
     def reset_all_scenes(self):
-        """Pide confirmación y ejecuta el comando para reiniciar todas las escenas a '1'."""
-        if self.pandas_model.dataframe().empty:
-            QMessageBox.information(self, "Reiniciar Escenas", "No hay datos en el guion para reiniciar.")
-            return
-
-        reply = QMessageBox.question(self, "Confirmar Acción",
-                                    "¿Está seguro de que desea cambiar TODAS las escenas a '1'?\n\n"
-                                    "(Esta acción se puede deshacer con Ctrl+Z)",
-                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                    QMessageBox.StandardButton.No)
-
+        if self.pandas_model.dataframe().empty: return
+        reply = QMessageBox.question(self, "Confirmar Acción", "¿Cambiar TODAS las escenas a '1'?\n(Se puede deshacer con Ctrl+Z)",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
-            command = ResetScenesCommand(self)
-            self.undo_stack.push(command)
+            self.undo_stack.push(ResetScenesCommand(self))
 
     def reset_all_timecodes(self):
-        """Pide confirmación y ejecuta el comando para reiniciar todos los IN/OUT a cero."""
-        if self.pandas_model.dataframe().empty:
-            QMessageBox.information(self, "Reiniciar Tiempos", "No hay datos en el guion para reiniciar.")
-            return
-
-        reply = QMessageBox.question(self, "Confirmar Acción",
-                                    "¿Está seguro de que desea reiniciar TODOS los timecodes IN y OUT a 00:00:00:00?\n\n"
-                                    "(Esta acción se puede deshacer con Ctrl+Z)",
-                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                    QMessageBox.StandardButton.No)
-
+        if self.pandas_model.dataframe().empty: return
+        reply = QMessageBox.question(self, "Confirmar Acción", "¿Reiniciar TODOS los IN/OUT a 00:00:00:00?\n(Se puede deshacer con Ctrl+Z)",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
-            command = ResetTimecodesCommand(self)
-            self.undo_stack.push(command)
+            self.undo_stack.push(ResetTimecodesCommand(self))
 
     def delete_all_interventions_by_character(self, character_name: str):
-        """
-        Busca todas las intervenciones de un personaje y las elimina usando el sistema de comandos.
-        """
         df = self.pandas_model.dataframe()
-        if df.empty:
+        if df.empty: return
+
+        indices_to_remove = df.index[df['PERSONAJE'] == character_name].tolist()
+        if not indices_to_remove:
+            QMessageBox.information(self, "Eliminar Personaje", f"No se encontraron intervenciones para '{character_name}'.")
             return
 
-        # 1. Encontrar todos los índices de las filas que pertenecen al personaje
-        df_indices_to_remove = df[df['PERSONAJE'] == character_name].index.tolist()
-
-        if not df_indices_to_remove:
-            QMessageBox.information(self, "Eliminar Personaje", f"No se encontraron intervenciones para el personaje '{character_name}'.")
-            return
-
-        # 2. Pedir confirmación al usuario (¡muy importante!)
-        reply = QMessageBox.question(
-            self,
-            "Confirmar Eliminación Masiva",
-            f"¿Está seguro de que desea eliminar las {len(df_indices_to_remove)} intervenciones del personaje '{character_name}'?\n\n"
-            "(Esta acción es reversible con Ctrl+Z)",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel
-        )
-
+        reply = QMessageBox.question(self, "Confirmar Eliminación Masiva",
+                                     f"¿Eliminar las {len(indices_to_remove)} intervenciones de '{character_name}'?\n(Reversible con Ctrl+Z)",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
         if reply == QMessageBox.StandardButton.Yes:
-            # 3. Crear y ejecutar el comando de eliminación con los índices encontrados
-            #    Reutilizamos el comando que ya teníamos para eliminar filas.
-            command = RemoveRowsCommand(self, df_indices_to_remove)
-            self.undo_stack.push(command)
+            self.undo_stack.push(RemoveRowsCommand(self, indices_to_remove))
