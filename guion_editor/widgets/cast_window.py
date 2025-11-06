@@ -27,6 +27,7 @@ class CastWindow(QWidget):
         self.pandas_model = pandas_table_model
         self.parent_main_window = parent_main_window
         self.reparto_data = {}
+        
         self.current_sort_column = self.COL_INTERVENCIONES
         self.current_sort_order = Qt.SortOrder.DescendingOrder
         
@@ -165,9 +166,7 @@ class CastWindow(QWidget):
         if num_selected > 0:
             menu.exec(self.table_widget.mapToGlobal(position))
 
-    # -> NUEVO: Método para manejar clics en celdas
     def handle_cell_click(self, row, column):
-        """Si se hace clic en la columna de intervenciones, inicia la búsqueda."""
         if column == self.COL_INTERVENCIONES:
             char_name_item = self.table_widget.item(row, self.COL_PERSONAJE)
             if char_name_item:
@@ -235,36 +234,41 @@ class CastWindow(QWidget):
         table.setHorizontalHeaderLabels(self.HEADER_LABELS)
         table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        
         char_delegate = CharacterDelegate(get_names_callback=self.get_character_names_for_completer, parent=table)
         table.setItemDelegateForColumn(self.COL_PERSONAJE, char_delegate)
+        
         reparto_delegate = RepartoDelegate(get_names_callback=self.get_reparto_names_for_completer, parent=table)
         table.setItemDelegateForColumn(self.COL_REPARTO, reparto_delegate)
+
         header = table.horizontalHeader()
+        
+        # -> FIX: Establecer los modos de redimensionamiento aquí, y no en populate_table
         header.setSectionResizeMode(self.COL_ID, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.COL_INTERVENCIONES, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(self.COL_REPARTO, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(self.COL_INTERVENCIONES, QHeaderView.ResizeMode.ResizeToContents)
+        
+        header.setSortIndicatorShown(True)
+        
         header.sectionClicked.connect(self.sort_by_column)
         table.verticalHeader().setVisible(False)
         table.itemChanged.connect(self.on_item_changed)
+        
         table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         table.customContextMenuRequested.connect(self.show_context_menu)
         
-        # -> REMOVED: Eliminamos la conexión del doble clic.
-        # table.itemDoubleClicked.connect(self.handle_double_click)
-        
-        # -> NEW: Conectamos el clic simple para manejar la nueva funcionalidad.
         table.cellClicked.connect(self.handle_cell_click)
         
         return table
 
     def sort_by_column(self, logical_index):
-        if logical_index == len(self.HEADER_LABELS): return
         if self.current_sort_column == logical_index:
             self.current_sort_order = Qt.SortOrder.AscendingOrder if self.current_sort_order == Qt.SortOrder.DescendingOrder else Qt.SortOrder.DescendingOrder
         else:
             self.current_sort_column = logical_index
-            self.current_sort_order = Qt.SortOrder.AscendingOrder if logical_index != self.COL_INTERVENCIONES else Qt.SortOrder.DescendingOrder
+            self.current_sort_order = Qt.SortOrder.DescendingOrder if logical_index == self.COL_INTERVENCIONES else Qt.SortOrder.AscendingOrder
+        
         self.populate_table()
 
     def refresh_table_data(self):
@@ -278,44 +282,62 @@ class CastWindow(QWidget):
         if df is None or df.empty or 'PERSONAJE' not in df.columns:
             self.table_widget.setRowCount(0)
             return
+            
         char_counts = df['PERSONAJE'].astype(str).str.strip().value_counts()
         char_counts = char_counts[char_counts.index != ""]
+        
         items_to_sort = [{'personaje': char, 'reparto': self.reparto_data.get(char, ""), 'count': count} for char, count in char_counts.items()]
+        
         if hasattr(self, 'filter_edit'):
             filter_text = self.filter_edit.text().lower().strip()
             if filter_text:
                 items_to_sort = [item for item in items_to_sort if filter_text in item['personaje'].lower()]
-        items_to_sort.sort(key=lambda item: (-item['count'], str(item['personaje']).lower()))
+        
+        if self.current_sort_column == self.COL_PERSONAJE:
+            sort_reverse = (self.current_sort_order == Qt.SortOrder.DescendingOrder)
+            items_to_sort.sort(key=lambda x: x['personaje'].lower(), reverse=sort_reverse)
+        elif self.current_sort_column == self.COL_INTERVENCIONES:
+            if self.current_sort_order == Qt.SortOrder.DescendingOrder:
+                items_to_sort.sort(key=lambda x: (-x['count'], x['personaje'].lower()))
+            else:
+                items_to_sort.sort(key=lambda x: (x['count'], x['personaje'].lower()))
+        elif self.current_sort_column == self.COL_REPARTO:
+             sort_reverse = (self.current_sort_order == Qt.SortOrder.DescendingOrder)
+             items_to_sort.sort(key=lambda x: (x['reparto'].lower(), x['personaje'].lower()), reverse=sort_reverse)
+        
+        self.table_widget.horizontalHeader().setSortIndicator(self.current_sort_column, self.current_sort_order)
+
         self.table_widget.blockSignals(True)
         self.table_widget.setRowCount(len(items_to_sort))
         total_interventions_in_view = 0
         for row_idx, item_data in enumerate(items_to_sort):
             id_item = QTableWidgetItem(str(row_idx + 1)); id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table_widget.setItem(row_idx, self.COL_ID, id_item)
+            
             self.set_table_item(row_idx, self.COL_PERSONAJE, str(item_data['personaje']))
+            
             reparto_value = str(item_data['reparto'])
             reparto_item = self.set_table_item(row_idx, self.COL_REPARTO, reparto_value)
             if not reparto_value:
                 reparto_item.setBackground(QColor(60, 30, 30, 180))
             
-            # -> MODIFIED: Aplicar estilo al item de intervenciones para que parezca un enlace
-            count_item = QTableWidgetItem(str(item_data['count']))
+            count_item = QTableWidgetItem()
+            count_item.setData(Qt.ItemDataRole.DisplayRole, str(item_data['count']))
             count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             count_item.setFlags(count_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            # Estilo de enlace
             font = count_item.font()
             font.setUnderline(True)
             count_item.setFont(font)
-            count_item.setForeground(QColor("#80aaff")) # Un azul claro legible
+            count_item.setForeground(QColor("#80aaff"))
             count_item.setToolTip(f"Hacer clic para buscar las {item_data['count']} intervenciones de {item_data['personaje']}")
-
             self.table_widget.setItem(row_idx, self.COL_INTERVENCIONES, count_item)
             total_interventions_in_view += item_data['count']
 
         self.table_widget.blockSignals(False)
-        self.table_widget.resizeColumnsToContents()
-        self.table_widget.horizontalHeader().setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch)
-        self.table_widget.horizontalHeader().setSectionResizeMode(self.COL_REPARTO, QHeaderView.ResizeMode.Stretch)
+        
+        # -> FIX: Eliminar las llamadas a setSectionResizeMode y resizeColumnsToContents de aquí
+        # La configuración ahora se hace una sola vez en create_table_widget
+
         if hasattr(self, 'char_count_label'):
             self.char_count_label.setText(f"Personajes Mostrados: {len(items_to_sort)}")
             self.intervention_count_label.setText(f"Suma de Intervenciones: {total_interventions_in_view}")
@@ -359,8 +381,6 @@ class CastWindow(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.populate_table()
-        self.table_widget.horizontalHeader().setSortIndicator(self.current_sort_column, self.current_sort_order)
-        self.table_widget.horizontalHeader().setSortIndicatorShown(True)
 
     def delete_selected_character(self):
         selected_rows = self.table_widget.selectionModel().selectedRows()
@@ -368,6 +388,7 @@ class CastWindow(QWidget):
         character_name = self.table_widget.item(selected_rows[0].row(), self.COL_PERSONAJE).text()
         if self.parent_main_window and hasattr(self.parent_main_window, 'tableWindow'):
             self.parent_main_window.tableWindow.delete_all_interventions_by_character(character_name)
+            self.refresh_table_data()
 
     def import_reparto(self):
         path, _ = QFileDialog.getOpenFileName(self, "Importar Reparto", "", "Archivos Excel (*.xlsx)")
