@@ -100,6 +100,10 @@ class TableWindow(QWidget):
         self.current_script_path: Optional[str] = None
         self.clipboard_text: str = ""
         self.link_out_to_next_in_enabled = True
+        self._is_marking_out = False
+        self._out_mark_original_value = None
+        self._out_mark_final_value = None
+        self._out_mark_df_row_idx = -1
         self.last_focused_dialog_text: Optional[str] = None
         self.last_focused_dialog_cursor_pos: int = -1
         self.last_focused_dialog_index: Optional[QModelIndex] = None
@@ -936,19 +940,52 @@ class TableWindow(QWidget):
     def update_in_out_from_player(self, action_type: str, position_ms: int) -> None:
         idx = self.table_view.currentIndex()
         if not idx.isValid(): return
-        
+
         time_code_str = self.convert_milliseconds_to_time_code(position_ms)
-        view_col = self.COL_IN_VIEW if action_type.upper() == "IN" else self.COL_OUT_VIEW
+        df_row_idx = idx.row()
         
-        model_idx = self.pandas_model.index(idx.row(), view_col)
-        old_value = str(self.pandas_model.data(model_idx, Qt.ItemDataRole.EditRole))
-        if time_code_str != old_value:
-            self.undo_stack.push(EditCommand(self, idx.row(), view_col, old_value, time_code_str))
+        if action_type.upper() == "IN":
+            view_col = self.COL_IN_VIEW
+            model_idx = self.pandas_model.index(df_row_idx, view_col)
+            old_value = str(self.pandas_model.data(model_idx, Qt.ItemDataRole.EditRole))
+            if time_code_str != old_value:
+                self.undo_stack.push(EditCommand(self, df_row_idx, view_col, old_value, time_code_str))
+        
+        elif action_type.upper() == "OUT":
+            view_col = self.COL_OUT_VIEW
+            model_idx = self.pandas_model.index(df_row_idx, view_col)
+
+            if not self._is_marking_out:
+                self._is_marking_out = True
+                self._out_mark_original_value = str(self.pandas_model.data(model_idx, Qt.ItemDataRole.EditRole))
+                self._out_mark_df_row_idx = df_row_idx
+
+            # Actualizamos solo la variable interna. NO TOCAMOS EL MODELO.
+            self._out_mark_final_value = time_code_str
 
     def toggle_link_out_to_next_in_checkbox(self, state: int):
         self.link_out_to_next_in_enabled = (Qt.CheckState(state) == Qt.CheckState.Checked)
 
     def select_next_row_after_out_release(self) -> None:
+        # -> INICIO: LÓGICA AÑADIDA PARA CREAR EL COMANDO DE DESHACER
+        if self._is_marking_out:
+            # Comprobar si realmente hubo un cambio
+            if self._out_mark_original_value != self._out_mark_final_value:
+                command = EditCommand(self, 
+                                    self._out_mark_df_row_idx, 
+                                    self.COL_OUT_VIEW, 
+                                    self._out_mark_original_value, 
+                                    self._out_mark_final_value)
+                self.undo_stack.push(command)
+
+            # Restablecer el estado
+            self._is_marking_out = False
+            self._out_mark_original_value = None
+            self._out_mark_final_value = None
+            self._out_mark_df_row_idx = -1
+        # -> FIN: LÓGICA AÑADIDA
+
+        # El resto del método continúa igual
         idx = self.table_view.currentIndex()
         if not idx.isValid(): return
 
@@ -998,6 +1035,8 @@ class TableWindow(QWidget):
         self._time_cache.sort(key=lambda x: x[0])
 
     def sync_with_video_position(self, position_ms: int):
+        if self._is_marking_out:
+            return
         if not self.sync_video_checkbox.isChecked() or not self._time_cache: return
 
         insertion_point = bisect.bisect_right([item[0] for item in self._time_cache], position_ms)
