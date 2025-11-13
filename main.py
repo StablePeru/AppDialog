@@ -318,9 +318,20 @@ class MainWindow(QMainWindow):
             self._delete_recovery_file()
 
     def export_script_to_excel(self):
-        """Llama al diálogo de exportación y elimina el archivo de recuperación si tiene éxito."""
-        if self.tableWindow.export_to_excel_dialog():
-            self._delete_recovery_file()
+        """
+        Llama al diálogo de exportación a Excel. Si tiene éxito, también realiza
+        un guardado directo a JSON (como Ctrl+S).
+        """
+        # 1. Intentamos exportar a Excel. El método en tableWindow ya se encarga
+        #    del diálogo y devuelve True si el usuario guardó el archivo.
+        excel_export_successful = self.tableWindow.export_to_excel_dialog()
+
+        # 2. Si la exportación a Excel fue exitosa...
+        if excel_export_successful:
+            # 3. ...procedemos a realizar el guardado directo a JSON.
+            #    Este es el mismo método que se llama con Ctrl+S.
+            print("Exportación a Excel exitosa. Realizando guardado automático a JSON...")
+            self.save_script_directly()
 
     def export_to_srt(self):
         """Maneja la exportación del guion a formato SRT."""
