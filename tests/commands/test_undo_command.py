@@ -1,7 +1,7 @@
 import pytest
 from PyQt6.QtWidgets import QApplication
 from main import MainWindow
-from guion_editor.commands.undo_commands import EditCommand
+from guion_editor.commands.undo_commands import EditCommand, AddRowCommand
 
 @pytest.fixture
 def app(qtbot):
@@ -49,3 +49,30 @@ def test_edit_command_undo_redo(app, qtbot):
     
     # Verificar que redo() funcionó de nuevo
     assert model.data(model.index(df_row_index, view_col_index)) == new_value
+
+def test_add_row_command_undo_redo(app, qtbot):
+    """Verifica el funcionamiento del comando para añadir filas."""
+    table_window = app.tableWindow
+    model = table_window.pandas_model
+    undo_stack = table_window.undo_stack
+
+    initial_rows = model.rowCount()
+
+    # Crear y ejecutar el comando
+    command = AddRowCommand(table_window, view_row_insert_at=0, df_row_insert_at=0)
+    undo_stack.push(command)
+
+    # Verificar que redo() funcionó (se añadió la fila)
+    assert model.rowCount() == initial_rows + 1
+
+    # Deshacer
+    undo_stack.undo()
+    
+    # Verificar que undo() funcionó (se eliminó la fila)
+    assert model.rowCount() == initial_rows
+
+    # Rehacer
+    undo_stack.redo()
+
+    # Verificar que redo() volvió a añadir la fila
+    assert model.rowCount() == initial_rows + 1
