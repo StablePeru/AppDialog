@@ -108,7 +108,38 @@ QPushButton#sceneErrorIndicatorButton[hasErrors="true"]:pressed {
     color: #FF6666;
 }
 
-/* -> INICIO: NUEVOS ESTILOS PARA EL BOTÓN DE MARCAPÁGINAS */
+QPushButton#lineErrorIndicatorButton {
+    padding: 2px 6px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    font-size: 7pt;
+    border-radius: 3px;
+    text-align: center;
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: #E0E0E0;
+    max-height: 24px;
+}
+
+QPushButton#lineErrorIndicatorButton[hasErrors="true"] {
+    color: #FFA500; /* Naranja */
+    border: 1px solid #FFA500;
+}
+
+QPushButton#lineErrorIndicatorButton[hasErrors="true"]:hover {
+    background-color: rgba(255, 165, 0, 0.1);
+    border-color: #E69500; /* Naranja más oscuro */
+    color: #FFB733; /* Naranja más claro */
+}
+
+QPushButton#lineErrorIndicatorButton[hasErrors="true"]:pressed {
+    background-color: rgba(255, 165, 0, 0.2);
+    border-color: #CC8400;
+    color: #FFC34D;
+}
+
+
 QPushButton#bookmarkIndicatorButton {
     padding: 2px 6px;
     font-weight: 500;

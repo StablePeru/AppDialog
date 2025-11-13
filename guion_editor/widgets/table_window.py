@@ -119,6 +119,9 @@ class TableWindow(QWidget):
         self.scene_error_indicator_button: Optional[QPushButton] = None
         self.scene_error_df_indices: List[int] = []
         self._current_scene_error_nav_idx: int = -1
+        self.line_error_indicator_button: Optional[QPushButton] = None
+        self.line_error_df_indices: List[int] = []
+        self._current_line_error_nav_idx: int = -1
         self.bookmark_indicator_button: Optional[QPushButton] = None
         self.bookmark_df_indices: List[int] = []
         self._current_bookmark_nav_idx: int = -1
@@ -137,6 +140,9 @@ class TableWindow(QWidget):
         self._update_scene_error_indicator_timer = QTimer(self)
         self._update_scene_error_indicator_timer.setSingleShot(True)
         self._update_scene_error_indicator_timer.setInterval(0)
+        self._update_line_error_indicator_timer = QTimer(self)
+        self._update_line_error_indicator_timer.setSingleShot(True)
+        self._update_line_error_indicator_timer.setInterval(0)
         self._update_bookmark_indicator_timer = QTimer(self)
         self._update_bookmark_indicator_timer.setSingleShot(True)
         self._update_bookmark_indicator_timer.setInterval(0)
@@ -150,6 +156,7 @@ class TableWindow(QWidget):
         self._resize_rows_timer.timeout.connect(self._perform_resize_rows_to_contents)
         self._update_error_indicator_timer.timeout.connect(self.update_time_error_indicator)
         self._update_scene_error_indicator_timer.timeout.connect(self.update_scene_error_indicator)
+        self._update_line_error_indicator_timer.timeout.connect(self.update_line_error_indicator)
         self._update_bookmark_indicator_timer.timeout.connect(self.update_bookmark_indicator)
 
         self._recache_timer.timeout.connect(self._recache_subtitle_timeline)
@@ -165,6 +172,9 @@ class TableWindow(QWidget):
         self.pandas_model.dataChanged.connect(self._request_bookmark_indicator_update)
         self.pandas_model.layoutChanged.connect(self._request_bookmark_indicator_update)
         self.pandas_model.modelReset.connect(self._request_bookmark_indicator_update)
+        self.pandas_model.dataChanged.connect(self._request_line_error_indicator_update)
+        self.pandas_model.layoutChanged.connect(self._request_line_error_indicator_update)
+        self.pandas_model.modelReset.connect(self._request_line_error_indicator_update)
         self.pandas_model.dataChanged.connect(self._request_recache_subtitles)
         self.pandas_model.layoutChanged.connect(self._request_recache_subtitles)
         self.pandas_model.modelReset.connect(self._request_recache_subtitles)
@@ -193,6 +203,39 @@ class TableWindow(QWidget):
 
     def _request_bookmark_indicator_update(self):
         self._update_bookmark_indicator_timer.start()
+
+    def _request_line_error_indicator_update(self):
+            self._update_line_error_indicator_timer.start()
+
+    def update_line_error_indicator(self):
+        if not hasattr(self, 'line_error_indicator_button') or self.line_error_indicator_button is None or not hasattr(self.pandas_model, '_line_validation_status'):
+            return
+            
+        self.line_error_df_indices = [idx for idx, valid in self.pandas_model._line_validation_status.items() if not valid]
+        self.line_error_df_indices.sort()
+        
+        has_errors = bool(self.line_error_df_indices)
+        if not has_errors:
+            self._current_line_error_nav_idx = -1
+        
+        self.line_error_indicator_button.setVisible(has_errors)
+        if has_errors:
+            self.line_error_indicator_button.setText("⚠️ LÍNEAS")
+            self.line_error_indicator_button.setProperty("hasErrors", True)
+            self.line_error_indicator_button.setToolTip(f"Avisos de líneas detectados. Pulse para ir al siguiente.\nFilas: {', '.join(map(str, [i+1 for i in self.line_error_df_indices]))}")
+            
+        if self.line_error_indicator_button.style():
+            self.line_error_indicator_button.style().unpolish(self.line_error_indicator_button)
+            self.line_error_indicator_button.style().polish(self.line_error_indicator_button)
+
+    def go_to_next_line_error(self):
+        if not self.line_error_df_indices: return
+        self._current_line_error_nav_idx = (self._current_line_error_nav_idx + 1) % len(self.line_error_df_indices)
+        target_df_idx = self.line_error_df_indices[self._current_line_error_nav_idx]
+        self.table_view.clearSelection()
+        self.table_view.selectRow(target_df_idx)
+        self.table_view.scrollTo(self.pandas_model.index(target_df_idx, 0), QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.table_view.setFocus()
 
     def _request_recache_subtitles(self):
         self._recache_timer.start()
@@ -356,6 +399,13 @@ class TableWindow(QWidget):
         self.scene_error_indicator_button.setVisible(False)
         self.scene_error_indicator_button.clicked.connect(self.go_to_next_scene_error)
         error_indicators_layout.addWidget(self.scene_error_indicator_button)
+        self.line_error_indicator_button = QPushButton("")
+        self.line_error_indicator_button.setObjectName("lineErrorIndicatorButton") # <-- Nuevo nombre para el CSS
+        self.line_error_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.line_error_indicator_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.line_error_indicator_button.setVisible(False)
+        self.line_error_indicator_button.clicked.connect(self.go_to_next_line_error)
+        error_indicators_layout.addWidget(self.line_error_indicator_button)
         self.bookmark_indicator_button = QPushButton("")
         self.bookmark_indicator_button.setObjectName("bookmarkIndicatorButton")
         self.bookmark_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)

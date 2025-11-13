@@ -9,6 +9,8 @@ VALID_TIME_BG_COLOR = QColor(Qt.GlobalColor.transparent) # Sin color de fondo pa
 INVALID_TIME_BG_COLOR = QColor(139, 0, 0) # Rojo oscuro para inválido
 # -> NUEVO: Color para las filas marcadas como marcapáginas
 BOOKMARK_BG_COLOR = QColor(221, 211, 237, 40) # Lila claro con transparencia
+# La siguiente línea debe estar aquí, fuera de la clase, con las demás.
+LINE_ERROR_BG_COLOR = QColor(255, 165, 0, 60) # Naranja con algo de transparencia
 
 ROW_NUMBER_COL_IDENTIFIER = "__ROW_NUMBER__"
 # -> INICIO: NUEVO IDENTIFICADOR PARA LA COLUMNA CALCULADA
@@ -37,6 +39,7 @@ class PandasTableModel(QAbstractTableModel):
         }
         self._time_validation_status: Dict[int, bool] = {}
         self._scene_validation_status: Dict[int, bool] = {}
+        self._line_validation_status: Dict[int, bool] = {}
         
     # -> INICIO: NUEVO MÉTODO AUXILIAR
     def _convert_ms_to_duration_str(self, ms: int) -> str:
@@ -98,6 +101,7 @@ class PandasTableModel(QAbstractTableModel):
         for i in range(len(self._dataframe)):
             self._validate_in_out_for_row(i)
             self._validate_scene_for_row(i)
+        self._revalidate_all_lines()
         self.endResetModel()
         self.layoutChangedSignal.emit()
 
@@ -159,6 +163,9 @@ class PandasTableModel(QAbstractTableModel):
 
         if role == Qt.ItemDataRole.BackgroundRole:
             df_row_idx = index.row()
+            is_line_valid = self._line_validation_status.get(df_row_idx, True)
+            if not is_line_valid:
+                return QBrush(LINE_ERROR_BG_COLOR)
             if df_col_name in ["IN", "OUT"]:
                 is_valid = self._time_validation_status.get(df_row_idx, True)
                 if not is_valid:
@@ -183,37 +190,34 @@ class PandasTableModel(QAbstractTableModel):
         view_col_idx = index.column()
 
         col_identifier = self.column_map.get(view_col_idx)
-        if col_identifier is None: return False
-
-        if col_identifier == ROW_NUMBER_COL_IDENTIFIER:
+        if col_identifier is None or col_identifier in [ROW_NUMBER_COL_IDENTIFIER, DURATION_COL_IDENTIFIER]:
             return False
 
         df_col_name = col_identifier
-        print(f"--- PASO 4: pandas_model.setData() llamado para fila {index.row()}, col '{df_col_name}', nuevo valor '{value}' ---")
         if df_row_idx >= len(self._dataframe) or df_col_name not in self._dataframe.columns:
             return False
 
-        df_actual_col_idx = self._dataframe.columns.get_loc(df_col_name)
-
+        # 1. Convertir el valor entrante al tipo de dato correcto
         try:
-            str_value = str(value)
-            if df_col_name == 'ID': return False
-            elif df_col_name == 'BOOKMARK':
+            if df_col_name == 'BOOKMARK':
                 new_typed_value = bool(value)
-            elif df_col_name == 'SCENE':
-                new_typed_value = str_value
             elif df_col_name in ['IN', 'OUT']:
-                parts = str_value.split(':')
+                parts = str(value).split(':')
                 if len(parts) == 4 and all(len(p) == 2 and p.isdigit() for p in parts):
-                    new_typed_value = str_value
-                else: return False
+                    new_typed_value = str(value)
+                else:
+                    # Si el formato no es válido, no hacemos nada
+                    return False
             else:
-                new_typed_value = str_value
-        except ValueError:
+                new_typed_value = str(value)
+        except (ValueError, TypeError):
             return False
 
+        # 2. Comprobar si el valor realmente ha cambiado para evitar trabajo innecesario
+        df_actual_col_idx = self._dataframe.columns.get_loc(df_col_name)
         current_df_value = self._dataframe.iat[df_row_idx, df_actual_col_idx]
-
+        
+        # Comparamos como strings, excepto para el booleano de BOOKMARK
         if df_col_name == 'BOOKMARK':
             if current_df_value == new_typed_value:
                 return True
@@ -222,48 +226,36 @@ class PandasTableModel(QAbstractTableModel):
             if current_value_str == new_typed_value:
                 return True
 
-        # --- INICIO DE LA CORRECCIÓN ---
-        # 1. Cambiar el valor en el DataFrame ANTES de emitir cualquier señal.
+        # 3. Actualizar el DataFrame (nuestra fuente de verdad)
         self._dataframe.iat[df_row_idx, df_actual_col_idx] = new_typed_value
 
-        # 2. Comprobar qué tipo de actualización visual se necesita.
+        # 4. Notificar a la vista que el texto/dato de la celda editada ha cambiado
+        self.dataChanged.emit(index, index, [Qt.ItemDataRole.EditRole, Qt.ItemDataRole.DisplayRole])
+
+        # 5. Llamar a los validadores específicos. Ellos se encargarán de emitir
+        #    las señales para repintar el fondo si el estado de error cambia.
+        
+        # Validar tiempos si se editó una columna de tiempo
+        if df_col_name in ['IN', 'OUT']:
+            self.force_time_validation_update_for_row(df_row_idx)
+
+        # Validar escena si se editó la columna de escena
+        if df_col_name == 'SCENE':
+            self.force_scene_validation_update_for_row(df_row_idx)
+
+        # La validación de LÍNEAS es más compleja y depende de varias columnas,
+        # así que la llamamos si cualquiera de ellas cambia.
+        if df_col_name in ['IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA']:
+            self._revalidate_all_lines()
+            
+        # Validar BOOKMARK si se cambió el estado del marcapáginas
         if df_col_name == 'BOOKMARK':
-            # Si es un marcapáginas, emitir dataChanged para toda la fila para actualizar el fondo.
+            # Forzar un redibujado de fondo para toda la fila
             start_index = self.index(df_row_idx, 0)
             end_index = self.index(df_row_idx, self.columnCount() - 1)
             self.dataChanged.emit(start_index, end_index, [Qt.ItemDataRole.BackgroundRole])
-        elif df_col_name in ['IN', 'OUT']:
-            # Lógica para errores de tiempo
-            old_validation_status = self._time_validation_status.get(df_row_idx, True)
-            self._validate_in_out_for_row(df_row_idx)
-            new_validation_status = self._time_validation_status.get(df_row_idx, True)
-
-            if old_validation_status != new_validation_status:
-                in_view_col = self.get_view_column_index('IN')
-                out_view_col = self.get_view_column_index('OUT')
-                if in_view_col is not None:
-                    in_idx = self.index(df_row_idx, in_view_col)
-                    self.dataChanged.emit(in_idx, in_idx, [Qt.ItemDataRole.BackgroundRole])
-                if out_view_col is not None:
-                    out_idx = self.index(df_row_idx, out_view_col)
-                    self.dataChanged.emit(out_idx, out_idx, [Qt.ItemDataRole.BackgroundRole])
-            # Emitir también para la celda individual
-            self.dataChanged.emit(index, index)
-        elif df_col_name == 'SCENE':
-            # Lógica para errores de escena
-            old_validation_status = self._scene_validation_status.get(df_row_idx, True)
-            self._validate_scene_for_row(df_row_idx)
-            new_validation_status = self._scene_validation_status.get(df_row_idx, True)
-            if old_validation_status != new_validation_status:
-                self.dataChanged.emit(index, index, [Qt.ItemDataRole.BackgroundRole])
-            else:
-                self.dataChanged.emit(index, index)
-        else:
-            # Para cualquier otra celda, solo notificar el cambio de esa celda.
-            self.dataChanged.emit(index, index)
 
         return True
-        # --- FIN DE LA CORRECCIÓN ---
 
     def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):
         if role == Qt.ItemDataRole.DisplayRole:
@@ -327,6 +319,7 @@ class PandasTableModel(QAbstractTableModel):
         self._validate_scene_for_row(df_row_idx_to_insert_at)
 
         self.endInsertRows()
+        self._revalidate_all_lines()
         return True
 
     def _rebuild_time_validation_after_insert(self, inserted_df_idx: int):
@@ -357,6 +350,7 @@ class PandasTableModel(QAbstractTableModel):
             self._rebuild_time_validation_after_remove(df_row_idx)
             self._rebuild_scene_validation_after_remove(df_row_idx)
             self.endRemoveRows()
+            self._revalidate_all_lines()
             return removed_row_data
         return None
 
@@ -421,6 +415,7 @@ class PandasTableModel(QAbstractTableModel):
             return False
 
         self.endMoveRows()
+        self._revalidate_all_lines()
         return True
 
     def get_next_id(self) -> int:
@@ -517,3 +512,66 @@ class PandasTableModel(QAbstractTableModel):
                     scene_idx = self.index(df_row_idx, scene_view_col)
                     self.dataChanged.emit(scene_idx, scene_idx, [Qt.ItemDataRole.BackgroundRole])
         return None
+    
+# Reemplaza el método _revalidate_all_lines() entero con este:
+
+    def _revalidate_all_lines(self):
+        """
+        Revalida todas las filas para la alerta de LÍNEAS y notifica a la vista
+        de los cambios para forzar el redibujado.
+        """
+        if not hasattr(self, '_line_validation_status'):
+            return
+
+        # 1. Guardar el estado de error anterior
+        old_error_indices = set(self._line_validation_status.keys())
+        
+        # 2. Limpiar y recalcular el nuevo estado de error
+        self._line_validation_status.clear()
+        df = self._dataframe
+
+        if not df.empty:
+            df_valid_times = df[(df['IN'] != "00:00:00:00") | (df['OUT'] != "00:00:00:00")]
+            for _, group_df in df_valid_times.groupby(['IN', 'OUT']):
+                group_indices = group_df.index.tolist()
+                use_euskera_col = any(str(group_df.loc[idx, 'EUSKERA']).strip() for idx in group_indices)
+                col_to_check = 'EUSKERA' if use_euskera_col else 'DIÁLOGO'
+
+                total_lines_in_group = 0
+                lines_per_char = {}
+                rows_per_char = {}
+
+                for idx in group_indices:
+                    text = str(df.at[idx, col_to_check])
+                    char = str(df.at[idx, 'PERSONAJE'])
+                    line_count = (text.count('\n') + 1) if text.strip() else 0
+                    total_lines_in_group += line_count
+                    lines_per_char[char] = lines_per_char.get(char, 0) + line_count
+                    if char not in rows_per_char:
+                        rows_per_char[char] = []
+                    rows_per_char[char].append(idx)
+                
+                character_error_found = False
+                for char, count in lines_per_char.items():
+                    if count >= 6:
+                        character_error_found = True
+                        for idx_to_mark in rows_per_char[char]:
+                            # Marcamos como inválido (False)
+                            self._line_validation_status[idx_to_mark] = False
+                
+                if not character_error_found and total_lines_in_group >= 11:
+                    for idx_to_mark in group_indices:
+                        self._line_validation_status[idx_to_mark] = False
+
+        # 3. Comparar el estado nuevo con el viejo y emitir señales
+        new_error_indices = set(self._line_validation_status.keys())
+        
+        # Filas que han cambiado de estado (aparecen o desaparecen del conjunto de errores)
+        indices_to_update = old_error_indices.symmetric_difference(new_error_indices)
+
+        if indices_to_update:
+            # Notificar a la vista que debe redibujar el fondo de estas filas
+            for df_idx in indices_to_update:
+                start_index = self.index(df_idx, 0)
+                end_index = self.index(df_idx, self.columnCount() - 1)
+                self.dataChanged.emit(start_index, end_index, [Qt.ItemDataRole.BackgroundRole])
