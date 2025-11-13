@@ -39,7 +39,7 @@ class PandasTableModel(QAbstractTableModel):
         }
         self._time_validation_status: Dict[int, bool] = {}
         self._scene_validation_status: Dict[int, bool] = {}
-        self._line_validation_status: Dict[int, bool] = {}
+        self._line_validation_status: Dict[int, Dict[str, bool]] = {}
         
     # -> INICIO: NUEVO MÉTODO AUXILIAR
     def _convert_ms_to_duration_str(self, ms: int) -> str:
@@ -163,9 +163,15 @@ class PandasTableModel(QAbstractTableModel):
 
         if role == Qt.ItemDataRole.BackgroundRole:
             df_row_idx = index.row()
-            is_line_valid = self._line_validation_status.get(df_row_idx, True)
-            if not is_line_valid:
-                return QBrush(LINE_ERROR_BG_COLOR)
+            # Prioridad 1: Error de líneas (Naranja) - AHORA ESPECÍFICO DE CELDA
+            line_status = self._line_validation_status.get(df_row_idx)
+            if line_status:
+                # Comprobamos si la columna que se está pintando tiene un error
+                is_col_valid = line_status.get(df_col_name, True) # True por defecto si la col no es DIALOGO/EUSKERA
+                if not is_col_valid:
+                    return QBrush(LINE_ERROR_BG_COLOR)
+
+            # Prioridad 2: Error de tiempo o escena (Rojo)
             if df_col_name in ["IN", "OUT"]:
                 is_valid = self._time_validation_status.get(df_row_idx, True)
                 if not is_valid:
@@ -516,62 +522,79 @@ class PandasTableModel(QAbstractTableModel):
 # Reemplaza el método _revalidate_all_lines() entero con este:
 
     def _revalidate_all_lines(self):
-        """
-        Revalida todas las filas para la alerta de LÍNEAS y notifica a la vista
-        de los cambios para forzar el redibujado.
-        """
-        if not hasattr(self, '_line_validation_status'):
-            return
+            """
+            Revalida DIÁLOGO y EUSKERA de forma independiente y notifica a la vista
+            de los cambios para forzar el redibujado de celdas específicas.
+            """
+            if not hasattr(self, '_line_validation_status'): return
 
-        # 1. Guardar el estado de error anterior
-        old_error_indices = set(self._line_validation_status.keys())
-        
-        # 2. Limpiar y recalcular el nuevo estado de error
-        self._line_validation_status.clear()
-        df = self._dataframe
+            old_error_indices = set(k for k, v in self._line_validation_status.items() if not v.get('DIÁLOGO', True) or not v.get('EUSKERA', True))
+            
+            new_status: Dict[int, Dict[str, bool]] = {}
+            df = self._dataframe
 
-        if not df.empty:
-            df_valid_times = df[(df['IN'] != "00:00:00:00") | (df['OUT'] != "00:00:00:00")]
-            for _, group_df in df_valid_times.groupby(['IN', 'OUT']):
-                group_indices = group_df.index.tolist()
-                use_euskera_col = any(str(group_df.loc[idx, 'EUSKERA']).strip() for idx in group_indices)
-                col_to_check = 'EUSKERA' if use_euskera_col else 'DIÁLOGO'
+            if not df.empty:
+                df_valid_times = df[(df['IN'] != "00:00:00:00") | (df['OUT'] != "00:00:00:00")]
+                for _, group_df in df_valid_times.groupby(['IN', 'OUT']):
+                    group_indices = group_df.index.tolist()
+                    
+                    # Ejecutar la validación para cada columna por separado
+                    dialogo_error_indices = self._check_group_for_column(df, group_indices, 'DIÁLOGO')
+                    euskera_error_indices = self._check_group_for_column(df, group_indices, 'EUSKERA')
 
-                total_lines_in_group = 0
-                lines_per_char = {}
-                rows_per_char = {}
+                    # Construir el nuevo diccionario de estado para el grupo
+                    for idx in group_indices:
+                        new_status[idx] = {
+                            'DIÁLOGO': idx not in dialogo_error_indices, # True si es válido
+                            'EUSKERA': idx not in euskera_error_indices  # True si es válido
+                        }
 
-                for idx in group_indices:
-                    text = str(df.at[idx, col_to_check])
-                    char = str(df.at[idx, 'PERSONAJE'])
-                    line_count = (text.count('\n') + 1) if text.strip() else 0
-                    total_lines_in_group += line_count
-                    lines_per_char[char] = lines_per_char.get(char, 0) + line_count
-                    if char not in rows_per_char:
-                        rows_per_char[char] = []
-                    rows_per_char[char].append(idx)
+            self._line_validation_status = new_status
+            new_error_indices = set(k for k, v in self._line_validation_status.items() if not v.get('DIÁLOGO', True) or not v.get('EUSKERA', True))
+            
+            indices_to_update = old_error_indices.symmetric_difference(new_error_indices)
+
+            if indices_to_update:
+                view_col_dialogo = self.get_view_column_index('DIÁLOGO')
+                view_col_euskera = self.get_view_column_index('EUSKERA')
                 
-                character_error_found = False
-                for char, count in lines_per_char.items():
-                    if count >= 6:
-                        character_error_found = True
-                        for idx_to_mark in rows_per_char[char]:
-                            # Marcamos como inválido (False)
-                            self._line_validation_status[idx_to_mark] = False
+                for df_idx in indices_to_update:
+                    if view_col_dialogo is not None:
+                        self.dataChanged.emit(self.index(df_idx, view_col_dialogo), self.index(df_idx, view_col_dialogo), [Qt.ItemDataRole.BackgroundRole])
+                    if view_col_euskera is not None:
+                        self.dataChanged.emit(self.index(df_idx, view_col_euskera), self.index(df_idx, view_col_euskera), [Qt.ItemDataRole.BackgroundRole])
+
+
+    def _check_group_for_column(self, df: pd.DataFrame, group_indices: List[int], col_to_check: str) -> set:
+            """
+            Función auxiliar que aplica las reglas de líneas para una columna específica
+            dentro de un grupo de intervenciones. Devuelve un conjunto de índices de fila en error.
+            """
+            total_lines_in_group = 0
+            lines_per_char = {}
+            rows_per_char = {}
+            error_indices_for_this_column = set()
+
+            for idx in group_indices:
+                text = str(df.at[idx, col_to_check])
+                char = str(df.at[idx, 'PERSONAJE'])
+                line_count = (text.count('\n') + 1) if text.strip() else 0
                 
-                if not character_error_found and total_lines_in_group >= 11:
-                    for idx_to_mark in group_indices:
-                        self._line_validation_status[idx_to_mark] = False
+                total_lines_in_group += line_count
+                lines_per_char[char] = lines_per_char.get(char, 0) + line_count
+                if char not in rows_per_char:
+                    rows_per_char[char] = []
+                rows_per_char[char].append(idx)
 
-        # 3. Comparar el estado nuevo con el viejo y emitir señales
-        new_error_indices = set(self._line_validation_status.keys())
-        
-        # Filas que han cambiado de estado (aparecen o desaparecen del conjunto de errores)
-        indices_to_update = old_error_indices.symmetric_difference(new_error_indices)
-
-        if indices_to_update:
-            # Notificar a la vista que debe redibujar el fondo de estas filas
-            for df_idx in indices_to_update:
-                start_index = self.index(df_idx, 0)
-                end_index = self.index(df_idx, self.columnCount() - 1)
-                self.dataChanged.emit(start_index, end_index, [Qt.ItemDataRole.BackgroundRole])
+            character_error_found = False
+            # Regla 1: Personaje individual con >= 6 líneas
+            for char, count in lines_per_char.items():
+                if count >= 6:
+                    character_error_found = True
+                    error_indices_for_this_column.update(rows_per_char[char])
+            
+            # Regla 2: Grupo completo con >= 11 líneas
+            if not character_error_found and total_lines_in_group >= 11:
+                error_indices_for_this_column.update(group_indices)
+                
+            return error_indices_for_this_column

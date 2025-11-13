@@ -210,9 +210,15 @@ class TableWindow(QWidget):
     def update_line_error_indicator(self):
         if not hasattr(self, 'line_error_indicator_button') or self.line_error_indicator_button is None or not hasattr(self.pandas_model, '_line_validation_status'):
             return
-            
-        self.line_error_df_indices = [idx for idx, valid in self.pandas_model._line_validation_status.items() if not valid]
-        self.line_error_df_indices.sort()
+        
+        all_errors = self.pandas_model._line_validation_status
+        error_indices = []
+        for idx, status_dict in all_errors.items():
+            # Una fila tiene error si CUALQUIERA de sus columnas de texto validadas es inválida
+            if not status_dict.get('DIÁLOGO', True) or not status_dict.get('EUSKERA', True):
+                error_indices.append(idx)
+
+        self.line_error_df_indices = sorted(error_indices)
         
         has_errors = bool(self.line_error_df_indices)
         if not has_errors:
@@ -222,7 +228,8 @@ class TableWindow(QWidget):
         if has_errors:
             self.line_error_indicator_button.setText("⚠️ LÍNEAS")
             self.line_error_indicator_button.setProperty("hasErrors", True)
-            self.line_error_indicator_button.setToolTip(f"Avisos de líneas detectados. Pulse para ir al siguiente.\nFilas: {', '.join(map(str, [i+1 for i in self.line_error_df_indices]))}")
+            # El tooltip puede ser más genérico ahora
+            self.line_error_indicator_button.setToolTip(f"Avisos de líneas detectados en DIÁLOGO o EUSKERA. Pulse para ir al siguiente.\nFilas: {', '.join(map(str, [i+1 for i in self.line_error_df_indices]))}")
             
         if self.line_error_indicator_button.style():
             self.line_error_indicator_button.style().unpolish(self.line_error_indicator_button)
