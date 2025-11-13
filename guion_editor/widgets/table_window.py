@@ -764,15 +764,23 @@ class TableWindow(QWidget):
     def on_model_data_changed(self, top_left_index: QModelIndex, bottom_right_index: QModelIndex, roles: List[int]):
         if not top_left_index.isValid(): return
         self.set_unsaved_changes(True)
+
+        # Bucle para gestionar el redimensionado de filas de diálogo
         for row in range(top_left_index.row(), bottom_right_index.row() + 1):
             df_col_name = self.pandas_model.get_df_column_name(top_left_index.column())
             if df_col_name in ['DIÁLOGO', 'EUSKERA', 'OHARRAK']:
                 self.request_resize_rows_to_contents_deferred()
             elif df_col_name == 'PERSONAJE':
-                # -> FIX: Esta llamada es la que estaba causando el error. Ahora funcionará.
                 self.update_character_completer_and_notify()
-        if top_left_index.column() <= self.COL_OUT_VIEW and bottom_right_index.column() >= self.COL_IN_VIEW:
-            self._recache_times()
+
+        # Comprobar si una columna de tiempo fue modificada
+        view_col_in = self.COL_IN_VIEW
+        view_col_out = self.COL_OUT_VIEW
+        if top_left_index.column() <= view_col_out and bottom_right_index.column() >= view_col_in:
+            # Iterar sobre todas las filas que han cambiado
+            for row in range(top_left_index.row(), bottom_right_index.row() + 1):
+                # Llamar a nuestro nuevo y eficiente método de actualización
+                self._update_time_cache_for_row(row)
 
     def update_character_completer_and_notify(self):
         # -> FIX: Eliminado el argumento 'table_window_instance=self' que causaba el TypeError.
@@ -955,12 +963,15 @@ class TableWindow(QWidget):
             view_col = self.COL_OUT_VIEW
             model_idx = self.pandas_model.index(df_row_idx, view_col)
 
+            # Si es la primera vez que se pulsa OUT para esta acción...
             if not self._is_marking_out:
                 self._is_marking_out = True
+                # Guardamos el estado original para poder crear el comando de deshacer al final
                 self._out_mark_original_value = str(self.pandas_model.data(model_idx, Qt.ItemDataRole.EditRole))
                 self._out_mark_df_row_idx = df_row_idx
 
             # Actualizamos solo la variable interna. NO TOCAMOS EL MODELO.
+            # Esta operación es extremadamente rápida y no tiene impacto en la UI.
             self._out_mark_final_value = time_code_str
 
     def toggle_link_out_to_next_in_checkbox(self, state: int):
@@ -968,9 +979,11 @@ class TableWindow(QWidget):
 
     def select_next_row_after_out_release(self) -> None:
         # -> INICIO: LÓGICA AÑADIDA PARA CREAR EL COMANDO DE DESHACER
+        # Este bloque se ejecuta una sola vez al soltar la tecla
         if self._is_marking_out:
             # Comprobar si realmente hubo un cambio
             if self._out_mark_original_value != self._out_mark_final_value:
+                # Creamos un único comando para toda la operación de marcado
                 command = EditCommand(self, 
                                     self._out_mark_df_row_idx, 
                                     self.COL_OUT_VIEW, 
@@ -978,7 +991,7 @@ class TableWindow(QWidget):
                                     self._out_mark_final_value)
                 self.undo_stack.push(command)
 
-            # Restablecer el estado
+            # Restablecer el estado para la próxima vez
             self._is_marking_out = False
             self._out_mark_original_value = None
             self._out_mark_final_value = None
@@ -1028,11 +1041,39 @@ class TableWindow(QWidget):
         self._time_cache = []
         df = self.pandas_model.dataframe()
         if df.empty: return
-        for row_index, row in df.iterrows():
-            start_ms = self.convert_time_code_to_milliseconds(str(row['IN']))
+        # Usamos un bucle por rango para obtener la POSICIÓN (0, 1, 2, ...)
+        for position in range(len(df)):
+            # Accedemos a los datos por POSICIÓN con .iloc[]
+            in_tc = df.iloc[position]['IN']
+            start_ms = self.convert_time_code_to_milliseconds(str(in_tc))
             if start_ms is not None:
-                self._time_cache.append((start_ms, row_index))
+                # Guardamos la POSICIÓN en la caché
+                self._time_cache.append((start_ms, position))
+        # Ordenamos la caché como siempre
         self._time_cache.sort(key=lambda x: x[0])
+
+    def _update_time_cache_for_row(self, df_row_idx: int):
+        """
+        Actualiza de forma eficiente la entrada de una sola fila en la caché de tiempos
+        sin reconstruir toda la caché.
+        """
+        # 1. Eliminar la entrada antigua de la caché (si existe)
+        self._time_cache = [item for item in self._time_cache if item[1] != df_row_idx]
+
+        # 2. Obtener el nuevo valor del DataFrame
+        current_df = self.pandas_model.dataframe()
+        # Comprobación de seguridad para evitar errores si la fila ya no existe
+        if df_row_idx >= len(current_df):
+            return
+
+        new_in_tc = str(current_df.iloc[df_row_idx]['IN'])
+        new_start_ms = self.convert_time_code_to_milliseconds(new_in_tc)
+
+        # 3. Si el nuevo valor es válido, insertarlo en la posición correcta
+        if new_start_ms is not None:
+            new_item = (new_start_ms, df_row_idx)
+            # bisect.insort es extremadamente rápido para insertar en una lista ya ordenada
+            bisect.insort(self._time_cache, new_item)
 
     def sync_with_video_position(self, position_ms: int):
         if self._is_marking_out:
@@ -1043,10 +1084,18 @@ class TableWindow(QWidget):
         active_row_index = -1
         
         if insertion_point > 0:
+            # 'candidate_row_index' ahora es la POSICIÓN de la fila, no su etiqueta
             candidate_start_ms, candidate_row_index = self._time_cache[insertion_point - 1]
-            end_ms = self.convert_time_code_to_milliseconds(str(self.pandas_model.dataframe().at[candidate_row_index, 'OUT']))
-            if end_ms is not None and candidate_start_ms <= position_ms < end_ms:
-                active_row_index = candidate_row_index
+            
+            current_df = self.pandas_model.dataframe()
+            # Comprobación de seguridad: nos aseguramos de que la posición sea válida
+            if candidate_row_index < len(current_df):
+                # Usamos .iloc[] que accede por POSICIÓN numérica, evitando el KeyError
+                out_tc = current_df.iloc[candidate_row_index]['OUT']
+                end_ms = self.convert_time_code_to_milliseconds(str(out_tc))
+                
+                if end_ms is not None and candidate_start_ms <= position_ms < end_ms:
+                    active_row_index = candidate_row_index
 
         if active_row_index != self._currently_synced_row:
             self._currently_synced_row = active_row_index
