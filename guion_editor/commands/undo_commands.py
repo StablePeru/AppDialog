@@ -441,28 +441,45 @@ class UpdateMultipleCharactersCommand(QUndoCommand):
         df = model.dataframe()
         
         mask = df['PERSONAJE'].astype(str).str.strip().isin(self.old_names_list)
-        
-        if not mask.any():
-            return
+        if not mask.any(): return
 
         if self.original_series is None:
             self.original_series = df.loc[mask, 'PERSONAJE'].copy()
 
+        view_col_char = model.get_view_column_index('PERSONAJE')
+        if view_col_char is None:
+            df.loc[mask, 'PERSONAJE'] = self.new_name
+            model.layoutChanged.emit() # Fallback
+            self.tw.set_unsaved_changes(True)
+            return
+
         df.loc[mask, 'PERSONAJE'] = self.new_name
         
-        model.layoutChanged.emit()
+        for df_idx in self.original_series.index:
+            model_idx = model.index(df_idx, view_col_char)
+            model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
+        
         self.tw.set_unsaved_changes(True)
 
     def undo(self):
-        if self.original_series is None or self.original_series.empty:
-            return
+        if self.original_series is None or self.original_series.empty: return
 
         model = self.tw.pandas_model
         df = model.dataframe()
 
+        view_col_char = model.get_view_column_index('PERSONAJE')
+        if view_col_char is None:
+            df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+            model.layoutChanged.emit() # Fallback
+            self.tw.set_unsaved_changes(True)
+            return
+
         df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
         
-        model.layoutChanged.emit()
+        for df_idx in self.original_series.index:
+            model_idx = model.index(df_idx, view_col_char)
+            model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
+        
         self.tw.set_unsaved_changes(True)
 
 class SplitCharacterCommand(QUndoCommand):
@@ -484,12 +501,10 @@ class SplitCharacterCommand(QUndoCommand):
         
         indices_to_split = df[df['PERSONAJE'] == self.old_name].index.tolist()
         
-        if not indices_to_split:
-            return
+        if not indices_to_split: return
 
         view_col_char = model.get_view_column_index('PERSONAJE')
-        if view_col_char is None:
-            return
+        if view_col_char is None: return
 
         if not self.original_rows_data:
             for df_idx in indices_to_split:
@@ -497,9 +512,13 @@ class SplitCharacterCommand(QUndoCommand):
 
         self.added_row_ids.clear()
 
+        # Iteramos en orden inverso para que los índices no se desplacen
+        # mientras insertamos nuevas filas.
         for df_idx in reversed(indices_to_split):
+            # Cambia el nombre del personaje en la fila original
             model.setData(model.index(df_idx, view_col_char), self.new_name1, Qt.ItemDataRole.EditRole)
             
+            # Prepara los datos para la nueva fila (copia de la original)
             original_row_data = df.iloc[df_idx].to_dict()
             new_row_data = original_row_data.copy()
             new_row_data['PERSONAJE'] = self.new_name2
@@ -508,29 +527,34 @@ class SplitCharacterCommand(QUndoCommand):
             new_row_data['ID'] = new_id
             self.added_row_ids.append(new_id)
             
+            # Inserta la nueva fila justo debajo de la original
             model.insert_row_data(df_idx + 1, new_row_data)
 
         self.tw.set_unsaved_changes(True)
-        model.layoutChanged.emit()
+        # No es necesario emitir layoutChanged, ya que insert_row_data lo hace.
 
     def undo(self):
-        if not self.original_rows_data:
-            return
+        if not self.original_rows_data: return
 
         model = self.tw.pandas_model
         
+        # Eliminar las filas que se añadieron
         for row_id in self.added_row_ids:
             df_idx_to_remove = model.find_df_index_by_id(row_id)
             if df_idx_to_remove is not None:
                 model.remove_row_by_df_index(df_idx_to_remove)
         
+        # Restaurar el nombre original en las filas que se modificaron
         view_col_char = model.get_view_column_index('PERSONAJE')
         if view_col_char is not None:
             for df_idx in self.original_rows_data.keys():
-                model.setData(model.index(df_idx, view_col_char), self.old_name, Qt.ItemDataRole.EditRole)
+                # Comprobar que el índice sigue siendo válido después de las eliminaciones
+                if 0 <= df_idx < model.rowCount():
+                    model.setData(model.index(df_idx, view_col_char), self.old_name, Qt.ItemDataRole.EditRole)
 
         self.tw.set_unsaved_changes(True)
-        model.layoutChanged.emit()
+        # No es necesario layoutChanged, setData y remove_row_by_df_index emiten las señales correctas.
+
 
 # -> INICIO: NUEVO COMANDO PARA LIMPIAR ESPACIOS DE NOMBRES
 class TrimAllCharactersCommand(QUndoCommand):
@@ -543,38 +567,46 @@ class TrimAllCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
         
-        # 1. Encontrar qué filas necesitan ser cambiadas
         mask = df['PERSONAJE'].astype(str) != df['PERSONAJE'].astype(str).str.strip()
-        
-        if not mask.any():
-            # Si ninguna fila necesita cambios, no hacemos nada.
-            # Esto evita que el comando se añada a la pila si no hay trabajo que hacer.
-            return
+        if not mask.any(): return
             
-        # 2. Si es la primera ejecución, guardar los datos originales para el 'undo'
         if self.original_series is None:
             self.original_series = df.loc[mask, 'PERSONAJE'].copy()
             
-        # 3. Aplicar la limpieza solo a las filas necesarias
+        view_col_char = model.get_view_column_index('PERSONAJE')
+        if view_col_char is None:
+            df.loc[mask, 'PERSONAJE'] = df.loc[mask, 'PERSONAJE'].astype(str).str.strip()
+            model.layoutChanged.emit() # Fallback
+            self.tw.set_unsaved_changes(True)
+            return
+
         df.loc[mask, 'PERSONAJE'] = df.loc[mask, 'PERSONAJE'].astype(str).str.strip()
         
-        # 4. Notificar a la vista del cambio y actualizar estado
-        model.layoutChanged.emit()
+        for df_idx in self.original_series.index:
+            model_idx = model.index(df_idx, view_col_char)
+            model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
+        
         self.tw.set_unsaved_changes(True)
 
     def undo(self):
-        # Si no hay datos originales guardados, no se puede deshacer
-        if self.original_series is None or self.original_series.empty:
-            return
+        if self.original_series is None or self.original_series.empty: return
 
         model = self.tw.pandas_model
         df = model.dataframe()
 
-        # Restaurar los nombres originales usando el índice que guardamos en la serie
+        view_col_char = model.get_view_column_index('PERSONAJE')
+        if view_col_char is None:
+            df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+            model.layoutChanged.emit() # Fallback
+            self.tw.set_unsaved_changes(True)
+            return
+            
         df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
         
-        # Notificar a la vista del cambio y actualizar estado
-        model.layoutChanged.emit()
+        for df_idx in self.original_series.index:
+            model_idx = model.index(df_idx, view_col_char)
+            model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
+        
         self.tw.set_unsaved_changes(True)
 
 class ShiftTimecodesCommand(QUndoCommand):
@@ -584,8 +616,6 @@ class ShiftTimecodesCommand(QUndoCommand):
         self.fps = fps
         self.offset_frames = offset_frames
         self.sign = sign
-        
-        # Guardaremos los timecodes originales de las columnas IN y OUT
         self.original_in_series: Optional[pd.Series] = None
         self.original_out_series: Optional[pd.Series] = None
         
@@ -593,50 +623,40 @@ class ShiftTimecodesCommand(QUndoCommand):
         offset_tc = frames_to_tc(offset_frames, fps)
         self.setText(f"{operation_text} timecodes ({offset_tc})")
 
-    def redo(self):
+    def _shift_and_notify(self, reverse=False):
         model = self.tw.pandas_model
         df = model.dataframe()
 
-        if self.original_in_series is None:
-            self.original_in_series = df['IN'].copy()
-        if self.original_out_series is None:
-            self.original_out_series = df['OUT'].copy()
-
         def shift_cell(tc_value: str) -> str:
-            """Función interna para desplazar un solo timecode."""
-            if pd.isna(tc_value) or str(tc_value).strip() == "":
-                return ""
-            
+            if pd.isna(tc_value) or str(tc_value).strip() == "": return ""
             original_frames = tc_to_frames(tc_value, self.fps)
-            if original_frames is None:
-                return tc_value # Devolver el valor original si no es un TC válido
+            if original_frames is None: return tc_value
             
-            new_frames = original_frames + (self.sign * self.offset_frames)
+            current_sign = -self.sign if reverse else self.sign
+            new_frames = original_frames + (current_sign * self.offset_frames)
             return frames_to_tc(new_frames, self.fps)
 
-        # Aplicar la función a las columnas IN y OUT
         df['IN'] = df['IN'].apply(shift_cell)
         df['OUT'] = df['OUT'].apply(shift_cell)
 
-        # Notificar a la vista que los datos han cambiado por completo
-        model.layoutChanged.emit()
-        self.tw.set_unsaved_changes(True)
-
-    def undo(self):
-        # Si no hemos guardado los datos originales, no hay nada que deshacer
-        if self.original_in_series is None or self.original_out_series is None:
+        view_col_in = model.get_view_column_index('IN')
+        view_col_out = model.get_view_column_index('OUT')
+        if view_col_in is None or view_col_out is None or model.rowCount() == 0:
+            model.layoutChanged.emit() # Fallback
+            self.tw.set_unsaved_changes(True)
             return
 
-        model = self.tw.pandas_model
-        df = model.dataframe()
-
-        # Restaurar las columnas completas desde las series guardadas
-        df['IN'] = self.original_in_series
-        df['OUT'] = self.original_out_series
-
-        # Notificar a la vista que los datos han cambiado por completo
-        model.layoutChanged.emit()
+        top_left_index = model.index(0, min(view_col_in, view_col_out))
+        bottom_right_index = model.index(model.rowCount() - 1, max(view_col_in, view_col_out))
+        model.dataChanged.emit(top_left_index, bottom_right_index, [Qt.ItemDataRole.EditRole])
         self.tw.set_unsaved_changes(True)
+
+    def redo(self):
+        self._shift_and_notify(reverse=False)
+
+    def undo(self):
+        self._shift_and_notify(reverse=True)
+
 
 class ResetScenesCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow'):
@@ -647,32 +667,36 @@ class ResetScenesCommand(QUndoCommand):
     def redo(self):
         model = self.tw.pandas_model
         df = model.dataframe()
-        
-        if df.empty:
-            return
+        if df.empty: return
 
-        # Guardar los valores originales solo la primera vez que se ejecuta
         if self.original_scenes is None:
             self.original_scenes = df['SCENE'].copy()
             
-        # Actualizar todas las escenas a "1"
         df['SCENE'] = "1"
         
-        # Notificar a la vista que todo el modelo ha cambiado
-        model.layoutChanged.emit()
+        view_col_scene = model.get_view_column_index('SCENE')
+        if view_col_scene is None or model.rowCount() == 0:
+            model.layoutChanged.emit() # Fallback
+        else:
+            top_left = model.index(0, view_col_scene)
+            bottom_right = model.index(model.rowCount() - 1, view_col_scene)
+            model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.EditRole])
         self.tw.set_unsaved_changes(True)
 
     def undo(self):
-        if self.original_scenes is None:
-            return
+        if self.original_scenes is None: return
 
         model = self.tw.pandas_model
         df = model.dataframe()
-
-        # Restaurar la columna de escenas original
         df['SCENE'] = self.original_scenes
         
-        model.layoutChanged.emit()
+        view_col_scene = model.get_view_column_index('SCENE')
+        if view_col_scene is None or model.rowCount() == 0:
+            model.layoutChanged.emit() # Fallback
+        else:
+            top_left = model.index(0, view_col_scene)
+            bottom_right = model.index(model.rowCount() - 1, view_col_scene)
+            model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.EditRole])
         self.tw.set_unsaved_changes(True)
 
 
@@ -686,33 +710,82 @@ class ResetTimecodesCommand(QUndoCommand):
     def redo(self):
         model = self.tw.pandas_model
         df = model.dataframe()
+        if df.empty: return
 
-        if df.empty:
-            return
-
-        # Guardar los valores originales solo la primera vez
-        if self.original_ins is None:
-            self.original_ins = df['IN'].copy()
-        if self.original_outs is None:
-            self.original_outs = df['OUT'].copy()
+        if self.original_ins is None: self.original_ins = df['IN'].copy()
+        if self.original_outs is None: self.original_outs = df['OUT'].copy()
             
-        # Actualizar todos los tiempos a "00:00:00:00"
         df['IN'] = "00:00:00:00"
         df['OUT'] = "00:00:00:00"
         
-        model.layoutChanged.emit()
+        view_col_in = model.get_view_column_index('IN')
+        view_col_out = model.get_view_column_index('OUT')
+        if view_col_in is None or view_col_out is None or model.rowCount() == 0:
+            model.layoutChanged.emit() # Fallback
+        else:
+            top_left = model.index(0, min(view_col_in, view_col_out))
+            bottom_right = model.index(model.rowCount() - 1, max(view_col_in, view_col_out))
+            model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.EditRole])
         self.tw.set_unsaved_changes(True)
 
     def undo(self):
-        if self.original_ins is None or self.original_outs is None:
-            return
+        if self.original_ins is None or self.original_outs is None: return
 
         model = self.tw.pandas_model
         df = model.dataframe()
-
-        # Restaurar los tiempos originales
         df['IN'] = self.original_ins
         df['OUT'] = self.original_outs
         
-        model.layoutChanged.emit()
+        view_col_in = model.get_view_column_index('IN')
+        view_col_out = model.get_view_column_index('OUT')
+        if view_col_in is None or view_col_out is None or model.rowCount() == 0:
+            model.layoutChanged.emit() # Fallback
+        else:
+            top_left = model.index(0, min(view_col_in, view_col_out))
+            bottom_right = model.index(model.rowCount() - 1, max(view_col_in, view_col_out))
+            model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.EditRole])
+        self.tw.set_unsaved_changes(True)
+
+class CopyInToPreviousOutCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow'):
+        super().__init__("Copiar IN de la siguiente fila al OUT de la actual")
+        self.tw = table_window
+        self.original_outs: Optional[pd.Series] = None
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+        if df.empty: return
+
+        if self.original_outs is None:
+            self.original_outs = df['OUT'].copy()
+            
+        df['OUT'] = df['IN'].shift(-1)
+        
+        if not self.original_outs.empty:
+            df.loc[df.index[-1], 'OUT'] = self.original_outs.iloc[-1]
+        
+        view_col_out = model.get_view_column_index('OUT')
+        if view_col_out is None or model.rowCount() == 0:
+            model.layoutChanged.emit() # Fallback
+        else:
+            top_left = model.index(0, view_col_out)
+            bottom_right = model.index(model.rowCount() - 1, view_col_out)
+            model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.EditRole])
+        self.tw.set_unsaved_changes(True)
+
+    def undo(self):
+        if self.original_outs is None: return
+
+        model = self.tw.pandas_model
+        df = model.dataframe()
+        df['OUT'] = self.original_outs
+        
+        view_col_out = model.get_view_column_index('OUT')
+        if view_col_out is None or model.rowCount() == 0:
+            model.layoutChanged.emit() # Fallback
+        else:
+            top_left = model.index(0, view_col_out)
+            bottom_right = model.index(model.rowCount() - 1, view_col_out)
+            model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.EditRole])
         self.tw.set_unsaved_changes(True)

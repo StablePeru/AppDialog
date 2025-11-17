@@ -13,7 +13,7 @@ from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, 
 from PyQt6.QtWidgets import (
     QWidget, QFileDialog, QAbstractItemView,
     QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
-    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu, QSizePolicy, QDialog
+    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu, QSizePolicy, QDialog, QToolTip
 )
 from PyQt6.QtGui import QUndoStack
 
@@ -442,7 +442,7 @@ class TableWindow(QWidget):
         if not hasattr(self, 'time_error_indicator_button') or self.time_error_indicator_button is None or not hasattr(self.pandas_model, '_time_validation_status'):
             return
         
-        self.error_df_indices = [idx for idx, valid in self.pandas_model._time_validation_status.items() if not valid]
+        self.error_df_indices = [idx for idx, status in self.pandas_model._time_validation_status.items() if status is not True]
         self.error_df_indices.sort()
         
         has_errors = bool(self.error_df_indices)
@@ -463,7 +463,7 @@ class TableWindow(QWidget):
         if not hasattr(self, 'scene_error_indicator_button') or self.scene_error_indicator_button is None or not hasattr(self.pandas_model, '_scene_validation_status'):
             return
             
-        self.scene_error_df_indices = [idx for idx, valid in self.pandas_model._scene_validation_status.items() if not valid]
+        self.scene_error_df_indices = [idx for idx, status in self.pandas_model._scene_validation_status.items() if status is not True]
         self.scene_error_df_indices.sort()
         
         has_errors = bool(self.scene_error_df_indices)
@@ -516,6 +516,19 @@ class TableWindow(QWidget):
         self.table_view.scrollTo(self.pandas_model.index(target_df_idx, self.COL_IN_VIEW), QAbstractItemView.ScrollHint.PositionAtCenter)
         self.table_view.setFocus()
 
+        error_message = self.pandas_model._time_validation_status.get(target_df_idx, "Error desconocido.")
+        if error_message is True: return
+
+        view_col_to_highlight = self.COL_IN_VIEW
+        if "OUT" in str(error_message):
+            view_col_to_highlight = self.COL_OUT_VIEW
+        
+        cell_index = self.pandas_model.index(target_df_idx, view_col_to_highlight)
+        cell_rect = self.table_view.visualRect(cell_index)
+        tooltip_pos = self.table_view.viewport().mapToGlobal(cell_rect.topLeft())
+        
+        QToolTip.showText(tooltip_pos + QPoint(0, cell_rect.height()), str(error_message), self.table_view, cell_rect, 3000)
+
     def go_to_next_scene_error(self):
         if not self.scene_error_df_indices: return
         self._current_scene_error_nav_idx = (self._current_scene_error_nav_idx + 1) % len(self.scene_error_df_indices)
@@ -524,6 +537,15 @@ class TableWindow(QWidget):
         self.table_view.selectRow(target_df_idx)
         self.table_view.scrollTo(self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW), QAbstractItemView.ScrollHint.PositionAtCenter)
         self.table_view.setFocus()
+
+        error_message = self.pandas_model._scene_validation_status.get(target_df_idx, "Error de escena desconocido.")
+        if error_message is True: return
+        
+        cell_index = self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW)
+        cell_rect = self.table_view.visualRect(cell_index)
+        tooltip_pos = self.table_view.viewport().mapToGlobal(cell_rect.topLeft())
+        
+        QToolTip.showText(tooltip_pos + QPoint(0, cell_rect.height()), str(error_message), self.table_view, cell_rect, 3000)
 
     def setup_table_view(self, layout: QVBoxLayout) -> None:
         self.table_view = CustomTableView()
@@ -1311,3 +1333,28 @@ class TableWindow(QWidget):
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
         if reply == QMessageBox.StandardButton.Yes:
             self.undo_stack.push(RemoveRowsCommand(self, indices_to_remove))
+
+    def copy_in_to_previous_out(self):
+        """
+        Copia el valor de la columna 'IN' de cada fila al valor 'OUT' de la fila anterior.
+        Es útil para rellenar los tiempos de salida faltantes.
+        """
+        if self.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Operación no posible", "No hay datos en el guion.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirmar Operación",
+            "Esto sobrescribirá todos los valores de la columna 'OUT' (excepto el de la última fila) con los valores 'IN' de la fila siguiente.\n\n¿Desea continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Importar el nuevo comando aquí para evitar importaciones circulares a nivel de módulo
+            from guion_editor.commands.undo_commands import CopyInToPreviousOutCommand
+            
+            command = CopyInToPreviousOutCommand(self)
+            self.undo_stack.push(command)
+            QMessageBox.information(self, "Éxito", "Los tiempos OUT han sido actualizados.")

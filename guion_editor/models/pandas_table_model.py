@@ -2,7 +2,7 @@
 import pandas as pd
 from PyQt6.QtCore import QAbstractTableModel, Qt, QModelIndex, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
-from typing import Any, List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple, Union
 
 # Colores de validación (apropiados para tema oscuro)
 VALID_TIME_BG_COLOR = QColor(Qt.GlobalColor.transparent) # Sin color de fondo para válido
@@ -37,8 +37,8 @@ class PandasTableModel(QAbstractTableModel):
             df_name: view_idx for view_idx, df_name in column_map.items()
             if df_name != ROW_NUMBER_COL_IDENTIFIER and df_name != DURATION_COL_IDENTIFIER # <-- CORRECCIÓN: 'col_name' cambiado a 'df_name'
         }
-        self._time_validation_status: Dict[int, bool] = {}
-        self._scene_validation_status: Dict[int, bool] = {}
+        self._time_validation_status: Dict[int, Union[bool, str]] = {}
+        self._scene_validation_status: Dict[int, Union[bool, str]] = {}
         self._line_validation_status: Dict[int, Dict[str, bool]] = {}
         
     # -> INICIO: NUEVO MÉTODO AUXILIAR
@@ -161,6 +161,16 @@ class PandasTableModel(QAbstractTableModel):
                 return ""
             return str(value)
 
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if df_col_name in ["IN", "OUT"]:
+                status = self._time_validation_status.get(df_row_idx, True)
+                if status is not True:
+                    return status
+            if df_col_name == "SCENE":
+                status = self._scene_validation_status.get(df_row_idx, True)
+                if status is not True:
+                    return status
+
         if role == Qt.ItemDataRole.BackgroundRole:
             df_row_idx = index.row()
             # Prioridad 1: Error de líneas (Naranja) - AHORA ESPECÍFICO DE CELDA
@@ -173,17 +183,16 @@ class PandasTableModel(QAbstractTableModel):
 
             # Prioridad 2: Error de tiempo o escena (Rojo)
             if df_col_name in ["IN", "OUT"]:
-                is_valid = self._time_validation_status.get(df_row_idx, True)
+                is_valid = self._time_validation_status.get(df_row_idx, True) is True
                 if not is_valid:
                     return QBrush(INVALID_TIME_BG_COLOR)
             elif df_col_name == "SCENE":
-                is_valid = self._scene_validation_status.get(df_row_idx, True)
+                is_valid = self._scene_validation_status.get(df_row_idx, True) is True
                 if not is_valid:
                     return QBrush(INVALID_TIME_BG_COLOR)
 
             is_bookmarked = self._dataframe.at[df_row_idx, 'BOOKMARK']
             if is_bookmarked:
-                print(f"--- PASO 5: data() para fila {df_row_idx} pide color. Marcapáginas: {is_bookmarked}. Devolviendo LILA. ---")
                 return QBrush(BOOKMARK_BG_COLOR)
 
         return None
@@ -398,23 +407,8 @@ class PandasTableModel(QAbstractTableModel):
             new_time_validation_status = {}
             new_scene_validation_status = {}
             for i in range(len(self._dataframe)):
-                in_tc = str(self._dataframe.at[i, 'IN'])
-                out_tc = str(self._dataframe.at[i, 'OUT'])
-                in_ms = self._convert_tc_to_ms(in_tc)
-                out_ms = self._convert_tc_to_ms(out_tc)
-
-                is_time_valid = False
-                if in_ms is not None and out_ms is not None:
-                    duration_ms = out_ms - in_ms
-                    if duration_ms >= 0 and duration_ms <= MAX_INTERVENTION_DURATION_MS:
-                        is_time_valid = True
-                new_time_validation_status[i] = is_time_valid
-
-                scene_val = str(self._dataframe.at[i, 'SCENE'])
-                new_scene_validation_status[i] = not (scene_val.strip() == "" or scene_val.strip().lower() == "nan")
-
-            self._time_validation_status = new_time_validation_status
-            self._scene_validation_status = new_scene_validation_status
+                self._validate_in_out_for_row(i)
+                self._validate_scene_for_row(i)
 
         except Exception as e:
             self.endMoveRows()
@@ -464,31 +458,42 @@ class PandasTableModel(QAbstractTableModel):
         if 0 <= df_row_idx < len(self._dataframe):
             in_tc = str(self._dataframe.at[df_row_idx, 'IN'])
             out_tc = str(self._dataframe.at[df_row_idx, 'OUT'])
-
             in_ms = self._convert_tc_to_ms(in_tc)
             out_ms = self._convert_tc_to_ms(out_tc)
-
-            is_valid = False
-            if in_ms is not None and out_ms is not None:
-                if in_ms == 0 and out_ms == 0:
-                    is_valid = False
-                else:
-                    duration_ms = out_ms - in_ms
-                    if duration_ms >= 0 and duration_ms <= MAX_INTERVENTION_DURATION_MS:
-                        is_valid = True
             
-            self._time_validation_status[df_row_idx] = is_valid
+            validation_result: Union[bool, str] = True
+            if in_ms is None or out_ms is None:
+                validation_result = "Formato de tiempo inválido (HH:MM:SS:FF)."
+            elif in_ms == 0 and out_ms == 0:
+                validation_result = "Tiempos IN y OUT no pueden ser ambos cero."
+            else:
+                duration_ms = out_ms - in_ms
+                if duration_ms < 0:
+                    validation_result = f"Error: OUT ({out_tc}) es anterior a IN ({in_tc})."
+                elif duration_ms > MAX_INTERVENTION_DURATION_MS:
+                    duration_s = duration_ms / 1000.0
+                    max_s = MAX_INTERVENTION_DURATION_MS / 1000.0
+                    validation_result = f"Duración ({duration_s:.1f}s) excede el máximo ({max_s:.0f}s)."
+            
+            self._time_validation_status[df_row_idx] = validation_result
+
         elif df_row_idx in self._time_validation_status:
                  del self._time_validation_status[df_row_idx]
 
     def _validate_scene_for_row(self, df_row_idx: int):
         if 0 <= df_row_idx < len(self._dataframe):
-            scene_value = str(self._dataframe.at[df_row_idx, 'SCENE'])
-            is_valid = not (scene_value.strip() == "" or scene_value.strip().lower() == "nan")
-            self._scene_validation_status[df_row_idx] = is_valid
+            scene_value = str(self._dataframe.at[df_row_idx, 'SCENE']).strip()
+            validation_result: Union[bool, str] = True
+            if not scene_value or scene_value.lower() == "nan":
+                validation_result = "La escena no puede estar vacía."
+            else:
+                try:
+                    int(scene_value)
+                except ValueError:
+                    validation_result = f"La escena '{scene_value}' no es un número entero."
+            self._scene_validation_status[df_row_idx] = validation_result
         elif df_row_idx in self._scene_validation_status:
             del self._scene_validation_status[df_row_idx]
-
 
     def force_time_validation_update_for_row(self, df_row_idx: int):
         if 0 <= df_row_idx < len(self._dataframe):
@@ -501,10 +506,10 @@ class PandasTableModel(QAbstractTableModel):
                 out_view_col = self.get_view_column_index('OUT')
                 if in_view_col is not None:
                     in_idx = self.index(df_row_idx, in_view_col)
-                    self.dataChanged.emit(in_idx, in_idx, [Qt.ItemDataRole.BackgroundRole])
+                    self.dataChanged.emit(in_idx, in_idx, [Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ToolTipRole])
                 if out_view_col is not None:
                     out_idx = self.index(df_row_idx, out_view_col)
-                    self.dataChanged.emit(out_idx, out_idx, [Qt.ItemDataRole.BackgroundRole])
+                    self.dataChanged.emit(out_idx, out_idx, [Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ToolTipRole])
 
     def force_scene_validation_update_for_row(self, df_row_idx: int):
         if 0 <= df_row_idx < len(self._dataframe):
@@ -516,7 +521,7 @@ class PandasTableModel(QAbstractTableModel):
                 scene_view_col = self.get_view_column_index('SCENE')
                 if scene_view_col is not None:
                     scene_idx = self.index(df_row_idx, scene_view_col)
-                    self.dataChanged.emit(scene_idx, scene_idx, [Qt.ItemDataRole.BackgroundRole])
+                    self.dataChanged.emit(scene_idx, scene_idx, [Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ToolTipRole])
         return None
     
 # Reemplaza el método _revalidate_all_lines() entero con este:

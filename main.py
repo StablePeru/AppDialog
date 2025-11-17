@@ -295,6 +295,7 @@ class MainWindow(QMainWindow):
         self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter") # Sin icono    
         self.add_managed_action("Reiniciar Todas las Escenas a '1'", self.tableWindow.reset_all_scenes, None, "reset_scenes_icon.svg", "tools_reset_scenes")
         self.add_managed_action("Reiniciar Todos los Tiempos a Cero", self.tableWindow.reset_all_timecodes, None, "reset_timecodes_icon.svg", "tools_reset_timecodes")
+        self.add_managed_action("Copiar IN a OUT anterior", self.tableWindow.copy_in_to_previous_out, None, "copy_in_out_prev_icon.svg", "tools_copy_in_to_out")
 
         # Shortcuts Menu Actions
         self.add_managed_action("Configurar Shortcuts", self.open_shortcut_config_dialog, None, "configure_shortcuts_icon.svg", "config_shortcuts_dialog")
@@ -445,6 +446,7 @@ class MainWindow(QMainWindow):
         configMenu.addSeparator()
         configMenu.addAction(self.actions["tools_reset_scenes"])
         configMenu.addAction(self.actions["tools_reset_timecodes"])
+        configMenu.addAction(self.actions["tools_copy_in_to_out"])
 
     def create_shortcuts_menu(self, menuBar):
         for action_menu_item in menuBar.actions():
