@@ -115,27 +115,33 @@ class MainWindow(QMainWindow):
 
     def _perform_autosave(self):
         """Guarda el estado actual en el archivo de recuperación si hay cambios."""
-        # -> MODIFICADO: Se apunta a la misma carpeta que el guardado manual (Ctrl+S)
         TARGET_DIR = self.RECOVERY_DIR
 
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
             try:
-                # -> NUEVO: Generar el nombre de archivo dinámico
                 base_filename = self.tableWindow._generate_default_filename("json")
                 autosave_filename = f"auto_{base_filename}"
                 recovery_path = os.path.join(TARGET_DIR, autosave_filename)
 
-                # Asegurarse de que el directorio exista
                 if not os.path.exists(TARGET_DIR):
                     os.makedirs(TARGET_DIR)
 
                 current_df = self.tableWindow.pandas_model.dataframe()
                 header_data = self.tableWindow._get_header_data_from_ui()
                 self.guion_manager.save_to_json(recovery_path, current_df, header_data)
+                
                 if self.statusBar():
                     self.statusBar().showMessage(f"Progreso autoguardado en {autosave_filename}", 3000)
+            
+            # --- INICIO DEL CAMBIO ---
+            except (OSError, IOError) as e:
+                # Captura errores de E/S: permisos, disco lleno, ruta no válida, etc.
+                print(f"Error de sistema de archivos durante el autoguardado: {e}")
+                if self.statusBar():
+                    self.statusBar().showMessage(f"Fallo en el autoguardado: {e}", 5000)
             except Exception as e:
-                print(f"Error durante el autoguardado: {e}")
+                # Mantenemos este para cualquier otro error inesperado (ej. en la lógica de pandas)
+                print(f"Error inesperado durante el autoguardado: {e}")
 
     def _check_for_recovery_file(self):
         """Comprueba si existen archivos de recuperación y pregunta al usuario si desea restaurar alguno."""

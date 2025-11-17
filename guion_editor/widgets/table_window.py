@@ -12,7 +12,8 @@ from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, 
 from PyQt6.QtWidgets import (
     QWidget, QFileDialog, QAbstractItemView,
     QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
-    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu, QSizePolicy, QDialog, QToolTip
+    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu, QSizePolicy, QDialog, QToolTip,
+    QProgressDialog, QApplication
 )
 from PyQt6.QtGui import QUndoStack
 
@@ -588,44 +589,104 @@ class TableWindow(QWidget):
             if values and values[1] > 0: self.undo_stack.push(ShiftTimecodesCommand(self, *values)); QMessageBox.information(self, "Éxito", "Los timecodes han sido desplazados.")
 
     def load_from_docx_path(self, file_path: str):
+        progress = QProgressDialog("Cargando guion desde DOCX...", "Cancelar", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setRange(0, 0)
+        progress.show()
+        QApplication.processEvents()
+
         try:
             df, header_data, _ = self.guion_manager.load_from_docx(file_path)
             self._post_load_script_actions(file_path, df, header_data)
-        except Exception as e: self.handle_exception(e, f"Error al cargar DOCX: {file_path}"); self.clear_script_state()
+        # --- INICIO DEL CAMBIO ---
+        except FileNotFoundError:
+            self.handle_exception(FileNotFoundError(f"El archivo no se encontró en la ruta: {file_path}"), f"Error al cargar DOCX")
+            self.clear_script_state()
+        except Exception as e: # Mantenemos uno general para errores de formato o inesperados
+            self.handle_exception(e, f"Error al procesar el archivo DOCX: {file_path}")
+            self.clear_script_state()
+        # --- FIN DEL CAMBIO ---
+        finally:
+            progress.close()
 
     def import_from_excel_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Importar Guion desde Excel", "", "Archivos Excel (*.xlsx)")
         if path: self.load_from_excel_path(path)
 
     def load_from_excel_path(self, file_path: str):
+        progress = QProgressDialog("Procesando archivo Excel...", "Cancelar", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setRange(0, 0)
+        progress.show()
+        QApplication.processEvents()
+
         try:
             raw_df, header_data, needs_mapping = self.guion_manager.check_excel_columns(file_path)
             final_df = None
             if needs_mapping:
+                progress.close() 
                 dialog = ExcelMappingDialog(raw_df, self)
                 if dialog.exec() == QDialog.DialogCode.Accepted:
+                    progress.setLabelText("Aplicando mapeo y cargando datos...")
+                    progress.show()
+                    QApplication.processEvents()
+                    
                     mapping = dialog.get_mapping()
                     mapped_df = pd.DataFrame()
                     for app_col, excel_col in mapping.items():
                         if excel_col != "--- NO ASIGNAR / USAR VALOR POR DEFECTO ---":
                             mapped_df[app_col] = raw_df.get(excel_col, "")
                     final_df = mapped_df
-                else: return
-            else: final_df = raw_df
+                else:
+                    progress.close()
+                    return
+            else:
+                final_df = raw_df
+                
             if final_df is not None:
                 df_processed, _ = self.guion_manager.process_dataframe(final_df, file_source=file_path)
                 self._post_load_script_actions(file_path, df_processed, header_data)
-        except Exception as e: self.handle_exception(e, f"Error al cargar Excel: {file_path}"); self.clear_script_state()
+        # --- INICIO DEL CAMBIO ---
+        except FileNotFoundError:
+            self.handle_exception(FileNotFoundError(f"El archivo no se encontró en la ruta: {file_path}"), f"Error al cargar Excel")
+            self.clear_script_state()
+        except (ValueError, KeyError) as e: # Errores comunes de pandas o de formato
+            self.handle_exception(e, f"El archivo Excel '{os.path.basename(file_path)}' tiene un formato o columnas inesperadas.")
+            self.clear_script_state()
+        except Exception as e:
+            self.handle_exception(e, f"Error al procesar el archivo Excel: {file_path}")
+            self.clear_script_state()
+        # --- FIN DEL CAMBIO ---
+        finally:
+            progress.close()
 
     def load_from_json_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Cargar Guion desde JSON", "", "Archivos JSON (*.json)")
         if path: self.load_from_json_path(path)
 
     def load_from_json_path(self, file_path: str):
+        progress = QProgressDialog("Cargando guion desde JSON...", "Cancelar", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setRange(0, 0)
+        progress.show()
+        QApplication.processEvents()
+
         try:
             df, header_data, _ = self.guion_manager.load_from_json(file_path)
             self._post_load_script_actions(file_path, df, header_data)
-        except Exception as e: self.handle_exception(e, f"Error al cargar JSON: {file_path}"); self.clear_script_state()
+        # --- INICIO DEL CAMBIO ---
+        except FileNotFoundError:
+            self.handle_exception(FileNotFoundError(f"El archivo no se encontró en la ruta: {file_path}"), f"Error al cargar JSON")
+            self.clear_script_state()
+        except json.JSONDecodeError as e:
+            self.handle_exception(e, f"El archivo JSON '{os.path.basename(file_path)}' está corrupto o mal formado.")
+            self.clear_script_state()
+        except Exception as e:
+            self.handle_exception(e, f"Error al procesar el archivo JSON: {file_path}")
+            self.clear_script_state()
+        # --- FIN DEL CAMBIO ---
+        finally:
+            progress.close()
 
     def _generate_default_filename(self, extension: str) -> str:
         header_data = self._get_header_data_from_ui()
@@ -783,16 +844,60 @@ class TableWindow(QWidget):
 
     def split_intervention(self) -> None:
         current_idx = self.table_view.currentIndex()
-        if not current_idx.isValid(): QMessageBox.warning(self, "Separar", "Seleccione una celda de diálogo o euskera."); return
-        df_col_name = self.pandas_model.get_df_column_name(current_idx.column())
-        if df_col_name not in [C.COL_DIALOGO, C.COL_EUSKERA]: QMessageBox.warning(self, "Separar", f"Por favor, seleccione una celda en '{C.COL_DIALOGO}' o '{C.COL_EUSKERA}'."); return
-        if not self.last_focused_dialog_index or self.last_focused_dialog_index != current_idx: QMessageBox.information(self, "Separar", f"Edite la celda y coloque el cursor en el punto de división. Luego, haga clic fuera para que la celda pierda el foco antes de separar."); return
-        text_to_split, cursor_pos = self.last_focused_dialog_text or "", self.last_focused_dialog_cursor_pos
+        if not current_idx.isValid():
+            QMessageBox.warning(self, "Separar", "Por favor, seleccione una fila para separar.")
+            return
+
+        text_to_split: Optional[str] = None
+        cursor_pos: int = -1
+        df_col_name: Optional[str] = None
+
+        # --- INICIO DE LA NUEVA LÓGICA MEJORADA ---
+
+        # 1. Comprobar si hay un editor activo en la tabla
+        active_editor = self.table_view.focusWidget()
+        if isinstance(active_editor, CustomTextEdit) and self.table_view.state() == QAbstractItemView.State.EditingState:
+            # ¡Perfecto! El usuario está editando ahora mismo.
+            text_to_split = active_editor.toPlainText()
+            cursor_pos = active_editor.textCursor().position()
+            
+            # Obtenemos el índice del editor para saber qué columna se está editando
+            editor_index = self.table_view.indexAt(active_editor.pos())
+            if editor_index.isValid():
+                df_col_name = self.pandas_model.get_df_column_name(editor_index.column())
+
+        # 2. Si no hay editor activo, usar la última posición guardada (comportamiento anterior como fallback)
+        elif self.last_focused_dialog_index and self.last_focused_dialog_index.row() == current_idx.row():
+            text_to_split = self.last_focused_dialog_text
+            cursor_pos = self.last_focused_dialog_cursor_pos
+            df_col_name = self.pandas_model.get_df_column_name(self.last_focused_dialog_index.column())
+
+        # --- FIN DE LA NUEVA LÓGICA ---
+
+        # 3. Si no tenemos datos válidos, guiar al usuario
+        if text_to_split is None or cursor_pos == -1 or df_col_name not in [C.COL_DIALOGO, C.COL_EUSKERA]:
+            QMessageBox.information(self, "Separar",
+                                    "Para separar una intervención:\n\n"
+                                    "1. Haz doble clic en una celda de 'DIÁLOGO' o 'EUSKERA'.\n"
+                                    "2. Coloca el cursor en el punto exacto de la división.\n"
+                                    "3. Pulsa el botón 'Separar' (o su atajo).\n")
+            return
+
+        # Limpiamos el estado para evitar reutilizarlo accidentalmente
         self.last_focused_dialog_index = None
-        if not (0 <= cursor_pos <= len(text_to_split)): QMessageBox.warning(self, "Separar", "La posición del cursor es inválida."); return
+
+        # Validaciones y ejecución del comando (sin cambios desde aquí)
+        if not (0 <= cursor_pos <= len(text_to_split)):
+            QMessageBox.warning(self, "Separar", "La posición del cursor es inválida.")
+            return
+
         before_text, after_text = text_to_split[:cursor_pos].strip(), text_to_split[cursor_pos:].strip()
-        if not after_text: QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después del cursor."); return
-        self.undo_stack.push(SplitInterventionCommand(self, current_idx.row(), before_text, after_text, text_to_split, df_col_name))
+        if not after_text:
+            QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después del cursor.")
+            return
+
+        command = SplitInterventionCommand(self, current_idx.row(), before_text, after_text, text_to_split, df_col_name)
+        self.undo_stack.push(command)
 
     def merge_interventions(self) -> None:
         selected_rows = self.table_view.selectionModel().selectedRows()
