@@ -52,7 +52,7 @@ def load_stylesheet_content(filename: str) -> str:
         return ""
 
 class MainWindow(QMainWindow):
-    # -> ELIMINADO: RECOVERY_FILE_NAME ya no es una constante global
+    AUTOSAVE_INTERVAL_MS = 120000  # 2 minutos
     RECOVERY_DIR = r"W:\Z_JSON\Backup"
     SAVE_DIR = r"W:\Z_JSON\SinSubir"
 
@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
         self.line_length = 60
         self.guion_manager = GuionManager()
         self.actions = {} 
+        self.find_replace_dialog_instance = None
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -107,10 +108,10 @@ class MainWindow(QMainWindow):
     def _setup_autosave(self):
         """Configura e inicia el QTimer para el autoguardado."""
         self.autosave_timer = QTimer(self)
-        self.autosave_timer.setInterval(120000) 
+        self.autosave_timer.setInterval(self.AUTOSAVE_INTERVAL_MS)  
         self.autosave_timer.timeout.connect(self._perform_autosave)
         self.autosave_timer.start()
-        print("Autoguardado activado (cada 2 minutos si hay cambios).")
+        print(f"Autoguardado activado (cada {self.AUTOSAVE_INTERVAL_MS / 60000:.0f} minutos si hay cambios).")
 
     def _perform_autosave(self):
         """Guarda el estado actual en el archivo de recuperación si hay cambios."""
@@ -496,8 +497,15 @@ class MainWindow(QMainWindow):
 
     def open_find_replace_dialog(self):
         from guion_editor.widgets.find_replace_dialog import FindReplaceDialog
-        dialog = FindReplaceDialog(self.tableWindow, get_icon_func=get_icon)
-        dialog.exec()
+        
+        # Si el diálogo no existe, lo creamos una vez
+        if self.find_replace_dialog_instance is None:
+            self.find_replace_dialog_instance = FindReplaceDialog(self.tableWindow, get_icon_func=get_icon)
+        
+        # Lo mostramos y lo traemos al frente. show() es no-modal.
+        self.find_replace_dialog_instance.show()
+        self.find_replace_dialog_instance.activateWindow()
+        self.find_replace_dialog_instance.raise_()
 
     def open_recent_file(self, file_path):
         if os.path.exists(file_path):

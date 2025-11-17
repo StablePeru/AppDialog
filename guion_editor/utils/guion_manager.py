@@ -6,10 +6,13 @@ from typing import Tuple, Dict, Any
 from openpyxl.styles import PatternFill
 
 from .dialog_utils import leer_guion
+# -> NUEVO: Importar constantes
+from .. import constants as C
 
 class GuionManager:
-    BASE_COLUMNS = ['IN', 'OUT', 'PERSONAJE', 'DIÁLOGO']
-    ALL_COLUMNS = ['ID', 'SCENE', 'IN', 'OUT', 'PERSONAJE', 'DIÁLOGO', 'EUSKERA', 'OHARRAK', 'BOOKMARK']
+    # -> MODIFICADO: Usa constantes
+    BASE_COLUMNS = [C.COL_IN, C.COL_OUT, C.COL_PERSONAJE, C.COL_DIALOGO]
+    ALL_COLUMNS = C.DF_COLUMN_ORDER
 
     def __init__(self):
         pass
@@ -19,18 +22,18 @@ class GuionManager:
         if missing_cols:
             pass
 
-        if 'ID' not in df.columns:
+        if C.COL_ID not in df.columns:
             if not df.empty:
-                df.insert(0, 'ID', range(len(df)))
+                df.insert(0, C.COL_ID, range(len(df)))
             else:
-                df['ID'] = pd.Series(dtype='int')
+                df[C.COL_ID] = pd.Series(dtype='int')
 
         has_scene_numbers = False
-        if 'SCENE' not in df.columns:
-            insert_idx_for_scene = df.columns.get_loc('ID') + 1 if 'ID' in df.columns else 0
-            df.insert(insert_idx_for_scene, 'SCENE', "1")
+        if C.COL_SCENE not in df.columns:
+            insert_idx_for_scene = df.columns.get_loc(C.COL_ID) + 1 if C.COL_ID in df.columns else 0
+            df.insert(insert_idx_for_scene, C.COL_SCENE, "1")
         else:
-            df['SCENE'] = df['SCENE'].astype(str).str.strip().replace(['', 'nan', 'none', 'NaN', 'None'], pd.NA).ffill().fillna("1")
+            df[C.COL_SCENE] = df[C.COL_SCENE].astype(str).str.strip().replace(['', 'nan', 'none', 'NaN', 'None'], pd.NA).ffill().fillna("1")
 
             def normalize_scene_value(scene_str: str) -> str:
                 scene_str_stripped = scene_str.strip()
@@ -43,28 +46,26 @@ class GuionManager:
                         pass
                 return scene_str_stripped
             
-            df['SCENE'] = df['SCENE'].apply(normalize_scene_value)
-            non_empty_scenes = [s for s in df['SCENE'].tolist() if s.strip() and s.strip().lower() != 'nan']
-            
+            df[C.COL_SCENE] = df[C.COL_SCENE].apply(normalize_scene_value)
+            non_empty_scenes = [s for s in df[C.COL_SCENE].tolist() if s.strip() and s.strip().lower() != 'nan']
             has_scene_numbers = not non_empty_scenes or len(set(non_empty_scenes)) > 1 or (len(set(non_empty_scenes)) == 1 and list(set(non_empty_scenes))[0] != "1")
 
-        if 'EUSKERA' not in df.columns:
-            insert_pos = df.columns.get_loc('DIÁLOGO') + 1 if 'DIÁLOGO' in df.columns else len(df.columns)
-            df.insert(insert_pos, 'EUSKERA', "")
+        if C.COL_EUSKERA not in df.columns:
+            insert_pos = df.columns.get_loc(C.COL_DIALOGO) + 1 if C.COL_DIALOGO in df.columns else len(df.columns)
+            df.insert(insert_pos, C.COL_EUSKERA, "")
 
-        if 'OHARRAK' not in df.columns:
-            insert_pos_oh = df.columns.get_loc('EUSKERA') + 1 if 'EUSKERA' in df.columns else len(df.columns)
-            df.insert(insert_pos_oh, 'OHARRAK', "")
+        if C.COL_OHARRAK not in df.columns:
+            insert_pos_oh = df.columns.get_loc(C.COL_EUSKERA) + 1 if C.COL_EUSKERA in df.columns else len(df.columns)
+            df.insert(insert_pos_oh, C.COL_OHARRAK, "")
         
-        if 'BOOKMARK' not in df.columns:
-            df['BOOKMARK'] = False
+        if C.COL_BOOKMARK not in df.columns:
+            df[C.COL_BOOKMARK] = False
         else:
-            df['BOOKMARK'] = df['BOOKMARK'].fillna(False).astype(bool)
+            df[C.COL_BOOKMARK] = df[C.COL_BOOKMARK].fillna(False).astype(bool)
 
         ordered_present_columns = [col for col in self.ALL_COLUMNS if col in df.columns]
         extra_cols = [col for col in df.columns if col not in self.ALL_COLUMNS]
         df = df[ordered_present_columns + extra_cols]
-
         return df, has_scene_numbers
 
     def check_excel_columns(self, path: str) -> Tuple[pd.DataFrame, Dict[str, Any], bool]:
@@ -83,7 +84,7 @@ class GuionManager:
                 except Exception:
                     pass
             
-            expected_cols_in_excel = [col for col in self.ALL_COLUMNS if col not in ['ID', 'BOOKMARK', 'REPARTO']]
+            expected_cols_in_excel = [col for col in self.ALL_COLUMNS if col not in [C.COL_ID, C.COL_BOOKMARK]]
             needs_mapping = not all(col in df.columns for col in expected_cols_in_excel)
             return df, header_data, needs_mapping
         except Exception as e:
@@ -96,16 +97,16 @@ class GuionManager:
                 def replace_if_empty(value):
                     return "" if pd.isna(value) or str(value).strip() == '' else value
                 
-                for col in ['DIÁLOGO', 'EUSKERA', 'OHARRAK', 'REPARTO']:
+                for col in [C.COL_DIALOGO, C.COL_EUSKERA, C.COL_OHARRAK, C.COL_REPARTO]:
                     if col in df_to_save.columns:
                         df_to_save[col] = df_to_save[col].apply(replace_if_empty)
                         
                 df_to_save.to_excel(writer, sheet_name='Guion', index=False)
-                if 'OHARRAK' in df_to_save.columns:
+                if C.COL_OHARRAK in df_to_save.columns:
                     workbook = writer.book
                     worksheet = writer.sheets['Guion']
                     highlight_fill = PatternFill(start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid")
-                    for df_index, row in df_to_save[df_to_save['OHARRAK'].astype(str).str.strip() != ''].iterrows():
+                    for df_index, row in df_to_save[df_to_save[C.COL_OHARRAK].astype(str).str.strip() != ''].iterrows():
                         excel_row_index = df_index + 2
                         for col_idx in range(1, len(df_to_save.columns) + 1):
                             worksheet.cell(row=excel_row_index, column=col_idx).fill = highlight_fill
@@ -141,7 +142,7 @@ class GuionManager:
         try:
             parts = tc.split(':')
             h, m, s, f = map(int, parts)
-            ms_total = (h * 3600 + m * 60 + s) * 1000 + int(round((f / 25.0) * 1000.0))
+            ms_total = (h * 3600 + m * 60 + s) * 1000 + int(round((f / C.FPS) * 1000.0))
             s_total, mmm = divmod(ms_total, 1000)
             h_srt, s_rem = divmod(s_total, 3600)
             m_srt, s_srt = divmod(s_rem, 60)
@@ -149,14 +150,14 @@ class GuionManager:
         except Exception:
             return "00:00:00,000"
 
-    def save_to_srt(self, path: str, dataframe: pd.DataFrame, column_to_export: str = 'DIÁLOGO') -> None:
+    def save_to_srt(self, path: str, dataframe: pd.DataFrame, column_to_export: str = C.COL_DIALOGO) -> None:
         if column_to_export not in dataframe.columns:
             raise ValueError(f"La columna '{column_to_export}' no se encuentra en el guion.")
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 srt_index = 1
                 for _, row in dataframe.iterrows():
-                    in_tc, out_tc = row['IN'], row['OUT']
+                    in_tc, out_tc = row[C.COL_IN], row[C.COL_OUT]
                     dialogue = str(row[column_to_export]).strip()
                     if dialogue and pd.notna(in_tc) and pd.notna(out_tc):
                         start_srt = self._convert_tc_to_srt_format(in_tc)
