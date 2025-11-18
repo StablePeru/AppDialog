@@ -1,10 +1,16 @@
 # guion_editor/utils/takeo_optimizer_logic.py
 import pandas as pd
 import re
+import traceback
 from collections import defaultdict
+from PyQt6.QtCore import QObject, pyqtSignal
+
 from .. import constants as C
 import logging
 
+# =================================================================================
+#  CLASE DE LÓGICA PURA (SIN CAMBIOS)
+# =================================================================================
 class TakeoOptimizerLogic:
     def __init__(self, config: dict):
         self.max_duration = config.get('max_duration', 30)
@@ -19,7 +25,6 @@ class TakeoOptimizerLogic:
         self.actual_takes_generated = 0
 
     def run_optimization(self, script_data: pd.DataFrame, selected_characters: list, dialogue_source_column: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        # ... (código sin cambios)
         if script_data is None or script_data.empty or dialogue_source_column not in script_data.columns:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -38,19 +43,16 @@ class TakeoOptimizerLogic:
         return detail_df, summary_df, failures_df
 
     def parse_time(self, time_str):
-        # ... (código sin cambios)
         parts = str(time_str).split(':')
         if len(parts) == 3: hh, mm, ss = map(int, parts); return hh * 3600 + mm * 60 + ss
         elif len(parts) == 4: hh, mm, ss, ff = map(int, parts); return hh * 3600 + mm * 60 + ss + ff / self.frame_rate
         else: raise ValueError(f"Formato de tiempo inválido: '{time_str}'. Se esperaba HH:MM:SS o HH:MM:SS:FF.")
     
     def _get_effective_len(self, text):
-        # ... (código sin cambios)
         parentheticals = re.findall(r'\([^)]*\)', text)
         return len(text) - sum(len(p) for p in parentheticals) + len(parentheticals)
 
     def expand_dialogue(self, text):
-        # ... (código sin cambios)
         lines, current_line = [], ""
         for word in str(text).split():
             if not current_line: current_line = word
@@ -60,7 +62,6 @@ class TakeoOptimizerLogic:
         return lines
 
     def _check_individual_interventions(self, script_data, dialogue_source_column: str):
-        # ... (código sin cambios)
         self.problematic_interventions_report = []
         if script_data is None: return
         for index, row in script_data.iterrows():
@@ -83,7 +84,6 @@ class TakeoOptimizerLogic:
                 self.problematic_interventions_report.append({**details, "PROBLEMA_TIPO": "Error de Procesamiento", "DETALLE": str(e)})
 
     def unify_and_check(self, blocks_segment):
-        # ... (código sin cambios)
         interventions = [(d["personaje"], " ".join(d["lines"])) for b in blocks_segment for d in b["dialogues"]]
         if not interventions: return 0, False
         lines_per_char, total_lines = defaultdict(int), 0
@@ -100,21 +100,18 @@ class TakeoOptimizerLogic:
         return total_lines, exceeded
 
     def check_duration(self, blocks_segment):
-        # ... (código sin cambios)
         if not blocks_segment: return True, ""
         duration = blocks_segment[-1]["out_time"] - blocks_segment[0]["in_time"]
         if duration > self.max_duration: return False, f"Duración excedida ({duration:.2f}s > {self.max_duration}s)"
         return True, ""
 
     def check_inter_intervention_silence(self, blocks_segment):
-        # ... (código sin cambios)
         for i in range(len(blocks_segment) - 1):
             silence = blocks_segment[i+1]["in_time"] - blocks_segment[i]["out_time"]
             if silence > self.max_silence_between_interventions: return False, f"Silencio excesivo ({silence:.2f}s > {self.max_silence_between_interventions}s)"
         return True, ""
 
     def is_segment_feasible(self, blocks_segment):
-        # ... (código sin cambios)
         if not blocks_segment: return False, "Segmento vacío"
         ok, reason = self.check_duration(blocks_segment);
         if not ok: return False, reason
@@ -142,7 +139,6 @@ class TakeoOptimizerLogic:
         return blocks
 
     def partition_scene_blocks(self, blocks):
-        # ... (código sin cambios)
         n = len(blocks); dp, p_idx = [float("inf")] * (n + 1), [-1] * (n + 1); dp[0] = 0
         for i in range(n):
             if dp[i] == float("inf"): continue
@@ -161,11 +157,9 @@ class TakeoOptimizerLogic:
         segments.reverse(); return segments, dp[n]
 
     def _fuse_run_texts(self, texts_list_of_lists):
-        # ... (código sin cambios)
         return self.expand_dialogue(" _ ".join(" ".join(lines) for lines in texts_list_of_lists))
 
     def generate_detail(self, blocks_with_takes, dialogue_source_column: str):
-        # ... (código sin cambios)
         rows = []
         df_blocks = pd.DataFrame(blocks_with_takes)
         
@@ -209,7 +203,6 @@ class TakeoOptimizerLogic:
         return df_sorted.drop(columns=['take_start_time', 'sort_key'])
 
     def generate_summary(self, blocks_with_takes):
-        # ... (código sin cambios)
         summary = defaultdict(set)
         for block in blocks_with_takes:
             if "take" in block:
@@ -247,3 +240,51 @@ class TakeoOptimizerLogic:
         self.actual_takes_generated = detail_df['TAKE'].max() if not detail_df.empty and 'TAKE' in detail_df.columns else 0
         
         return detail_df, summary_df
+
+# =================================================================================
+#  NUEVA CLASE WORKER PARA EL HILO
+# =================================================================================
+class TakeoWorker(QObject):
+    """
+    Este worker se ejecutará en un hilo separado para no congelar la GUI.
+    """
+    # Señal emitida cuando el trabajo ha terminado exitosamente.
+    # Envía los DataFrames de resultados, el informe de problemas y el número total de takes.
+    finished = pyqtSignal(pd.DataFrame, pd.DataFrame, pd.DataFrame, list, int)
+    
+    # Señal emitida si ocurre un error durante la ejecución.
+    error = pyqtSignal(str)
+
+    def __init__(self, config: dict, script_data: pd.DataFrame, selected_characters: list, dialogue_source_column: str):
+        super().__init__()
+        self.config = config
+        self.script_data = script_data
+        self.selected_characters = selected_characters
+        self.dialogue_source_column = dialogue_source_column
+
+    def run(self):
+        """
+        El método principal que realiza el trabajo pesado.
+        Nunca se debe llamar a este método directamente desde el hilo principal.
+        """
+        try:
+            logging.info("Iniciando optimización de Takeo en hilo secundario...")
+            optimizer = TakeoOptimizerLogic(self.config)
+
+            detail_df, summary_df, failures_df = optimizer.run_optimization(
+                self.script_data,
+                self.selected_characters,
+                self.dialogue_source_column
+            )
+            
+            problematic_report = optimizer.problematic_interventions_report
+            takes_generated = optimizer.actual_takes_generated
+
+            logging.info("Optimización de Takeo finalizada exitosamente.")
+            self.finished.emit(detail_df, summary_df, failures_df, problematic_report, takes_generated)
+
+        except Exception as e:
+            # Si algo sale mal, capturamos la excepción y emitimos la señal de error.
+            error_str = f"Error en el hilo de Takeo: {e}\n{traceback.format_exc()}"
+            logging.error(error_str)
+            self.error.emit(error_str)
