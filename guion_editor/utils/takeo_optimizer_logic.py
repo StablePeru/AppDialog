@@ -3,6 +3,7 @@ import pandas as pd
 import re
 from collections import defaultdict
 from .. import constants as C
+import logging
 
 class TakeoOptimizerLogic:
     def __init__(self, config: dict):
@@ -18,6 +19,7 @@ class TakeoOptimizerLogic:
         self.actual_takes_generated = 0
 
     def run_optimization(self, script_data: pd.DataFrame, selected_characters: list, dialogue_source_column: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        # ... (código sin cambios)
         if script_data is None or script_data.empty or dialogue_source_column not in script_data.columns:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -36,16 +38,19 @@ class TakeoOptimizerLogic:
         return detail_df, summary_df, failures_df
 
     def parse_time(self, time_str):
+        # ... (código sin cambios)
         parts = str(time_str).split(':')
         if len(parts) == 3: hh, mm, ss = map(int, parts); return hh * 3600 + mm * 60 + ss
         elif len(parts) == 4: hh, mm, ss, ff = map(int, parts); return hh * 3600 + mm * 60 + ss + ff / self.frame_rate
         else: raise ValueError(f"Formato de tiempo inválido: '{time_str}'. Se esperaba HH:MM:SS o HH:MM:SS:FF.")
     
     def _get_effective_len(self, text):
+        # ... (código sin cambios)
         parentheticals = re.findall(r'\([^)]*\)', text)
         return len(text) - sum(len(p) for p in parentheticals) + len(parentheticals)
 
     def expand_dialogue(self, text):
+        # ... (código sin cambios)
         lines, current_line = [], ""
         for word in str(text).split():
             if not current_line: current_line = word
@@ -55,6 +60,7 @@ class TakeoOptimizerLogic:
         return lines
 
     def _check_individual_interventions(self, script_data, dialogue_source_column: str):
+        # ... (código sin cambios)
         self.problematic_interventions_report = []
         if script_data is None: return
         for index, row in script_data.iterrows():
@@ -77,6 +83,7 @@ class TakeoOptimizerLogic:
                 self.problematic_interventions_report.append({**details, "PROBLEMA_TIPO": "Error de Procesamiento", "DETALLE": str(e)})
 
     def unify_and_check(self, blocks_segment):
+        # ... (código sin cambios)
         interventions = [(d["personaje"], " ".join(d["lines"])) for b in blocks_segment for d in b["dialogues"]]
         if not interventions: return 0, False
         lines_per_char, total_lines = defaultdict(int), 0
@@ -93,18 +100,21 @@ class TakeoOptimizerLogic:
         return total_lines, exceeded
 
     def check_duration(self, blocks_segment):
+        # ... (código sin cambios)
         if not blocks_segment: return True, ""
         duration = blocks_segment[-1]["out_time"] - blocks_segment[0]["in_time"]
         if duration > self.max_duration: return False, f"Duración excedida ({duration:.2f}s > {self.max_duration}s)"
         return True, ""
 
     def check_inter_intervention_silence(self, blocks_segment):
+        # ... (código sin cambios)
         for i in range(len(blocks_segment) - 1):
             silence = blocks_segment[i+1]["in_time"] - blocks_segment[i]["out_time"]
             if silence > self.max_silence_between_interventions: return False, f"Silencio excesivo ({silence:.2f}s > {self.max_silence_between_interventions}s)"
         return True, ""
 
     def is_segment_feasible(self, blocks_segment):
+        # ... (código sin cambios)
         if not blocks_segment: return False, "Segmento vacío"
         ok, reason = self.check_duration(blocks_segment);
         if not ok: return False, reason
@@ -127,11 +137,12 @@ class TakeoOptimizerLogic:
                 block["dialogues"], block["characters"] = dialogues, {d["personaje"] for d in dialogues}
                 blocks.append(block)
             except ValueError as e:
-                print(f"Advertencia: Saltando bloque con tiempo inválido '{in_str}' o '{out_str}': {e}")
+                logging.warning(f"Saltando bloque con tiempo inválido '{in_str}' o '{out_str}': {e}")
         blocks.sort(key=lambda b: (b["scene"], b["in_time"]))
         return blocks
 
     def partition_scene_blocks(self, blocks):
+        # ... (código sin cambios)
         n = len(blocks); dp, p_idx = [float("inf")] * (n + 1), [-1] * (n + 1); dp[0] = 0
         for i in range(n):
             if dp[i] == float("inf"): continue
@@ -150,9 +161,11 @@ class TakeoOptimizerLogic:
         segments.reverse(); return segments, dp[n]
 
     def _fuse_run_texts(self, texts_list_of_lists):
+        # ... (código sin cambios)
         return self.expand_dialogue(" _ ".join(" ".join(lines) for lines in texts_list_of_lists))
 
     def generate_detail(self, blocks_with_takes, dialogue_source_column: str):
+        # ... (código sin cambios)
         rows = []
         df_blocks = pd.DataFrame(blocks_with_takes)
         
@@ -196,6 +209,7 @@ class TakeoOptimizerLogic:
         return df_sorted.drop(columns=['take_start_time', 'sort_key'])
 
     def generate_summary(self, blocks_with_takes):
+        # ... (código sin cambios)
         summary = defaultdict(set)
         for block in blocks_with_takes:
             if "take" in block:
@@ -216,7 +230,7 @@ class TakeoOptimizerLogic:
             segments, _ = self.partition_scene_blocks(scene_blocks)
             
             if not segments and scene_blocks:
-                 print(f"Advertencia: No se pudo encontrar una partición válida para la escena {scene}.")
+                 logging.warning(f"No se pudo encontrar una partición válida para la escena {scene}.")
                  continue
 
             for start, end in segments:

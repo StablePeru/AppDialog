@@ -1,5 +1,6 @@
 # guion_editor/commands/undo_commands.py
 from __future__ import annotations
+import logging
 from typing import TYPE_CHECKING, Any, List, Dict, Optional, Tuple
 
 import pandas as pd
@@ -7,8 +8,6 @@ from PyQt6.QtCore import Qt, QModelIndex
 from PyQt6.QtGui import QUndoCommand
 from PyQt6.QtWidgets import QAbstractItemView, QMessageBox
 
-# Para evitar importaciones circulares, usamos TYPE_CHECKING.
-# 'TableWindow' solo se importa para la comprobación de tipos, no en tiempo de ejecución.
 if TYPE_CHECKING:
     from guion_editor.widgets.table_window import TableWindow
 
@@ -148,14 +147,14 @@ class SplitInterventionCommand(QUndoCommand):
     def redo(self):
         current_df = self.tw.pandas_model.dataframe()
         if not (0 <= self.df_idx_split < len(current_df)):
-            print(f"SplitInterventionCommand.redo: df_idx_split ({self.df_idx_split}) out of bounds for df len ({len(current_df)})")
+            logging.warning(f"SplitInterventionCommand.redo: df_idx_split ({self.df_idx_split}) out of bounds for df len ({len(current_df)})")
             return
 
         self.new_row_id = self.tw.pandas_model.get_next_id()
 
         target_col_view_idx = self.tw.pandas_model.get_view_column_index(self.df_column_name_to_split)
         if target_col_view_idx is None:
-            print(f"SplitInterventionCommand.redo: Columna '{self.df_column_name_to_split}' no encontrada en el mapeo del modelo.")
+            logging.warning(f"SplitInterventionCommand.redo: Columna '{self.df_column_name_to_split}' no encontrada en el mapeo del modelo.")
             return
 
         original_row_data_for_new_row = current_df.iloc[self.df_idx_split].copy().to_dict()
@@ -194,7 +193,7 @@ class SplitInterventionCommand(QUndoCommand):
 
         target_col_view_idx = self.tw.pandas_model.get_view_column_index(self.df_column_name_to_split)
         if target_col_view_idx is None:
-            print(f"SplitInterventionCommand.undo: Columna '{self.df_column_name_to_split}' no encontrada.")
+            logging.warning(f"SplitInterventionCommand.undo: Columna '{self.df_column_name_to_split}' no encontrada.")
             return
 
         self.tw.pandas_model.setData(
@@ -206,12 +205,12 @@ class SplitInterventionCommand(QUndoCommand):
         idx_to_remove = self.tw.pandas_model.find_df_index_by_id(self.new_row_id)
         if idx_to_remove is None:
             idx_to_remove = self.df_idx_split + 1
-            print(f"SplitInterventionCommand.undo: Could not find row by ID {self.new_row_id}, attempting to remove at index {idx_to_remove}.")
+            logging.warning(f"SplitInterventionCommand.undo: Could not find row by ID {self.new_row_id}, attempting to remove at index {idx_to_remove}.")
 
         if idx_to_remove is not None and 0 <= idx_to_remove < self.tw.pandas_model.rowCount():
             self.tw.pandas_model.remove_row_by_df_index(idx_to_remove)
         else:
-            print(f"SplitInterventionCommand.undo: Row to remove (ID {self.new_row_id} or index {idx_to_remove}) not found or index invalid.")
+            logging.warning(f"SplitInterventionCommand.undo: Row to remove (ID {self.new_row_id} or index {idx_to_remove}) not found or index invalid.")
 
         self.tw.set_unsaved_changes(True)
         self.tw.update_character_completer_and_notify()
@@ -248,7 +247,7 @@ class MergeInterventionsCommand(QUndoCommand):
 
         if not (0 <= self.df_idx1 < len(current_df) and \
                 0 <= df_idx_actual_second_row_to_merge < len(current_df)):
-            print(f"MergeCommand.redo: Indices out of bounds. df_idx1={self.df_idx1}, actual_second_idx={df_idx_actual_second_row_to_merge}, df_len={len(current_df)}")
+            logging.warning(f"MergeCommand.redo: Indices out of bounds. df_idx1={self.df_idx1}, actual_second_idx={df_idx_actual_second_row_to_merge}, df_len={len(current_df)}")
             return
 
         if self.orig_dlg1 is None:
@@ -264,7 +263,7 @@ class MergeInterventionsCommand(QUndoCommand):
         view_col_out = self.tw.pandas_model.get_view_column_index(C.COL_OUT)
 
         if view_col_dlg is None or view_col_out is None or view_col_eusk is None:
-            print("MergeCommand.redo: One or more critical column view indices not found.")
+            logging.warning("MergeCommand.redo: One or more critical column view indices not found.")
             return
 
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.merged_dlg, Qt.ItemDataRole.EditRole)
@@ -286,7 +285,7 @@ class MergeInterventionsCommand(QUndoCommand):
 
     def undo(self):
         if self.orig_dlg1 is None or self.data_df_idx2 is None or self.orig_eusk1 is None:
-            print("MergeCommand.undo: Original data for undo not available.")
+            logging.warning("MergeCommand.undo: Original data for undo not available.")
             return
 
         view_col_dlg = self.tw.pandas_model.get_view_column_index(C.COL_DIALOGO)
@@ -294,7 +293,7 @@ class MergeInterventionsCommand(QUndoCommand):
         view_col_out = self.tw.pandas_model.get_view_column_index(C.COL_OUT)
 
         if view_col_dlg is None or view_col_out is None or view_col_eusk is None:
-            print("MergeCommand.undo: One or more critical column view indices not found.")
+            logging.warning("MergeCommand.undo: One or more critical column view indices not found.")
             return
 
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.orig_dlg1, Qt.ItemDataRole.EditRole)
@@ -406,20 +405,17 @@ class ToggleBookmarkCommand(QUndoCommand):
         self.setText(f"Marcar/Desmarcar {len(self.df_indices)} fila(s)")
 
     def _set_bookmark_state(self, is_bookmarked: bool, df_idx: int):
-        """Método auxiliar para cambiar el estado de una fila."""
         view_col_bookmark = self.tw.pandas_model.get_view_column_index(C.COL_BOOKMARK)
         if view_col_bookmark is not None:
             model_idx = self.tw.pandas_model.index(df_idx, view_col_bookmark)
             self.tw.pandas_model.setData(model_idx, is_bookmarked, Qt.ItemDataRole.EditRole)
 
     def redo(self):
-        """Aplica el estado contrario al original."""
         for df_idx, original_state in self.original_states.items():
             self._set_bookmark_state(not original_state, df_idx)
         self.tw.set_unsaved_changes(True)
 
     def undo(self):
-        """Restaura el estado original."""
         for df_idx, original_state in self.original_states.items():
             self._set_bookmark_state(original_state, df_idx)
         self.tw.set_unsaved_changes(True)
@@ -513,13 +509,9 @@ class SplitCharacterCommand(QUndoCommand):
 
         self.added_row_ids.clear()
 
-        # Iteramos en orden inverso para que los índices no se desplacen
-        # mientras insertamos nuevas filas.
         for df_idx in reversed(indices_to_split):
-            # Cambia el nombre del personaje en la fila original
             model.setData(model.index(df_idx, view_col_char), self.new_name1, Qt.ItemDataRole.EditRole)
             
-            # Prepara los datos para la nueva fila (copia de la original)
             original_row_data = df.iloc[df_idx].to_dict()
             new_row_data = original_row_data.copy()
             new_row_data[C.COL_PERSONAJE] = self.new_name2
@@ -528,7 +520,6 @@ class SplitCharacterCommand(QUndoCommand):
             new_row_data[C.COL_ID] = new_id
             self.added_row_ids.append(new_id)
             
-            # Inserta la nueva fila justo debajo de la original
             model.insert_row_data(df_idx + 1, new_row_data)
 
         self.tw.set_unsaved_changes(True)
@@ -538,17 +529,14 @@ class SplitCharacterCommand(QUndoCommand):
 
         model = self.tw.pandas_model
         
-        # Eliminar las filas que se añadieron
         for row_id in self.added_row_ids:
             df_idx_to_remove = model.find_df_index_by_id(row_id)
             if df_idx_to_remove is not None:
                 model.remove_row_by_df_index(df_idx_to_remove)
         
-        # Restaurar el nombre original en las filas que se modificaron
         view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is not None:
             for df_idx in self.original_rows_data.keys():
-                # Comprobar que el índice sigue siendo válido después de las eliminaciones
                 if 0 <= df_idx < model.rowCount():
                     model.setData(model.index(df_idx, view_col_char), self.old_name, Qt.ItemDataRole.EditRole)
 

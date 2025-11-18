@@ -1,6 +1,6 @@
-# guion_editor/widgets/takeo_dialog.py
 import os
 import pandas as pd
+import logging
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QSpinBox, QDialogButtonBox,
     QListWidget, QListWidgetItem, QPushButton, QHBoxLayout, QMessageBox,
@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from guion_editor.utils.takeo_optimizer_logic import TakeoOptimizerLogic
-# -> AÑADIR NUEVO IMPORT
 from guion_editor.widgets.export_selection_dialog import ExportSelectionDialog
 
 def load_takeo_stylesheet() -> str:
@@ -18,11 +17,12 @@ def load_takeo_stylesheet() -> str:
         with open(css_path, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:
-        print(f"No se pudo cargar takeo_styles.css: {e}")
+        logging.warning(f"No se pudo cargar takeo_styles.css: {e}")
         return ""
 
 class TakeoDialog(QDialog):
     def __init__(self, table_window, get_icon_func=None, parent=None):
+        # ... (código sin cambios)
         super().__init__(parent)
         self.table_window = table_window
         self.get_icon = get_icon_func
@@ -35,11 +35,11 @@ class TakeoDialog(QDialog):
         self.setup_ui()
 
     def setup_ui(self):
+        # ... (código sin cambios)
         layout = QVBoxLayout(self)
         config_group = QGroupBox("Reglas de Takeo")
         form_layout = QFormLayout(config_group)
         
-        # -> AÑADIDO: Selector de columna de diálogo
         self.dialogue_source_combo = QComboBox()
         self.dialogue_source_combo.addItems(["EUSKERA", "DIÁLOGO"])
         form_layout.addRow("Columna de diálogo a optimizar:", self.dialogue_source_combo)
@@ -74,22 +74,26 @@ class TakeoDialog(QDialog):
         run_button.clicked.connect(self.run_optimization)
         cancel_button.clicked.connect(self.reject)
         layout.addWidget(self.button_box)
-
+        
     def populate_character_list(self):
+        # ... (código sin cambios)
         characters = self.table_window.get_character_names_from_model()
         for char in characters:
             item = QListWidgetItem(char); item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked); self.char_list_widget.addItem(item)
-
+            
     def select_all_characters(self):
+        # ... (código sin cambios)
         for i in range(self.char_list_widget.count()): self.char_list_widget.item(i).setCheckState(Qt.CheckState.Checked)
 
     def deselect_all_characters(self):
+        # ... (código sin cambios)
         for i in range(self.char_list_widget.count()): self.char_list_widget.item(i).setCheckState(Qt.CheckState.Unchecked)
 
     def get_selected_characters(self):
+        # ... (código sin cambios)
         return [self.char_list_widget.item(i).text() for i in range(self.char_list_widget.count()) if self.char_list_widget.item(i).checkState() == Qt.CheckState.Checked]
-
+        
     def run_optimization(self):
         config = {'max_duration': self.duration_spin.value(), 'max_lines_per_take': self.max_lines_spin.value(), 'max_consecutive_lines_per_character': self.max_consecutive_spin.value(), 'max_chars_per_line': self.max_chars_spin.value(), 'max_silence_between_interventions': self.silence_spin.value()}
         selected_chars = self.get_selected_characters()
@@ -111,6 +115,7 @@ class TakeoDialog(QDialog):
         self.accept()
 
     def save_results(self, detail_df, summary_df, failures_df, optimizer):
+        # ... (código sin cambios)
         reports_available = {"detail": not detail_df.empty, "summary": not summary_df.empty, "failures": not failures_df.empty, "problems": bool(optimizer.problematic_interventions_report)}
         if not any(reports_available.values()):
             QMessageBox.information(self, "Proceso Completado", "La optimización finalizó, pero no se generaron resultados para exportar."); return
@@ -143,4 +148,5 @@ class TakeoDialog(QDialog):
             files_str = "\n - ".join(saved_files)
             QMessageBox.information(self, "Proceso Completado", f"Optimización finalizada.\n\nTakes únicos generados: {optimizer.actual_takes_generated}\nSuma de apariciones: {sum_val}\n\nArchivos guardados en '{os.path.basename(save_dir)}':\n - {files_str}")
         except Exception as e:
+            logging.error("No se pudieron guardar los informes de Takeo.", exc_info=True)
             QMessageBox.critical(self, "Error al Guardar", f"No se pudieron guardar los informes: {e}")
