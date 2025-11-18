@@ -138,6 +138,7 @@ class FileIOHandler:
         path, _ = QFileDialog.getSaveFileName(self.tw, "Exportar a Excel", default_filename, "Archivos Excel (*.xlsx)")
         
         if path:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
                 self.tw.guion_manager.save_to_excel(path, self.tw.pandas_model.dataframe(), self.tw._get_header_data_from_ui())
                 QMessageBox.information(self.tw, "Éxito", "Guion guardado en Excel.")
@@ -149,21 +150,24 @@ class FileIOHandler:
                 return True
             except Exception as e:
                 self.tw.handle_exception(e, "Error al guardar en Excel")
+            finally:
+                QApplication.restoreOverrideCursor()
         return False
 
     def save_as_json(self) -> bool:
         """Abre el diálogo "Guardar como..." para JSON."""
         if self.tw.pandas_model.dataframe().empty:
-            QMessageBox.information(self.tw, "Guardar", "No hay datos para guardar.")
+            QMessageBox.information(self, "Guardar", "No hay datos para guardar.")
             return False
             
         default_filename = self.tw._generate_default_filename("json")
-        path, _ = QFileDialog.getSaveFileName(self.tw, "Guardar como JSON", default_filename, "Archivos JSON (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar como JSON", default_filename, "Archivos JSON (*.json)")
         
         if path:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
                 self.tw.guion_manager.save_to_json(path, self.tw.pandas_model.dataframe(), self.tw._get_header_data_from_ui())
-                QMessageBox.information(self.tw, "Éxito", "Guion guardado como JSON.")
+                QMessageBox.information(self, "Éxito", "Guion guardado como JSON.")
                 self.tw.current_script_name = os.path.basename(path)
                 self.tw.current_script_path = path
                 self.tw.undo_stack.setClean()
@@ -172,4 +176,6 @@ class FileIOHandler:
                 return True
             except Exception as e:
                 self.tw.handle_exception(e, "Error al guardar como JSON")
+            finally:
+                QApplication.restoreOverrideCursor()
         return False

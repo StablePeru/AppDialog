@@ -643,14 +643,20 @@ class TableWindow(QWidget):
 
     def adjust_dialogs(self, max_chars: int) -> None:
         if self.pandas_model.dataframe().empty: return
-        self.undo_stack.beginMacro(f"Ajustar Diálogos ({C.COL_DIALOGO} y {C.COL_EUSKERA})")
-        for col_name in [C.COL_DIALOGO, C.COL_EUSKERA]:
-            view_col_idx = self.pandas_model.get_view_column_index(col_name)
-            if view_col_idx is not None:
-                for df_idx in range(self.pandas_model.rowCount()):
-                    original_text, adjusted_text = str(self.pandas_model.dataframe().at[df_idx, col_name]), ajustar_dialogo(str(self.pandas_model.dataframe().at[df_idx, col_name]), max_chars)
-                    if original_text != adjusted_text: self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, adjusted_text))
-        self.undo_stack.endMacro()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.undo_stack.beginMacro(f"Ajustar Diálogos ({C.COL_DIALOGO} y {C.COL_EUSKERA})")
+            for col_name in [C.COL_DIALOGO, C.COL_EUSKERA]:
+                view_col_idx = self.pandas_model.get_view_column_index(col_name)
+                if view_col_idx is not None:
+                    for df_idx in range(self.pandas_model.rowCount()):
+                        original_text = str(self.pandas_model.dataframe().at[df_idx, col_name])
+                        adjusted_text = ajustar_dialogo(original_text, max_chars)
+                        if original_text != adjusted_text: self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, adjusted_text))
+            self.undo_stack.endMacro()
+        finally:
+            QApplication.restoreOverrideCursor()
+            
         if not self.undo_stack.isClean() and self.undo_stack.command(self.undo_stack.count() - 1).text().startswith("Ajustar"):
             QMessageBox.information(self, "Éxito", "Diálogos y textos en Euskera ajustados.")
         else: QMessageBox.information(self, "Info", "No se encontraron textos que necesitaran ajuste.")
@@ -864,19 +870,28 @@ class TableWindow(QWidget):
 
     def find_and_replace(self, find_text: str, replace_text: str, search_in_character: bool, search_in_dialogue: bool, search_in_euskera: bool) -> None:
         if self.pandas_model.dataframe().empty or not find_text: return
-        self.undo_stack.beginMacro("Buscar y Reemplazar Todo")
-        cols_to_search = []
-        if search_in_character: cols_to_search.append(C.COL_PERSONAJE)
-        if search_in_dialogue: cols_to_search.append(C.COL_DIALOGO)
-        if search_in_euskera: cols_to_search.append(C.COL_EUSKERA)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         changed_count = 0
-        for col_name in cols_to_search:
-            view_col_idx = self.pandas_model.get_view_column_index(col_name)
-            if view_col_idx is not None:
-                for df_idx in range(self.pandas_model.rowCount()):
-                    original_text, (new_text, num_subs) = str(self.pandas_model.dataframe().at[df_idx, col_name]), re.subn(re.escape(find_text), replace_text, original_text, flags=re.IGNORECASE)
-                    if num_subs > 0: self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, new_text)); changed_count += num_subs
-        self.undo_stack.endMacro()
+        try:
+            self.undo_stack.beginMacro("Buscar y Reemplazar Todo")
+            cols_to_search = []
+            if search_in_character: cols_to_search.append(C.COL_PERSONAJE)
+            if search_in_dialogue: cols_to_search.append(C.COL_DIALOGO)
+            if search_in_euskera: cols_to_search.append(C.COL_EUSKERA)
+            
+            for col_name in cols_to_search:
+                view_col_idx = self.pandas_model.get_view_column_index(col_name)
+                if view_col_idx is not None:
+                    for df_idx in range(self.pandas_model.rowCount()):
+                        original_text = str(self.pandas_model.dataframe().at[df_idx, col_name])
+                        new_text, num_subs = re.subn(re.escape(find_text), replace_text, original_text, flags=re.IGNORECASE)
+                        if num_subs > 0: 
+                            self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, new_text))
+                            changed_count += num_subs
+            self.undo_stack.endMacro()
+        finally:
+            QApplication.restoreOverrideCursor()
+            
         QMessageBox.information(self, "Reemplazar Todo", f"{changed_count} reemplazo(s) realizado(s).")
 
     def replace_in_current_match(self, df_idx: int, find_text: str, replace_text: str, in_char: bool, in_dialogue: bool, in_euskera: bool) -> bool:
@@ -965,3 +980,15 @@ class TableWindow(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             self.undo_stack.push(CopyInToPreviousOutCommand(self))
             QMessageBox.information(self, "Éxito", "Los tiempos OUT han sido actualizados.")
+
+    def get_ui_states(self) -> Dict[str, bool]:
+        """Devuelve el estado actual de los widgets de control de la UI."""
+        return {
+            "link_out_in_enabled": self.link_out_in_checkbox.isChecked(),
+            "sync_video_enabled": self.sync_video_checkbox.isChecked()
+        }
+
+    def set_ui_states(self, states: Dict[str, bool]):
+        """Establece el estado de los widgets de control de la UI a partir de un diccionario."""
+        self.link_out_in_checkbox.setChecked(states.get("link_out_in_enabled", True))
+        self.sync_video_checkbox.setChecked(states.get("sync_video_enabled", True))

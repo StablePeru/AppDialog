@@ -4,7 +4,7 @@ import pandas as pd
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QSpinBox, QDialogButtonBox,
     QListWidget, QListWidgetItem, QPushButton, QHBoxLayout, QMessageBox,
-    QFileDialog, QAbstractItemView, QGroupBox, QComboBox, QLabel
+    QFileDialog, QAbstractItemView, QGroupBox, QComboBox, QLabel, QApplication
 )
 from PyQt6.QtCore import Qt
 from guion_editor.utils.takeo_optimizer_logic import TakeoOptimizerLogic
@@ -93,17 +93,23 @@ class TakeoDialog(QDialog):
     def run_optimization(self):
         config = {'max_duration': self.duration_spin.value(), 'max_lines_per_take': self.max_lines_spin.value(), 'max_consecutive_lines_per_character': self.max_consecutive_spin.value(), 'max_chars_per_line': self.max_chars_spin.value(), 'max_silence_between_interventions': self.silence_spin.value()}
         selected_chars = self.get_selected_characters()
-        if not selected_chars: QMessageBox.warning(self, "Sin Selección", "Debe seleccionar al menos un personaje."); return
+        if not selected_chars: 
+            QMessageBox.warning(self, "Sin Selección", "Debe seleccionar al menos un personaje.")
+            return
+            
         current_df = self.table_window.pandas_model.dataframe()
         dialogue_col = self.dialogue_source_combo.currentText()
-        self.setCursor(Qt.CursorShape.WaitCursor)
-        optimizer = TakeoOptimizerLogic(config)
-        detail_df, summary_df, failures_df = optimizer.run_optimization(current_df, selected_chars, dialogue_col)
-        self.unsetCursor()
+        
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            optimizer = TakeoOptimizerLogic(config)
+            detail_df, summary_df, failures_df = optimizer.run_optimization(current_df, selected_chars, dialogue_col)
+        finally:
+            QApplication.restoreOverrideCursor()
+            
         self.save_results(detail_df, summary_df, failures_df, optimizer)
         self.accept()
 
-    # -> MÉTODO COMPLETAMENTE REESCRITO
     def save_results(self, detail_df, summary_df, failures_df, optimizer):
         reports_available = {"detail": not detail_df.empty, "summary": not summary_df.empty, "failures": not failures_df.empty, "problems": bool(optimizer.problematic_interventions_report)}
         if not any(reports_available.values()):

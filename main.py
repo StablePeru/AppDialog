@@ -5,6 +5,7 @@ import json
 import os
 import time
 import subprocess
+import logging
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
@@ -25,13 +26,28 @@ from guion_editor import constants as C
 ICON_CACHE = {}
 ICON_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles', 'icons'))
 
+def setup_logging():
+    """Configura el sistema de logging para la aplicación."""
+    log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'guion_editor.log')
+
+    # Configuración del logger raíz
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - [%(module)s:%(lineno)d] - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file_path, mode='w', encoding='utf-8'),
+            logging.StreamHandler(sys.stdout) # Para seguir viendo los logs en la consola
+        ]
+    )
+    logging.info("Logging configurado y aplicación iniciada.")
+
 def get_icon(icon_name: str) -> QIcon:
     if icon_name in ICON_CACHE:
         return ICON_CACHE[icon_name]
 
     icon_path = os.path.join(ICON_BASE_PATH, icon_name)
     if not os.path.exists(icon_path):
-        print(f"Advertencia: Icono no encontrado en {icon_path}")
+        logging.warning(f"Icono no encontrado en {icon_path}")
         return QIcon()
 
     icon = QIcon(icon_path)
@@ -43,17 +59,17 @@ STYLES_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guio
 def load_stylesheet_content(filename: str) -> str:
     css_path = os.path.join(STYLES_BASE_PATH, filename)
     if not os.path.exists(css_path):
-        print(f"Advertencia: Stylesheet no encontrado en {css_path}")
+        logging.warning(f"Stylesheet no encontrado en {css_path}")
         return ""
     try:
         with open(css_path, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:
-        print(f"Error al cargar stylesheet {filename}: {e}")
+        logging.error(f"Error al cargar stylesheet {filename}: {e}")
         return ""
 
 class MainWindow(QMainWindow):
-    AUTOSAVE_INTERVAL_MS = 120000  # 2 minutos
+    AUTOSAVE_INTERVAL_MS = 120000
     RECOVERY_DIR = r"W:\Z_JSON\Backup"
     SAVE_DIR = r"W:\Z_JSON\SinSubir"
 
@@ -109,7 +125,7 @@ class MainWindow(QMainWindow):
         self.autosave_timer.setInterval(self.AUTOSAVE_INTERVAL_MS)  
         self.autosave_timer.timeout.connect(self._perform_autosave)
         self.autosave_timer.start()
-        print(f"Autoguardado activado (cada {self.AUTOSAVE_INTERVAL_MS / 60000:.0f} minutos si hay cambios).")
+        logging.info(f"Autoguardado activado (cada {self.AUTOSAVE_INTERVAL_MS / 60000:.0f} minutos si hay cambios).")
 
     def _perform_autosave(self):
         TARGET_DIR = self.RECOVERY_DIR
@@ -131,11 +147,11 @@ class MainWindow(QMainWindow):
                     self.statusBar().showMessage(f"Progreso autoguardado en {autosave_filename}", 3000)
             
             except (OSError, IOError) as e:
-                print(f"Error de sistema de archivos durante el autoguardado: {e}")
+                logging.error(f"Error de sistema de archivos durante el autoguardado: {e}")
                 if self.statusBar():
                     self.statusBar().showMessage(f"Fallo en el autoguardado: {e}", 5000)
             except Exception as e:
-                print(f"Error inesperado durante el autoguardado: {e}")
+                logging.error(f"Error inesperado durante el autoguardado: {e}", exc_info=True)
 
     def _check_for_recovery_file(self):
         TARGET_DIR = self.RECOVERY_DIR
@@ -176,9 +192,10 @@ class MainWindow(QMainWindow):
                 try:
                     os.remove(recovery_path)
                 except OSError as e:
-                    print(f"No se pudo eliminar el archivo de recuperación restaurado '{recovery_path}': {e}")
+                    logging.error(f"No se pudo eliminar el archivo de recuperación restaurado '{recovery_path}': {e}")
 
         except Exception as e:
+            logging.error("Error al procesar el archivo de recuperación.", exc_info=True)
             QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
                 
     def _delete_recovery_file(self):
@@ -190,8 +207,9 @@ class MainWindow(QMainWindow):
             
             if os.path.exists(recovery_path):
                 os.remove(recovery_path)
+                logging.info(f"Archivo de recuperación eliminado: {recovery_path}")
         except OSError as e:
-            print(f"Error al eliminar el archivo de recuperación: {e}")
+            logging.error(f"Error al eliminar el archivo de recuperación: {e}")
 
 
     def _update_initial_undo_redo_actions_state(self):
@@ -229,6 +247,8 @@ class MainWindow(QMainWindow):
                                          QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.No:
                 return False
+        
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             df = self.tableWindow.pandas_model.dataframe()
             header = self.tableWindow._get_header_data_from_ui()
@@ -247,9 +267,12 @@ class MainWindow(QMainWindow):
             
             return True
         except Exception as e:
+            logging.error(f"Error al guardar el archivo en {full_path}", exc_info=True)
             QMessageBox.critical(self, "Error al Guardar",
                                  f"Ocurrió un error al guardar el archivo:\n{full_path}\n\nError: {e}")
             return False
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def create_all_actions(self):
         # File Menu Actions
@@ -312,7 +335,7 @@ class MainWindow(QMainWindow):
     def export_script_to_excel(self):
         excel_export_successful = self.tableWindow.export_to_excel_dialog()
         if excel_export_successful:
-            print("Exportación a Excel exitosa. Realizando guardado automático a JSON...")
+            logging.info("Exportación a Excel exitosa. Realizando guardado automático a JSON...")
             self.save_script_directly()
 
     def export_to_srt(self):
@@ -332,11 +355,15 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Exportar a Subtítulos (.srt)", default_filename, "Archivos SubRip (*.srt)")
 
         if path:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
                 self.guion_manager.save_to_srt(path, self.tableWindow.pandas_model.dataframe(), column_to_export=item)
                 QMessageBox.information(self, "Éxito", f"Subtítulos exportados a:\n{path}")
             except Exception as e:
+                logging.error(f"No se pudo guardar el archivo SRT en {path}", exc_info=True)
                 QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar el archivo SRT:\n{e}")
+            finally:
+                QApplication.restoreOverrideCursor()
             
     def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
         if not object_name:
@@ -623,6 +650,7 @@ class MainWindow(QMainWindow):
             else:
                  QMessageBox.warning(self,"Error", "El widget de video a separar no se encontró en el splitter.")
         except Exception as e:
+            logging.error("Error al separar el video", exc_info=True)
             QMessageBox.warning(self,"Error",f"Error al separar el video: {str(e)}\n{traceback.format_exc()}")
 
 
@@ -652,6 +680,7 @@ class MainWindow(QMainWindow):
             
             self.videoPlayerWidget.setFocus()
         except Exception as e:
+            logging.error("Error al adjuntar el video", exc_info=True)
             QMessageBox.warning(self,"Error",f"Error al adjuntar el video: {str(e)}\n{traceback.format_exc()}")
 
 
@@ -660,6 +689,7 @@ class MainWindow(QMainWindow):
             adjusted_position = max(position_ms - self.trim_value, 0)
             self.videoPlayerWidget.set_position_public(adjusted_position)
         except Exception as e:
+            logging.warning(f"Error al establecer la posición del video: {str(e)}")
             QMessageBox.warning(self,"Error",f"Error al establecer la posición del video: {str(e)}")
 
     def change_scene(self):
@@ -692,6 +722,7 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("Lanzando conversor de Excel...", 3000)
                 
         except Exception as e:
+            logging.error("No se pudo iniciar el conversor.", exc_info=True)
             QMessageBox.critical(self, "Error al Lanzar", f"No se pudo iniciar el conversor: {e}")
 
     def undo_action(self):
@@ -704,6 +735,7 @@ class MainWindow(QMainWindow):
 
     def _load_settings(self):
         settings = QSettings("TuEmpresa", "EditorDeGuion")
+        
         geometry = settings.value("geometry")
         if geometry:
             self.restoreGeometry(geometry)
@@ -720,16 +752,29 @@ class MainWindow(QMainWindow):
         self.line_length = settings.value("line_length", 60, type=int)
         self.trim_value = settings.value("trim_value", 0, type=int)
         
+        ui_states = {
+            "link_out_in_enabled": settings.value("link_out_in_enabled", True, type=bool),
+            "sync_video_enabled": settings.value("sync_video_enabled", True, type=bool)
+        }
+        self.tableWindow.set_ui_states(ui_states)
+        
         self.apply_font_size()
 
     def _save_settings(self):
         settings = QSettings("TuEmpresa", "EditorDeGuion")
+        
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("splitter_state", self.splitter.saveState())
         settings.setValue("column_state", self.tableWindow.table_view.horizontalHeader().saveState())
+        
         settings.setValue("font_size", self.font_size)
         settings.setValue("line_length", self.line_length)
         settings.setValue("trim_value", self.trim_value)
+        
+        ui_states = self.tableWindow.get_ui_states()
+        for key, value in ui_states.items():
+            settings.setValue(key, value)
+
 
     def closeEvent(self, event):
         def save_and_accept():
@@ -772,14 +817,17 @@ class MainWindow(QMainWindow):
         return get_icon
 
 def handle_exception(exc_type, exc_value, exc_traceback):
+    # Log the full exception to the file, which is the most important part
+    logging.critical("Excepción no controlada en el hilo principal:", exc_info=(exc_type, exc_value, exc_traceback))
+
+    # For KeyboardInterrupt, let the default hook handle it (usually exits the app)
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
-    error_message = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    print(error_message)
 
+    # Create a user-friendly message for the dialog box
     user_message = f"Ocurrió un error inesperado:\n\nTipo: {exc_type.__name__}\nMensaje: {exc_value}\n\n"
-    user_message += "Por favor, reporte este error. Puede encontrar más detalles en la consola."
+    user_message += "Se ha guardado un registro detallado del error en el archivo 'guion_editor.log'."
 
     if QApplication.instance():
         try:
@@ -791,13 +839,12 @@ def handle_exception(exc_type, exc_value, exc_traceback):
             msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg_box.exec()
         except Exception as e_msgbox:
-            print(f"Error al mostrar QMessageBox: {e_msgbox}")
-            print("Error original:", error_message)
-    else:
-        print("Error original (QApplication no disponible):", error_message)
+            # If even the message box fails, log that too.
+            logging.error(f"No se pudo mostrar el QMessageBox de error: {e_msgbox}")
 
 
 def main():
+    setup_logging()
     sys.excepthook = handle_exception
     app = QApplication(sys.argv)
 
@@ -805,7 +852,7 @@ def main():
     if main_css_content:
         app.setStyleSheet(main_css_content)
     else:
-        print("No se pudo cargar main.css globalmente.")
+        logging.error("No se pudo cargar main.css globalmente.")
 
 
     mainWindow = MainWindow()
