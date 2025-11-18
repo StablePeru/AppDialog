@@ -20,6 +20,7 @@ from guion_editor.widgets.config_dialog import ConfigDialog
 from guion_editor.widgets.shortcut_config_dialog import ShortcutConfigDialog
 from guion_editor.utils.shortcut_manager import ShortcutManager
 from guion_editor.utils.guion_manager import GuionManager
+from guion_editor import constants as C
 
 ICON_CACHE = {}
 ICON_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles', 'icons'))
@@ -103,10 +104,7 @@ class MainWindow(QMainWindow):
         self._setup_autosave()
         self._load_settings()
 
-    # -> ELIMINADO: _get_recovery_file_path() ya no es necesario
-
     def _setup_autosave(self):
-        """Configura e inicia el QTimer para el autoguardado."""
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setInterval(self.AUTOSAVE_INTERVAL_MS)  
         self.autosave_timer.timeout.connect(self._perform_autosave)
@@ -114,7 +112,6 @@ class MainWindow(QMainWindow):
         print(f"Autoguardado activado (cada {self.AUTOSAVE_INTERVAL_MS / 60000:.0f} minutos si hay cambios).")
 
     def _perform_autosave(self):
-        """Guarda el estado actual en el archivo de recuperación si hay cambios."""
         TARGET_DIR = self.RECOVERY_DIR
 
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
@@ -133,24 +130,19 @@ class MainWindow(QMainWindow):
                 if self.statusBar():
                     self.statusBar().showMessage(f"Progreso autoguardado en {autosave_filename}", 3000)
             
-            # --- INICIO DEL CAMBIO ---
             except (OSError, IOError) as e:
-                # Captura errores de E/S: permisos, disco lleno, ruta no válida, etc.
                 print(f"Error de sistema de archivos durante el autoguardado: {e}")
                 if self.statusBar():
                     self.statusBar().showMessage(f"Fallo en el autoguardado: {e}", 5000)
             except Exception as e:
-                # Mantenemos este para cualquier otro error inesperado (ej. en la lógica de pandas)
                 print(f"Error inesperado durante el autoguardado: {e}")
 
     def _check_for_recovery_file(self):
-        """Comprueba si existen archivos de recuperación y pregunta al usuario si desea restaurar alguno."""
         TARGET_DIR = self.RECOVERY_DIR
         if not os.path.exists(TARGET_DIR):
             return
 
         try:
-            # -> NUEVO: Buscar todos los archivos de autoguardado en el directorio
             recovery_files = [f for f in os.listdir(TARGET_DIR) if f.startswith("auto_") and f.endswith(".json")]
 
             if not recovery_files:
@@ -158,7 +150,6 @@ class MainWindow(QMainWindow):
 
             chosen_file_to_restore = None
             if len(recovery_files) == 1:
-                # Si solo hay un archivo, preguntar directamente por ese
                 chosen_file_to_restore = recovery_files[0]
                 reply = QMessageBox.question(self,
                              "Recuperar Sesión",
@@ -167,9 +158,8 @@ class MainWindow(QMainWindow):
                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Discard,
                              QMessageBox.StandardButton.Yes)
                 if reply == QMessageBox.StandardButton.Discard:
-                    chosen_file_to_restore = None # El usuario no quiere restaurar
+                    chosen_file_to_restore = None
             else:
-                # Si hay varios, permitir al usuario elegir
                 item, ok = QInputDialog.getItem(self, "Múltiples Archivos de Recuperación",
                                                 "Se encontraron varios archivos autoguardados.\n"
                                                 "Por favor, seleccione uno para restaurar o cancele para ignorarlos:",
@@ -180,10 +170,9 @@ class MainWindow(QMainWindow):
             if chosen_file_to_restore:
                 recovery_path = os.path.join(TARGET_DIR, chosen_file_to_restore)
                 self.tableWindow.load_from_json_path(recovery_path)
-                self.tableWindow.undo_stack.setClean(False) # <--- Esta es la línea
+                self.tableWindow.undo_stack.setClean(False)
                 QMessageBox.information(self, "Éxito", f"El guion '{chosen_file_to_restore}' ha sido restaurado.")
                 
-                # -> NUEVO: Eliminar el archivo recuperado para no volver a preguntarlo
                 try:
                     os.remove(recovery_path)
                 except OSError as e:
@@ -193,10 +182,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
                 
     def _delete_recovery_file(self):
-        """Elimina el archivo de autoguardado correspondiente al guion actual."""
         TARGET_DIR = self.RECOVERY_DIR
         try:
-            # -> MODIFICADO: Construir el nombre del archivo de autoguardado a eliminar
             base_filename = self.tableWindow._generate_default_filename("json")
             autosave_filename = f"auto_{base_filename}"
             recovery_path = os.path.join(TARGET_DIR, autosave_filename)
@@ -215,7 +202,6 @@ class MainWindow(QMainWindow):
                  self.actions["edit_redo"].setEnabled(self.tableWindow.undo_stack.canRedo())
 
     def save_script_directly(self):
-        """Guarda el guion actual directamente en la carpeta predefinida sin diálogo."""
         TARGET_DIR = self.SAVE_DIR
 
         if self.tableWindow.pandas_model.dataframe().empty:
@@ -252,7 +238,6 @@ class MainWindow(QMainWindow):
             self.tableWindow.current_script_name = filename
             self.tableWindow.undo_stack.setClean()
             
-            # -> MODIFICADO: Llamar al nuevo método de limpieza centralizado
             self._delete_recovery_file()
 
             if self.statusBar():
@@ -298,8 +283,8 @@ class MainWindow(QMainWindow):
 
         # Config Menu Actions
         self.add_managed_action("Configuración App", self.open_config_dialog, "Ctrl+K", "settings_icon.svg", "config_app_settings")
-        self.add_managed_action("Optimizar Takes (Takeo)...", self.open_takeo_dialog, None, "takeo_icon.svg", "tools_run_takeo") # Sin icono
-        self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter") # Sin icono    
+        self.add_managed_action("Optimizar Takes (Takeo)...", self.open_takeo_dialog, None, "takeo_icon.svg", "tools_run_takeo")
+        self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter")
         self.add_managed_action("Reiniciar Todas las Escenas a '1'", self.tableWindow.reset_all_scenes, None, "reset_scenes_icon.svg", "tools_reset_scenes")
         self.add_managed_action("Reiniciar Todos los Tiempos a Cero", self.tableWindow.reset_all_timecodes, None, "reset_timecodes_icon.svg", "tools_reset_timecodes")
         self.add_managed_action("Copiar IN a OUT anterior", self.tableWindow.copy_in_to_previous_out, None, "copy_in_out_prev_icon.svg", "tools_copy_in_to_out")
@@ -321,33 +306,21 @@ class MainWindow(QMainWindow):
         self.addAction(action_mark_out_hold)
 
     def save_script_as_json(self):
-        """Llama al diálogo de guardado y elimina el archivo de recuperación si tiene éxito."""
         if self.tableWindow.save_to_json_dialog():
             self._delete_recovery_file()
 
     def export_script_to_excel(self):
-        """
-        Llama al diálogo de exportación a Excel. Si tiene éxito, también realiza
-        un guardado directo a JSON (como Ctrl+S).
-        """
-        # 1. Intentamos exportar a Excel. El método en tableWindow ya se encarga
-        #    del diálogo y devuelve True si el usuario guardó el archivo.
         excel_export_successful = self.tableWindow.export_to_excel_dialog()
-
-        # 2. Si la exportación a Excel fue exitosa...
         if excel_export_successful:
-            # 3. ...procedemos a realizar el guardado directo a JSON.
-            #    Este es el mismo método que se llama con Ctrl+S.
             print("Exportación a Excel exitosa. Realizando guardado automático a JSON...")
             self.save_script_directly()
 
     def export_to_srt(self):
-        """Maneja la exportación del guion a formato SRT."""
         if self.tableWindow.pandas_model.dataframe().empty:
             QMessageBox.information(self, "Exportar a SRT", "No hay datos en el guion para exportar.")
             return
 
-        items = ["DIÁLOGO", "EUSKERA"]
+        items = [C.COL_DIALOGO, C.COL_EUSKERA]
         item, ok = QInputDialog.getItem(self, "Seleccionar Columna para Exportar",
                                         "¿Qué columna de texto desea usar para los subtítulos?",
                                         items, 0, False)
@@ -504,11 +477,9 @@ class MainWindow(QMainWindow):
     def open_find_replace_dialog(self):
         from guion_editor.widgets.find_replace_dialog import FindReplaceDialog
         
-        # Si el diálogo no existe, lo creamos una vez
         if self.find_replace_dialog_instance is None:
             self.find_replace_dialog_instance = FindReplaceDialog(self.tableWindow, get_icon_func=get_icon)
         
-        # Lo mostramos y lo traemos al frente. show() es no-modal.
         self.find_replace_dialog_instance.show()
         self.find_replace_dialog_instance.activateWindow()
         self.find_replace_dialog_instance.raise_()
@@ -695,7 +666,6 @@ class MainWindow(QMainWindow):
         self.tableWindow.change_scene()
 
     def open_takeo_dialog(self):
-        """Abre el diálogo para la optimización de takes."""
         if self.tableWindow.pandas_model.dataframe().empty:
             QMessageBox.information(self, "Optimizar Takes", "No hay datos en el guion para optimizar.")
             return
@@ -705,9 +675,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def launch_xlsx_converter(self):
-        """Lanza la herramienta externa para convertir Excel a TXT."""
         try:
-            # Asumimos que la carpeta 'xlsx_converter' está al mismo nivel que 'main.py'
             current_dir = os.path.dirname(os.path.abspath(__file__))
             converter_script = os.path.join(current_dir, 'xlsx_converter', 'main.py')
 
@@ -719,7 +687,6 @@ class MainWindow(QMainWindow):
                 return
 
             python_executable = sys.executable
-            # Usamos Popen para que no bloquee la aplicación principal
             subprocess.Popen([python_executable, converter_script])
             if self.statusBar():
                 self.statusBar().showMessage("Lanzando conversor de Excel...", 3000)
@@ -736,7 +703,6 @@ class MainWindow(QMainWindow):
             self.tableWindow.undo_stack.redo()
 
     def _load_settings(self):
-        """Carga la configuración de la aplicación al iniciar."""
         settings = QSettings("TuEmpresa", "EditorDeGuion")
         geometry = settings.value("geometry")
         if geometry:
@@ -757,7 +723,6 @@ class MainWindow(QMainWindow):
         self.apply_font_size()
 
     def _save_settings(self):
-        """Guarda la configuración de la aplicación al cerrar."""
         settings = QSettings("TuEmpresa", "EditorDeGuion")
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("splitter_state", self.splitter.saveState())
@@ -768,7 +733,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         def save_and_accept():
-            """Función auxiliar para guardar ajustes y aceptar el evento."""
             self._save_settings()
             self._delete_recovery_file()
             event.accept()

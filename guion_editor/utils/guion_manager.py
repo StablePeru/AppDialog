@@ -6,11 +6,9 @@ from typing import Tuple, Dict, Any
 from openpyxl.styles import PatternFill
 
 from .dialog_utils import leer_guion
-# -> NUEVO: Importar constantes
 from .. import constants as C
 
 class GuionManager:
-    # -> MODIFICADO: Usa constantes
     BASE_COLUMNS = [C.COL_IN, C.COL_OUT, C.COL_PERSONAJE, C.COL_DIALOGO]
     ALL_COLUMNS = C.DF_COLUMN_ORDER
 

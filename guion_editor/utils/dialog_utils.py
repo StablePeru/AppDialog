@@ -1,5 +1,6 @@
 import re
 from docx import Document
+from .. import constants as C
 
 def ajustar_dialogo(dialogo, max_chars=60):
     """
@@ -131,10 +132,10 @@ def guardar_dialogo(guion, personaje, dialogo_acumulado):
     texto_completo = " ".join(dialogo_acumulado) if dialogo_acumulado else ""
     dialogo_ajustado = ajustar_dialogo(texto_completo)
     guion.append({
-        'IN': '00:00:00:00',
-        'OUT': '00:00:00:00',
-        'PERSONAJE': personaje,
-        'DIÁLOGO': dialogo_ajustado
+        C.COL_IN: '00:00:00:00',
+        C.COL_OUT: '00:00:00:00',
+        C.COL_PERSONAJE: personaje,
+        C.COL_DIALOGO: dialogo_ajustado
     })
 
 def tc_to_frames(tc: str, fps: int) -> int | None:

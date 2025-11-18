@@ -14,13 +14,15 @@ from PyQt6.QtGui import QIcon, QColor, QAction, QFont
 
 from guion_editor.delegates.custom_delegates import CharacterDelegate, RepartoDelegate
 from guion_editor.widgets.split_character_dialog import SplitCharacterDialog
+from .. import constants as C
 
 class CastWindow(QWidget):
-    HEADER_LABELS = ["ID", "Personaje", "Reparto", "Intervenciones"]
+    # Definimos los índices de las columnas de esta tabla específica
     COL_ID = 0
     COL_PERSONAJE = 1
     COL_REPARTO = 2
     COL_INTERVENCIONES = 3
+    HEADER_LABELS = ["ID", "Personaje", "Reparto", "Intervenciones"]
 
     def __init__(self, pandas_table_model: QAbstractItemModel, parent_main_window=None, parent=None):
         super().__init__(parent)
@@ -224,8 +226,8 @@ class CastWindow(QWidget):
 
     def get_character_names_for_completer(self) -> list[str]:
         df = self.pandas_model.dataframe()
-        if df is None or df.empty or 'PERSONAJE' not in df.columns: return []
-        unique_names = pd.Series(df['PERSONAJE'].unique()).astype(str).str.strip()
+        if df is None or df.empty or C.COL_PERSONAJE not in df.columns: return []
+        unique_names = pd.Series(df[C.COL_PERSONAJE].unique()).astype(str).str.strip()
         return sorted(list(unique_names[unique_names != ""]))
 
     def create_table_widget(self):
@@ -243,7 +245,6 @@ class CastWindow(QWidget):
 
         header = table.horizontalHeader()
         
-        # -> FIX: Establecer los modos de redimensionamiento aquí, y no en populate_table
         header.setSectionResizeMode(self.COL_ID, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self.COL_INTERVENCIONES, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self.COL_PERSONAJE, QHeaderView.ResizeMode.Stretch)
@@ -279,11 +280,11 @@ class CastWindow(QWidget):
 
     def populate_table(self):
         df = self.pandas_model.dataframe()
-        if df is None or df.empty or 'PERSONAJE' not in df.columns:
+        if df is None or df.empty or C.COL_PERSONAJE not in df.columns:
             self.table_widget.setRowCount(0)
             return
             
-        char_counts = df['PERSONAJE'].astype(str).str.strip().value_counts()
+        char_counts = df[C.COL_PERSONAJE].astype(str).str.strip().value_counts()
         char_counts = char_counts[char_counts.index != ""]
         
         items_to_sort = [{'personaje': char, 'reparto': self.reparto_data.get(char, ""), 'count': count} for char, count in char_counts.items()]
@@ -335,9 +336,6 @@ class CastWindow(QWidget):
 
         self.table_widget.blockSignals(False)
         
-        # -> FIX: Eliminar las llamadas a setSectionResizeMode y resizeColumnsToContents de aquí
-        # La configuración ahora se hace una sola vez en create_table_widget
-
         if hasattr(self, 'char_count_label'):
             self.char_count_label.setText(f"Personajes Mostrados: {len(items_to_sort)}")
             self.intervention_count_label.setText(f"Suma de Intervenciones: {total_interventions_in_view}")
@@ -360,8 +358,8 @@ class CastWindow(QWidget):
         if self.table_widget.rowCount() == 0:
             QMessageBox.information(self, "Exportar", "No hay datos para exportar.")
             return
-        reparto_data = [{"PERSONAJE": self.table_widget.item(row, self.COL_PERSONAJE).text(),
-                         "REPARTO": self.table_widget.item(row, self.COL_REPARTO).text()}
+        reparto_data = [{C.COL_PERSONAJE: self.table_widget.item(row, self.COL_PERSONAJE).text(),
+                         C.COL_REPARTO: self.table_widget.item(row, self.COL_REPARTO).text()}
                         for row in range(self.table_widget.rowCount())]
         reparto_df = pd.DataFrame(reparto_data)
         filename = "Reparto.xlsx"
@@ -395,11 +393,11 @@ class CastWindow(QWidget):
         if not path: return
         try:
             df = pd.read_excel(path)
-            if 'PERSONAJE' not in df.columns or 'REPARTO' not in df.columns:
-                QMessageBox.warning(self, "Error de Formato", "El archivo Excel debe contener las columnas 'PERSONAJE' y 'REPARTO'.")
+            if C.COL_PERSONAJE not in df.columns or C.COL_REPARTO not in df.columns:
+                QMessageBox.warning(self, "Error de Formato", f"El archivo Excel debe contener las columnas '{C.COL_PERSONAJE}' y '{C.COL_REPARTO}'.")
                 return
-            df['REPARTO'] = df['REPARTO'].fillna('').astype(str)
-            imported_data = pd.Series(df.REPARTO.values, index=df.PERSONAJE).to_dict()
+            df[C.COL_REPARTO] = df[C.COL_REPARTO].fillna('').astype(str)
+            imported_data = pd.Series(df[C.COL_REPARTO].values, index=df[C.COL_PERSONAJE]).to_dict()
             self.reparto_data.update(imported_data)
             self.populate_table()
             QMessageBox.information(self, "Éxito", "Datos de reparto importados y fusionados correctamente.")

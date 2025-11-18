@@ -37,30 +37,21 @@ class TableWindow(QWidget):
     in_out_signal = pyqtSignal(str, int)
     character_name_changed = pyqtSignal()
 
-    COL_NUM_INTERV_VIEW = 0; COL_ID_VIEW = 1; COL_SCENE_VIEW = 2; COL_IN_VIEW = 3
-    COL_OUT_VIEW = 4; COL_DURATION_VIEW = 5; COL_CHARACTER_VIEW = 6; COL_DIALOGUE_VIEW = 7
-    COL_EUSKERA_VIEW = 8; COL_OHARRAK_VIEW = 9; COL_BOOKMARK_VIEW = 10
-
-    VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "DURACIÓN", "PERSONAJE", "DIÁLOGO", "EUSKERA", "OHARRAK", "BOOKMARK"]
-
+    VIEW_COLUMN_NAMES = C.VIEW_COLUMN_NAMES
     VIEW_TO_DF_COL_MAP = {
-        COL_NUM_INTERV_VIEW: C.ROW_NUMBER_COL_IDENTIFIER, COL_ID_VIEW: C.COL_ID,
-        COL_SCENE_VIEW: C.COL_SCENE, COL_IN_VIEW: C.COL_IN, COL_OUT_VIEW: C.COL_OUT,
-        COL_DURATION_VIEW: C.DURATION_COL_IDENTIFIER, COL_CHARACTER_VIEW: C.COL_PERSONAJE,
-        COL_DIALOGUE_VIEW: C.COL_DIALOGO, COL_EUSKERA_VIEW: C.COL_EUSKERA,
-        COL_OHARRAK_VIEW: C.COL_OHARRAK, COL_BOOKMARK_VIEW: C.COL_BOOKMARK
+        C.VIEW_COL_NUM_INTERV: C.ROW_NUMBER_COL_IDENTIFIER, C.VIEW_COL_ID: C.COL_ID,
+        C.VIEW_COL_SCENE: C.COL_SCENE, C.VIEW_COL_IN: C.COL_IN, C.VIEW_COL_OUT: C.COL_OUT,
+        C.VIEW_COL_DURATION: C.DURATION_COL_IDENTIFIER, C.VIEW_COL_CHARACTER: C.COL_PERSONAJE,
+        C.VIEW_COL_DIALOGUE: C.COL_DIALOGO, C.VIEW_COL_EUSKERA: C.COL_EUSKERA,
+        C.VIEW_COL_OHARRAK: C.COL_OHARRAK, C.VIEW_COL_BOOKMARK: C.COL_BOOKMARK
     }
     DF_COLUMN_ORDER = C.DF_COLUMN_ORDER
 
     def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
                  guion_manager = None, get_icon_func=None):
         super().__init__()
-        # -> MODIFICADO: guion_manager se pasa al handler, pero se mantiene la referencia aquí
         self._init_internal_state(video_player_widget, main_window, guion_manager, get_icon_func)
-        
-        # -> NUEVO: Crear la instancia del handler
         self.file_io_handler = FileIOHandler(self)
-
         self._init_timers()
         self.setup_ui()
         self.update_action_buttons_state()
@@ -69,46 +60,33 @@ class TableWindow(QWidget):
         self.update_window_title()
         QTimer.singleShot(0, self.hide_default_columns)
 
-    # ... (el resto de _init_internal_state, _init_timers, _connect_signals, etc., permanecen igual) ...
-    # ... (desde aquí hasta los métodos de archivo, el código es el mismo) ...
-
-    # --- INICIO DE LA SECCIÓN DE MÉTODOS DE ARCHIVO REFACTORIZADOS ---
-
     def open_docx_dialog(self) -> None:
-        """Delega la apertura de DOCX al FileIOHandler."""
         self.file_io_handler.load_docx()
         
     def load_from_docx_path(self, file_path: str):
-        """Delega la carga de DOCX desde una ruta al FileIOHandler."""
         self.file_io_handler._load_docx_path(file_path)
 
     def import_from_excel_dialog(self) -> None:
-        """Delega la importación de Excel al FileIOHandler."""
         self.file_io_handler.import_excel()
 
     def load_from_excel_path(self, file_path: str):
-        """Delega la carga de Excel desde una ruta al FileIOHandler."""
         self.file_io_handler._load_excel_path(file_path)
 
     def load_from_json_dialog(self) -> None:
-        """Delega la carga de JSON al FileIOHandler."""
         self.file_io_handler.load_json()
 
     def load_from_json_path(self, file_path: str):
-        """Delega la carga de JSON desde una ruta al FileIOHandler."""
         self.file_io_handler._load_json_path(file_path)
 
     def export_to_excel_dialog(self) -> bool:
-        """Delega la exportación a Excel al FileIOHandler."""
         return self.file_io_handler.export_excel()
 
     def save_to_json_dialog(self) -> bool:
-        """Delega el guardado como JSON al FileIOHandler."""
         return self.file_io_handler.save_as_json()
         
     def hide_default_columns(self):
         self.table_view.horizontalHeader().setSectionsMovable(True)
-        self.table_view.setColumnHidden(self.COL_BOOKMARK_VIEW, True)
+        self.table_view.setColumnHidden(C.VIEW_COL_BOOKMARK, True)
 
     def _init_internal_state(self, video_player_widget, main_window, guion_manager, get_icon_func):
         self.get_icon = get_icon_func
@@ -394,7 +372,7 @@ class TableWindow(QWidget):
     def _handle_model_change_for_time_errors(self, top_left: QModelIndex, bottom_right: QModelIndex, roles: list[int]):
         if not top_left.isValid(): return
         if Qt.ItemDataRole.BackgroundRole in roles or Qt.ItemDataRole.DisplayRole in roles or Qt.ItemDataRole.EditRole in roles:
-            if top_left.column() <= self.COL_OUT_VIEW and bottom_right.column() >= self.COL_IN_VIEW:
+            if top_left.column() <= C.VIEW_COL_OUT and bottom_right.column() >= C.VIEW_COL_IN:
                 self._request_error_indicator_update()
 
     def update_time_error_indicator(self):
@@ -451,7 +429,7 @@ class TableWindow(QWidget):
         target_df_idx = self.error_df_indices[self._current_error_nav_idx]
         error_message = self.pandas_model._time_validation_status.get(target_df_idx, "Error desconocido.")
         if error_message is True: return
-        view_col_to_highlight = self.COL_OUT_VIEW if "OUT" in str(error_message) else self.COL_IN_VIEW
+        view_col_to_highlight = C.VIEW_COL_OUT if "OUT" in str(error_message) else C.VIEW_COL_IN
         self.table_view.clearSelection()
         self.table_view.selectRow(target_df_idx)
         self.table_view.setCurrentIndex(self.pandas_model.index(target_df_idx, view_col_to_highlight))
@@ -468,12 +446,12 @@ class TableWindow(QWidget):
         target_df_idx = self.scene_error_df_indices[self._current_scene_error_nav_idx]
         self.table_view.clearSelection()
         self.table_view.selectRow(target_df_idx)
-        self.table_view.setCurrentIndex(self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW))
-        self.table_view.scrollTo(self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW), QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.table_view.setCurrentIndex(self.pandas_model.index(target_df_idx, C.VIEW_COL_SCENE))
+        self.table_view.scrollTo(self.pandas_model.index(target_df_idx, C.VIEW_COL_SCENE), QAbstractItemView.ScrollHint.PositionAtCenter)
         self.table_view.setFocus()
         error_message = self.pandas_model._scene_validation_status.get(target_df_idx, "Error de escena desconocido.")
         if error_message is True: return
-        cell_index = self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW)
+        cell_index = self.pandas_model.index(target_df_idx, C.VIEW_COL_SCENE)
         cell_rect = self.table_view.visualRect(cell_index)
         tooltip_pos = self.table_view.viewport().mapToGlobal(cell_rect.topLeft())
         QToolTip.showText(tooltip_pos + QPoint(0, cell_rect.height()), str(error_message), self.table_view, cell_rect, 3000)
@@ -485,18 +463,18 @@ class TableWindow(QWidget):
         self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table_view.setAlternatingRowColors(True)
         layout.addWidget(self.table_view)
-        self.table_view.setColumnWidth(self.COL_NUM_INTERV_VIEW, 40)
-        self.table_view.setColumnHidden(self.COL_ID_VIEW, True)
+        self.table_view.setColumnWidth(C.VIEW_COL_NUM_INTERV, 40)
+        self.table_view.setColumnHidden(C.VIEW_COL_ID, True)
         self.table_view.selectionModel().selectionChanged.connect(self.update_action_buttons_state)
         time_delegate = TimeCodeDelegate(parent=self.table_view, table_window_instance=self)
-        self.table_view.setItemDelegateForColumn(self.COL_IN_VIEW, time_delegate)
-        self.table_view.setItemDelegateForColumn(self.COL_OUT_VIEW, time_delegate)
+        self.table_view.setItemDelegateForColumn(C.VIEW_COL_IN, time_delegate)
+        self.table_view.setItemDelegateForColumn(C.VIEW_COL_OUT, time_delegate)
         char_delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view)
-        self.table_view.setItemDelegateForColumn(self.COL_CHARACTER_VIEW, char_delegate)
+        self.table_view.setItemDelegateForColumn(C.VIEW_COL_CHARACTER, char_delegate)
         self.dialog_delegate = DialogDelegate(parent=self.table_view, font_size=self.current_font_size, table_window_instance=self)
-        self.table_view.setItemDelegateForColumn(self.COL_DIALOGUE_VIEW, self.dialog_delegate)
-        self.table_view.setItemDelegateForColumn(self.COL_EUSKERA_VIEW, self.dialog_delegate)
-        self.table_view.setItemDelegateForColumn(self.COL_OHARRAK_VIEW, self.dialog_delegate)
+        self.table_view.setItemDelegateForColumn(C.VIEW_COL_DIALOGUE, self.dialog_delegate)
+        self.table_view.setItemDelegateForColumn(C.VIEW_COL_EUSKERA, self.dialog_delegate)
+        self.table_view.setItemDelegateForColumn(C.VIEW_COL_OHARRAK, self.dialog_delegate)
         self.table_view.cellCtrlClicked.connect(self.handle_ctrl_click_on_cell)
         self.table_view.cellAltClicked.connect(self.handle_alt_click_on_cell)
         self.pandas_model.dataChanged.connect(self.on_model_data_changed)
@@ -511,7 +489,7 @@ class TableWindow(QWidget):
         menu = QMenu(self)
         header = self.table_view.horizontalHeader()
         for view_col_idx, col_view_name in enumerate(self.VIEW_COLUMN_NAMES):
-            if view_col_idx == self.COL_ID_VIEW: continue
+            if view_col_idx == C.VIEW_COL_ID: continue
             action = QAction(col_view_name, self, checkable=True)
             action.setChecked(not self.table_view.isColumnHidden(view_col_idx))
             action.setData(view_col_idx)
@@ -525,7 +503,7 @@ class TableWindow(QWidget):
             self.table_view.setColumnHidden(action.data(), not checked)
 
     def handle_column_resized(self, logical_index: int, old_size: int, new_size: int):
-        if logical_index in [self.COL_DIALOGUE_VIEW, self.COL_EUSKERA_VIEW, self.COL_OHARRAK_VIEW]:
+        if logical_index in [C.VIEW_COL_DIALOGUE, C.VIEW_COL_EUSKERA, C.VIEW_COL_OHARRAK]:
             self.request_resize_rows_to_contents_deferred()
 
     def load_stylesheet(self) -> None:
@@ -590,7 +568,7 @@ class TableWindow(QWidget):
     
     def open_shift_timecodes_dialog(self):
         if self.pandas_model.dataframe().empty: QMessageBox.information(self, "Desplazar Timecodes", "No hay datos en el guion para desplazar."); return
-        dialog = ShiftTimecodeDialog(default_fps=25, get_icon_func=self.get_icon, parent=self)
+        dialog = ShiftTimecodeDialog(default_fps=int(C.FPS), get_icon_func=self.get_icon, parent=self)
         if dialog.exec():
             values = dialog.get_values()
             if values and values[1] > 0: self.undo_stack.push(ShiftTimecodesCommand(self, *values)); QMessageBox.information(self, "Éxito", "Los timecodes han sido desplazados.")
@@ -644,22 +622,22 @@ class TableWindow(QWidget):
             df_col_name = self.pandas_model.get_df_column_name(top_left_index.column())
             if df_col_name in [C.COL_DIALOGO, C.COL_EUSKERA, C.COL_OHARRAK]: self.request_resize_rows_to_contents_deferred()
             elif df_col_name == C.COL_PERSONAJE: self.update_character_completer_and_notify()
-        if top_left_index.column() <= self.COL_OUT_VIEW and bottom_right_index.column() >= self.COL_IN_VIEW:
+        if top_left_index.column() <= C.VIEW_COL_OUT and bottom_right_index.column() >= C.VIEW_COL_IN:
             for row in range(top_left_index.row(), bottom_right_index.row() + 1): self._update_time_cache_for_row(row)
 
     def update_character_completer_and_notify(self):
         delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view)
-        self.table_view.setItemDelegateForColumn(self.COL_CHARACTER_VIEW, delegate)
+        self.table_view.setItemDelegateForColumn(C.VIEW_COL_CHARACTER, delegate)
         self.character_name_changed.emit()
 
     def copy_selected_time(self) -> None:
         idx = self.table_view.currentIndex()
-        if idx.isValid() and idx.column() in [self.COL_IN_VIEW, self.COL_OUT_VIEW]:
+        if idx.isValid() and idx.column() in [C.VIEW_COL_IN, C.VIEW_COL_OUT]:
             self.clipboard_text = str(self.pandas_model.data(idx, Qt.ItemDataRole.EditRole))
 
     def paste_time(self) -> None:
         idx = self.table_view.currentIndex()
-        if self.clipboard_text and idx.isValid() and idx.column() in [self.COL_IN_VIEW, self.COL_OUT_VIEW]:
+        if self.clipboard_text and idx.isValid() and idx.column() in [C.VIEW_COL_IN, C.VIEW_COL_OUT]:
             old_value = str(self.pandas_model.data(idx, Qt.ItemDataRole.EditRole))
             if old_value != self.clipboard_text: self.undo_stack.push(EditCommand(self, idx.row(), idx.column(), old_value, self.clipboard_text))
 
@@ -670,7 +648,7 @@ class TableWindow(QWidget):
             view_col_idx = self.pandas_model.get_view_column_index(col_name)
             if view_col_idx is not None:
                 for df_idx in range(self.pandas_model.rowCount()):
-                    original_text, adjusted_text = str(self.pandas_model.dataframe().at[df_idx, col_name]), ajustar_dialogo(original_text, max_chars)
+                    original_text, adjusted_text = str(self.pandas_model.dataframe().at[df_idx, col_name]), ajustar_dialogo(str(self.pandas_model.dataframe().at[df_idx, col_name]), max_chars)
                     if original_text != adjusted_text: self.undo_stack.push(EditCommand(self, df_idx, view_col_idx, original_text, adjusted_text))
         self.undo_stack.endMacro()
         if not self.undo_stack.isClean() and self.undo_stack.command(self.undo_stack.count() - 1).text().startswith("Ajustar"):
@@ -686,9 +664,9 @@ class TableWindow(QWidget):
         in_time, out_time = str(current_df.at[df_idx_selected, C.COL_IN]), str(current_df.at[df_idx_selected, C.COL_OUT])
         self.undo_stack.beginMacro("Copiar IN/OUT a Siguiente")
         old_in_next = str(current_df.at[df_idx_next, C.COL_IN])
-        if in_time != old_in_next: self.undo_stack.push(EditCommand(self, df_idx_next, self.COL_IN_VIEW, old_in_next, in_time))
+        if in_time != old_in_next: self.undo_stack.push(EditCommand(self, df_idx_next, C.VIEW_COL_IN, old_in_next, in_time))
         old_out_next = str(current_df.at[df_idx_next, C.COL_OUT])
-        if out_time != old_out_next: self.undo_stack.push(EditCommand(self, df_idx_next, self.COL_OUT_VIEW, old_out_next, out_time))
+        if out_time != old_out_next: self.undo_stack.push(EditCommand(self, df_idx_next, C.VIEW_COL_OUT, old_out_next, out_time))
         self.undo_stack.endMacro()
 
     def add_new_row(self) -> None:
@@ -782,13 +760,13 @@ class TableWindow(QWidget):
         if not idx.isValid(): return
         time_code_str, df_row_idx = self.convert_milliseconds_to_time_code(position_ms), idx.row()
         if action_type.upper() == "IN":
-            view_col, model_idx = self.COL_IN_VIEW, self.pandas_model.index(df_row_idx, self.COL_IN_VIEW)
+            view_col, model_idx = C.VIEW_COL_IN, self.pandas_model.index(df_row_idx, C.VIEW_COL_IN)
             old_value = str(self.pandas_model.data(model_idx, Qt.ItemDataRole.EditRole))
             if time_code_str != old_value: self.undo_stack.push(EditCommand(self, df_row_idx, view_col, old_value, time_code_str))
         elif action_type.upper() == "OUT":
             if not self._is_marking_out:
                 self._is_marking_out = True
-                self._out_mark_original_value = str(self.pandas_model.data(self.pandas_model.index(df_row_idx, self.COL_OUT_VIEW), Qt.ItemDataRole.EditRole))
+                self._out_mark_original_value = str(self.pandas_model.data(self.pandas_model.index(df_row_idx, C.VIEW_COL_OUT), Qt.ItemDataRole.EditRole))
                 self._out_mark_df_row_idx = df_row_idx
             self._out_mark_final_value = time_code_str
 
@@ -797,7 +775,7 @@ class TableWindow(QWidget):
     def select_next_row_after_out_release(self) -> None:
         if self._is_marking_out:
             if self._out_mark_original_value != self._out_mark_final_value:
-                self.undo_stack.push(EditCommand(self, self._out_mark_df_row_idx, self.COL_OUT_VIEW, self._out_mark_original_value, self._out_mark_final_value))
+                self.undo_stack.push(EditCommand(self, self._out_mark_df_row_idx, C.VIEW_COL_OUT, self._out_mark_original_value, self._out_mark_final_value))
             self._is_marking_out, self._out_mark_original_value, self._out_mark_final_value, self._out_mark_df_row_idx = False, None, None, -1
         idx = self.table_view.currentIndex()
         if not idx.isValid(): return
@@ -807,7 +785,7 @@ class TableWindow(QWidget):
         self.table_view.scrollTo(self.pandas_model.index(next_row, 0), QAbstractItemView.ScrollHint.PositionAtCenter)
         if self.link_out_to_next_in_enabled:
             out_time, old_in_next = str(self.pandas_model.dataframe().at[idx.row(), C.COL_OUT]), str(self.pandas_model.dataframe().at[next_row, C.COL_IN])
-            if out_time != old_in_next: self.undo_stack.push(EditCommand(self, next_row, self.COL_IN_VIEW, old_in_next, out_time))
+            if out_time != old_in_next: self.undo_stack.push(EditCommand(self, next_row, C.VIEW_COL_IN, old_in_next, out_time))
 
     def change_scene(self) -> None:
         idx = self.table_view.currentIndex()

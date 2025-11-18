@@ -2,6 +2,7 @@
 import pandas as pd
 import re
 from collections import defaultdict
+from .. import constants as C
 
 class TakeoOptimizerLogic:
     def __init__(self, config: dict):
@@ -10,7 +11,7 @@ class TakeoOptimizerLogic:
         self.max_consecutive_lines_per_character = config.get('max_consecutive_lines_per_character', 5)
         self.max_chars_per_line = config.get('max_chars_per_line', 60)
         self.max_silence_between_interventions = config.get('max_silence_between_interventions', 10)
-        self.frame_rate = config.get('frame_rate', 25)
+        self.frame_rate = config.get('frame_rate', C.FPS)
 
         self.problematic_interventions_report = []
         self.segmentation_failures_report = []
@@ -22,7 +23,7 @@ class TakeoOptimizerLogic:
 
         self._check_individual_interventions(script_data, dialogue_source_column)
         
-        filtered_data = script_data[script_data['PERSONAJE'].isin(selected_characters)].copy()
+        filtered_data = script_data[script_data[C.COL_PERSONAJE].isin(selected_characters)].copy()
         if filtered_data.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             
@@ -57,14 +58,18 @@ class TakeoOptimizerLogic:
         self.problematic_interventions_report = []
         if script_data is None: return
         for index, row in script_data.iterrows():
-            # -> MODIFICADO
             dialogue_text = str(row[dialogue_source_column])
-            details = {"SCENE": row.get('SCENE', 'N/A'), "PERSONAJE": row['PERSONAJE'], "IN": str(row['IN']), "OUT": str(row['OUT']), f"{dialogue_source_column}_Snippet": dialogue_text[:70] + "..."}
+            details = {
+                C.COL_SCENE: row.get(C.COL_SCENE, 'N/A'),
+                C.COL_PERSONAJE: row[C.COL_PERSONAJE],
+                C.COL_IN: str(row[C.COL_IN]),
+                C.COL_OUT: str(row[C.COL_OUT]),
+                f"{dialogue_source_column}_Snippet": dialogue_text[:70] + "..."
+            }
             try:
-                duration = self.parse_time(row['OUT']) - self.parse_time(row['IN'])
+                duration = self.parse_time(row[C.COL_OUT]) - self.parse_time(row[C.COL_IN])
                 if duration > self.max_duration:
                     self.problematic_interventions_report.append({**details, "PROBLEMA_TIPO": "Duración Excesiva", "DETALLE": f"Duración ({duration:.2f}s) > max ({self.max_duration}s)."})
-                # -> MODIFICADO
                 num_lines = len(self.expand_dialogue(dialogue_text))
                 if num_lines > self.max_lines_per_take:
                     self.problematic_interventions_report.append({**details, "PROBLEMA_TIPO": "Líneas Excesivas", "DETALLE": f"Líneas ({num_lines}) > max ({self.max_lines_per_take})."})
@@ -113,13 +118,12 @@ class TakeoOptimizerLogic:
     def group_dialogues_simultaneous_dp(self, data, dialogue_source_column: str):
         blocks = []
         data_copy = data.copy()
-        data_copy['IN_str'] = data_copy['IN'].astype(str)
-        data_copy['OUT_str'] = data_copy['OUT'].astype(str)
-        for (scene, in_str, out_str), group in data_copy.groupby(["SCENE", "IN_str", "OUT_str"]):
+        data_copy['IN_str'] = data_copy[C.COL_IN].astype(str)
+        data_copy['OUT_str'] = data_copy[C.COL_OUT].astype(str)
+        for (scene, in_str, out_str), group in data_copy.groupby([C.COL_SCENE, "IN_str", "OUT_str"]):
             try:
                 block = {"scene": scene, "in_time_str": in_str, "out_time_str": out_str, "in_time": self.parse_time(in_str), "out_time": self.parse_time(out_str)}
-                # -> LÍNEA CLAVE MODIFICADA
-                dialogues = [{"personaje": row["PERSONAJE"], "lines": self.expand_dialogue(str(row[dialogue_source_column]))} for _, row in group.iterrows()]
+                dialogues = [{"personaje": row[C.COL_PERSONAJE], "lines": self.expand_dialogue(str(row[dialogue_source_column]))} for _, row in group.iterrows()]
                 block["dialogues"], block["characters"] = dialogues, {d["personaje"] for d in dialogues}
                 blocks.append(block)
             except ValueError as e:
@@ -164,14 +168,14 @@ class TakeoOptimizerLogic:
                 else:
                     fused_lines = self._fuse_run_texts([r["lines"] for r in run])
                     for line in fused_lines:
-                        row_data = {"TAKE": take, "PERSONAJE": run[0]["char"], dialogue_source_column: line, "IN": run[0]["in"], "OUT": run[-1]["out"]}
+                        row_data = {"TAKE": take, C.COL_PERSONAJE: run[0]["char"], dialogue_source_column: line, C.COL_IN: run[0]["in"], C.COL_OUT: run[-1]["out"]}
                         rows.append(row_data)
                     run = [interv]
             
             if run:
                 fused_lines = self._fuse_run_texts([r["lines"] for r in run])
                 for line in fused_lines:
-                    row_data = {"TAKE": take, "PERSONAJE": run[0]["char"], dialogue_source_column: line, "IN": run[0]["in"], "OUT": run[-1]["out"]}
+                    row_data = {"TAKE": take, C.COL_PERSONAJE: run[0]["char"], dialogue_source_column: line, C.COL_IN: run[0]["in"], C.COL_OUT: run[-1]["out"]}
                     rows.append(row_data)
 
         if not rows: return pd.DataFrame()
@@ -180,25 +184,15 @@ class TakeoOptimizerLogic:
         if dialogue_source_column not in df.columns:
             df[dialogue_source_column] = ""
 
-        # --- INICIO DE LA LÓGICA DE ORDENACIÓN Y RENUMERACIÓN FINAL ---
-        
-        # 1. Crear columnas auxiliares para la ordenación cronológica.
-        df['sort_key'] = df['IN'].apply(self.parse_time)
+        df['sort_key'] = df[C.COL_IN].apply(self.parse_time)
         df['take_start_time'] = df.groupby('TAKE')['sort_key'].transform('min')
 
-        # 2. Ordenar el DataFrame cronológicamente.
         df_sorted = df.sort_values(by=["take_start_time", "sort_key"])
 
-        # 3. Renumerar los takes para que sean secuenciales.
-        #    Obtenemos los números de take únicos en su nuevo orden cronológico.
         chronological_take_order = df_sorted['TAKE'].unique()
-        #    Creamos un mapa de traducción: {take_antiguo: take_nuevo, ...}
-        #    Ej: {1: 1, 15: 2, 2: 3, 14: 4, ...}
         take_renumber_map = {old_take_num: new_take_num for new_take_num, old_take_num in enumerate(chronological_take_order, 1)}
-        #    Aplicamos el mapa para reemplazar los números antiguos por los nuevos.
         df_sorted['TAKE'] = df_sorted['TAKE'].map(take_renumber_map)
 
-        # 4. Eliminar las columnas auxiliares y devolver el resultado final.
         return df_sorted.drop(columns=['take_start_time', 'sort_key'])
 
     def generate_summary(self, blocks_with_takes):
@@ -206,44 +200,36 @@ class TakeoOptimizerLogic:
         for block in blocks_with_takes:
             if "take" in block:
                 for p in block["characters"]: summary[p].add(block["take"])
-        rows = [{"PERSONAJE": p, "TAKES (apariciones)": len(t)} for p, t in sorted(summary.items())]
+        rows = [{C.COL_PERSONAJE: p, "TAKES (apariciones)": len(t)} for p, t in sorted(summary.items())]
         total = sum(row["TAKES (apariciones)"] for row in rows)
-        rows.append({"PERSONAJE": "TOTAL SUMA APARICIONES", "TAKES (apariciones)": total})
+        rows.append({C.COL_PERSONAJE: "TOTAL SUMA APARICIONES", "TAKES (apariciones)": total})
         return pd.DataFrame(rows)
 
     def _create_optimized_takes_dp(self, data, dialogue_source_column: str):
         blocks_by_scene = defaultdict(list)
-        # 1. Agrupar diálogos por escena
         for block in self.group_dialogues_simultaneous_dp(data, dialogue_source_column):
             blocks_by_scene[block["scene"]].append(block)
 
-        # --- INICIO DE LA LÓGICA CORREGIDA ---
         counter, final_blocks = 1, []
         for scene in sorted(blocks_by_scene.keys()):
             scene_blocks = blocks_by_scene[scene]
-            # 2. Particionar los bloques de cada escena en takes óptimos
             segments, _ = self.partition_scene_blocks(scene_blocks)
             
-            # Si la partición falla, segments estará vacío
             if not segments and scene_blocks:
                  print(f"Advertencia: No se pudo encontrar una partición válida para la escena {scene}.")
-                 # Opcionalmente, podrías querer manejar esto de forma más explícita
                  continue
 
-            # 3. Asignar el número de take (counter) a cada segmento
             for start, end in segments:
                 for i in range(start, end):
                     scene_blocks[i]["take"] = counter
-                counter += 1 # Incrementar el contador para el siguiente take
+                counter += 1
             
             final_blocks.extend(scene_blocks)
-        # --- FIN DE LA LÓGICA CORREGIDA ---
 
         assigned = [b for b in final_blocks if "take" in b]
         detail_df = self.generate_detail(assigned, dialogue_source_column)
         summary_df = self.generate_summary(assigned)
         
-        # Guardar el número total de takes generados
         self.actual_takes_generated = detail_df['TAKE'].max() if not detail_df.empty and 'TAKE' in detail_df.columns else 0
         
         return detail_df, summary_df

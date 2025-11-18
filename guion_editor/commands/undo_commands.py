@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from guion_editor.widgets.table_window import TableWindow
 
 from ..utils.dialog_utils import tc_to_frames, frames_to_tc
+from .. import constants as C
 
 class EditCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow', df_row_index: int, view_col_index: int, old_value: Any, new_value: Any):
@@ -55,14 +56,14 @@ class AddRowCommand(QUndoCommand):
         scene, char = ("1" if not self.tw.has_scene_numbers() else ""), ""
         if 0 < self.df_row_insert_at <= len(current_df):
             prev_df_idx = self.df_row_insert_at - 1
-            scene = str(current_df.at[prev_df_idx, 'SCENE'])
-            char = str(current_df.at[prev_df_idx, 'PERSONAJE'])
+            scene = str(current_df.at[prev_df_idx, C.COL_SCENE])
+            char = str(current_df.at[prev_df_idx, C.COL_PERSONAJE])
         elif not current_df.empty and self.df_row_insert_at == len(current_df):
             last_df_idx = len(current_df) - 1
-            scene = str(current_df.at[last_df_idx, 'SCENE'])
-            char = str(current_df.at[last_df_idx, 'PERSONAJE'])
+            scene = str(current_df.at[last_df_idx, C.COL_SCENE])
+            char = str(current_df.at[last_df_idx, C.COL_PERSONAJE])
 
-        self.new_row_data = {'ID': self.new_row_id, 'SCENE': scene, 'IN': '00:00:00:00', 'OUT': '00:00:00:00', 'PERSONAJE': char, 'DIÁLOGO': '', 'EUSKERA': ''}
+        self.new_row_data = {C.COL_ID: self.new_row_id, C.COL_SCENE: scene, C.COL_IN: '00:00:00:00', C.COL_OUT: '00:00:00:00', C.COL_PERSONAJE: char, C.COL_DIALOGO: '', C.COL_EUSKERA: ''}
         self.tw.pandas_model.insert_row_data(self.df_row_insert_at, self.new_row_data)
         self.tw.table_view.selectRow(self.view_row_insert_at)
         idx_to_scroll = self.tw.pandas_model.index(self.view_row_insert_at, 0)
@@ -165,15 +166,15 @@ class SplitInterventionCommand(QUndoCommand):
             Qt.ItemDataRole.EditRole
         )
 
-        new_row_full_data = {**original_row_data_for_new_row, 'ID': self.new_row_id}
+        new_row_full_data = {**original_row_data_for_new_row, C.COL_ID: self.new_row_id}
         new_row_full_data[self.df_column_name_to_split] = self.after_txt
 
-        if self.df_column_name_to_split == 'DIÁLOGO':
-            if 'EUSKERA' in new_row_full_data:
-                new_row_full_data['EUSKERA'] = ""
-        elif self.df_column_name_to_split == 'EUSKERA':
-            if 'DIÁLOGO' in new_row_full_data:
-                new_row_full_data['DIÁLOGO'] = ""
+        if self.df_column_name_to_split == C.COL_DIALOGO:
+            if C.COL_EUSKERA in new_row_full_data:
+                new_row_full_data[C.COL_EUSKERA] = ""
+        elif self.df_column_name_to_split == C.COL_EUSKERA:
+            if C.COL_DIALOGO in new_row_full_data:
+                new_row_full_data[C.COL_DIALOGO] = ""
 
         self.tw.pandas_model.insert_row_data(self.df_idx_split + 1, new_row_full_data)
 
@@ -251,16 +252,16 @@ class MergeInterventionsCommand(QUndoCommand):
             return
 
         if self.orig_dlg1 is None:
-            self.orig_dlg1 = str(current_df.at[self.df_idx1, 'DIÁLOGO'])
+            self.orig_dlg1 = str(current_df.at[self.df_idx1, C.COL_DIALOGO])
         if self.orig_eusk1 is None:
-            self.orig_eusk1 = str(current_df.at[self.df_idx1, 'EUSKERA'])
+            self.orig_eusk1 = str(current_df.at[self.df_idx1, C.COL_EUSKERA])
 
         if self.data_df_idx2 is None:
             self.data_df_idx2 = current_df.iloc[df_idx_actual_second_row_to_merge].copy()
 
-        view_col_dlg = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
-        view_col_eusk = self.tw.pandas_model.get_view_column_index('EUSKERA')
-        view_col_out = self.tw.pandas_model.get_view_column_index('OUT')
+        view_col_dlg = self.tw.pandas_model.get_view_column_index(C.COL_DIALOGO)
+        view_col_eusk = self.tw.pandas_model.get_view_column_index(C.COL_EUSKERA)
+        view_col_out = self.tw.pandas_model.get_view_column_index(C.COL_OUT)
 
         if view_col_dlg is None or view_col_out is None or view_col_eusk is None:
             print("MergeCommand.redo: One or more critical column view indices not found.")
@@ -269,8 +270,8 @@ class MergeInterventionsCommand(QUndoCommand):
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_dlg), self.merged_dlg, Qt.ItemDataRole.EditRole)
         self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_eusk), self.merged_eusk, Qt.ItemDataRole.EditRole)
 
-        if self.data_df_idx2 is not None and 'OUT' in self.data_df_idx2 and pd.notna(self.data_df_idx2['OUT']):
-             self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.data_df_idx2['OUT'], Qt.ItemDataRole.EditRole)
+        if self.data_df_idx2 is not None and C.COL_OUT in self.data_df_idx2 and pd.notna(self.data_df_idx2[C.COL_OUT]):
+             self.tw.pandas_model.setData(self.tw.pandas_model.index(self.df_idx1, view_col_out), self.data_df_idx2[C.COL_OUT], Qt.ItemDataRole.EditRole)
 
         self.tw.pandas_model.remove_row_by_df_index(df_idx_actual_second_row_to_merge)
 
@@ -288,9 +289,9 @@ class MergeInterventionsCommand(QUndoCommand):
             print("MergeCommand.undo: Original data for undo not available.")
             return
 
-        view_col_dlg = self.tw.pandas_model.get_view_column_index('DIÁLOGO')
-        view_col_eusk = self.tw.pandas_model.get_view_column_index('EUSKERA')
-        view_col_out = self.tw.pandas_model.get_view_column_index('OUT')
+        view_col_dlg = self.tw.pandas_model.get_view_column_index(C.COL_DIALOGO)
+        view_col_eusk = self.tw.pandas_model.get_view_column_index(C.COL_EUSKERA)
+        view_col_out = self.tw.pandas_model.get_view_column_index(C.COL_OUT)
 
         if view_col_dlg is None or view_col_out is None or view_col_eusk is None:
             print("MergeCommand.undo: One or more critical column view indices not found.")
@@ -320,7 +321,7 @@ class ChangeSceneCommand(QUndoCommand):
         self.setText(f"Incrementar escena desde fila {df_start_idx + 1}")
 
     def _apply_scenes(self, scene_map: Dict[int, str], select_row: Optional[int]):
-        view_col_scene = self.tw.pandas_model.get_view_column_index('SCENE')
+        view_col_scene = self.tw.pandas_model.get_view_column_index(C.COL_SCENE)
         if view_col_scene is None:
             return
         for df_idx, scene_val in scene_map.items():
@@ -340,7 +341,7 @@ class ChangeSceneCommand(QUndoCommand):
             return
 
         for df_idx in range(self.df_start_idx, len(current_df)):
-            scene_val_str = str(current_df.at[df_idx, 'SCENE']).strip()
+            scene_val_str = str(current_df.at[df_idx, C.COL_SCENE]).strip()
             try:
                 int(scene_val_str)
             except ValueError:
@@ -355,7 +356,7 @@ class ChangeSceneCommand(QUndoCommand):
         new_scenes_map_for_redo: Dict[int, str] = {}
 
         for df_idx in range(self.df_start_idx, len(current_df)):
-            original_scene_str = str(current_df.at[df_idx, 'SCENE'])
+            original_scene_str = str(current_df.at[df_idx, C.COL_SCENE])
             self.old_scenes_map[df_idx] = original_scene_str
 
             scene_num = int(original_scene_str.strip())
@@ -400,13 +401,13 @@ class ToggleBookmarkCommand(QUndoCommand):
 
         for df_idx in self.df_indices:
             if 0 <= df_idx < self.tw.pandas_model.rowCount():
-                self.original_states[df_idx] = self.tw.pandas_model.dataframe().at[df_idx, 'BOOKMARK']
+                self.original_states[df_idx] = self.tw.pandas_model.dataframe().at[df_idx, C.COL_BOOKMARK]
         
         self.setText(f"Marcar/Desmarcar {len(self.df_indices)} fila(s)")
 
     def _set_bookmark_state(self, is_bookmarked: bool, df_idx: int):
         """Método auxiliar para cambiar el estado de una fila."""
-        view_col_bookmark = self.tw.pandas_model.get_view_column_index('BOOKMARK')
+        view_col_bookmark = self.tw.pandas_model.get_view_column_index(C.COL_BOOKMARK)
         if view_col_bookmark is not None:
             model_idx = self.tw.pandas_model.index(df_idx, view_col_bookmark)
             self.tw.pandas_model.setData(model_idx, is_bookmarked, Qt.ItemDataRole.EditRole)
@@ -440,20 +441,20 @@ class UpdateMultipleCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
         
-        mask = df['PERSONAJE'].astype(str).str.strip().isin(self.old_names_list)
+        mask = df[C.COL_PERSONAJE].astype(str).str.strip().isin(self.old_names_list)
         if not mask.any(): return
 
         if self.original_series is None:
-            self.original_series = df.loc[mask, 'PERSONAJE'].copy()
+            self.original_series = df.loc[mask, C.COL_PERSONAJE].copy()
 
-        view_col_char = model.get_view_column_index('PERSONAJE')
+        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is None:
-            df.loc[mask, 'PERSONAJE'] = self.new_name
+            df.loc[mask, C.COL_PERSONAJE] = self.new_name
             model.layoutChanged.emit() # Fallback
             self.tw.set_unsaved_changes(True)
             return
 
-        df.loc[mask, 'PERSONAJE'] = self.new_name
+        df.loc[mask, C.COL_PERSONAJE] = self.new_name
         
         for df_idx in self.original_series.index:
             model_idx = model.index(df_idx, view_col_char)
@@ -467,14 +468,14 @@ class UpdateMultipleCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
 
-        view_col_char = model.get_view_column_index('PERSONAJE')
+        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is None:
-            df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+            df.loc[self.original_series.index, C.COL_PERSONAJE] = self.original_series
             model.layoutChanged.emit() # Fallback
             self.tw.set_unsaved_changes(True)
             return
 
-        df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+        df.loc[self.original_series.index, C.COL_PERSONAJE] = self.original_series
         
         for df_idx in self.original_series.index:
             model_idx = model.index(df_idx, view_col_char)
@@ -499,11 +500,11 @@ class SplitCharacterCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
         
-        indices_to_split = df[df['PERSONAJE'] == self.old_name].index.tolist()
+        indices_to_split = df[df[C.COL_PERSONAJE] == self.old_name].index.tolist()
         
         if not indices_to_split: return
 
-        view_col_char = model.get_view_column_index('PERSONAJE')
+        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is None: return
 
         if not self.original_rows_data:
@@ -521,17 +522,16 @@ class SplitCharacterCommand(QUndoCommand):
             # Prepara los datos para la nueva fila (copia de la original)
             original_row_data = df.iloc[df_idx].to_dict()
             new_row_data = original_row_data.copy()
-            new_row_data['PERSONAJE'] = self.new_name2
+            new_row_data[C.COL_PERSONAJE] = self.new_name2
             
             new_id = model.get_next_id()
-            new_row_data['ID'] = new_id
+            new_row_data[C.COL_ID] = new_id
             self.added_row_ids.append(new_id)
             
             # Inserta la nueva fila justo debajo de la original
             model.insert_row_data(df_idx + 1, new_row_data)
 
         self.tw.set_unsaved_changes(True)
-        # No es necesario emitir layoutChanged, ya que insert_row_data lo hace.
 
     def undo(self):
         if not self.original_rows_data: return
@@ -545,7 +545,7 @@ class SplitCharacterCommand(QUndoCommand):
                 model.remove_row_by_df_index(df_idx_to_remove)
         
         # Restaurar el nombre original en las filas que se modificaron
-        view_col_char = model.get_view_column_index('PERSONAJE')
+        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is not None:
             for df_idx in self.original_rows_data.keys():
                 # Comprobar que el índice sigue siendo válido después de las eliminaciones
@@ -553,10 +553,7 @@ class SplitCharacterCommand(QUndoCommand):
                     model.setData(model.index(df_idx, view_col_char), self.old_name, Qt.ItemDataRole.EditRole)
 
         self.tw.set_unsaved_changes(True)
-        # No es necesario layoutChanged, setData y remove_row_by_df_index emiten las señales correctas.
 
-
-# -> INICIO: NUEVO COMANDO PARA LIMPIAR ESPACIOS DE NOMBRES
 class TrimAllCharactersCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow'):
         super().__init__("Limpiar espacios en nombres de personaje")
@@ -567,20 +564,20 @@ class TrimAllCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
         
-        mask = df['PERSONAJE'].astype(str) != df['PERSONAJE'].astype(str).str.strip()
+        mask = df[C.COL_PERSONAJE].astype(str) != df[C.COL_PERSONAJE].astype(str).str.strip()
         if not mask.any(): return
             
         if self.original_series is None:
-            self.original_series = df.loc[mask, 'PERSONAJE'].copy()
+            self.original_series = df.loc[mask, C.COL_PERSONAJE].copy()
             
-        view_col_char = model.get_view_column_index('PERSONAJE')
+        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is None:
-            df.loc[mask, 'PERSONAJE'] = df.loc[mask, 'PERSONAJE'].astype(str).str.strip()
+            df.loc[mask, C.COL_PERSONAJE] = df.loc[mask, C.COL_PERSONAJE].astype(str).str.strip()
             model.layoutChanged.emit() # Fallback
             self.tw.set_unsaved_changes(True)
             return
 
-        df.loc[mask, 'PERSONAJE'] = df.loc[mask, 'PERSONAJE'].astype(str).str.strip()
+        df.loc[mask, C.COL_PERSONAJE] = df.loc[mask, C.COL_PERSONAJE].astype(str).str.strip()
         
         for df_idx in self.original_series.index:
             model_idx = model.index(df_idx, view_col_char)
@@ -594,14 +591,14 @@ class TrimAllCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
 
-        view_col_char = model.get_view_column_index('PERSONAJE')
+        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is None:
-            df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+            df.loc[self.original_series.index, C.COL_PERSONAJE] = self.original_series
             model.layoutChanged.emit() # Fallback
             self.tw.set_unsaved_changes(True)
             return
             
-        df.loc[self.original_series.index, 'PERSONAJE'] = self.original_series
+        df.loc[self.original_series.index, C.COL_PERSONAJE] = self.original_series
         
         for df_idx in self.original_series.index:
             model_idx = model.index(df_idx, view_col_char)
@@ -636,11 +633,11 @@ class ShiftTimecodesCommand(QUndoCommand):
             new_frames = original_frames + (current_sign * self.offset_frames)
             return frames_to_tc(new_frames, self.fps)
 
-        df['IN'] = df['IN'].apply(shift_cell)
-        df['OUT'] = df['OUT'].apply(shift_cell)
+        df[C.COL_IN] = df[C.COL_IN].apply(shift_cell)
+        df[C.COL_OUT] = df[C.COL_OUT].apply(shift_cell)
 
-        view_col_in = model.get_view_column_index('IN')
-        view_col_out = model.get_view_column_index('OUT')
+        view_col_in = model.get_view_column_index(C.COL_IN)
+        view_col_out = model.get_view_column_index(C.COL_OUT)
         if view_col_in is None or view_col_out is None or model.rowCount() == 0:
             model.layoutChanged.emit() # Fallback
             self.tw.set_unsaved_changes(True)
@@ -670,11 +667,11 @@ class ResetScenesCommand(QUndoCommand):
         if df.empty: return
 
         if self.original_scenes is None:
-            self.original_scenes = df['SCENE'].copy()
+            self.original_scenes = df[C.COL_SCENE].copy()
             
-        df['SCENE'] = "1"
+        df[C.COL_SCENE] = "1"
         
-        view_col_scene = model.get_view_column_index('SCENE')
+        view_col_scene = model.get_view_column_index(C.COL_SCENE)
         if view_col_scene is None or model.rowCount() == 0:
             model.layoutChanged.emit() # Fallback
         else:
@@ -688,9 +685,9 @@ class ResetScenesCommand(QUndoCommand):
 
         model = self.tw.pandas_model
         df = model.dataframe()
-        df['SCENE'] = self.original_scenes
+        df[C.COL_SCENE] = self.original_scenes
         
-        view_col_scene = model.get_view_column_index('SCENE')
+        view_col_scene = model.get_view_column_index(C.COL_SCENE)
         if view_col_scene is None or model.rowCount() == 0:
             model.layoutChanged.emit() # Fallback
         else:
@@ -712,14 +709,14 @@ class ResetTimecodesCommand(QUndoCommand):
         df = model.dataframe()
         if df.empty: return
 
-        if self.original_ins is None: self.original_ins = df['IN'].copy()
-        if self.original_outs is None: self.original_outs = df['OUT'].copy()
+        if self.original_ins is None: self.original_ins = df[C.COL_IN].copy()
+        if self.original_outs is None: self.original_outs = df[C.COL_OUT].copy()
             
-        df['IN'] = "00:00:00:00"
-        df['OUT'] = "00:00:00:00"
+        df[C.COL_IN] = "00:00:00:00"
+        df[C.COL_OUT] = "00:00:00:00"
         
-        view_col_in = model.get_view_column_index('IN')
-        view_col_out = model.get_view_column_index('OUT')
+        view_col_in = model.get_view_column_index(C.COL_IN)
+        view_col_out = model.get_view_column_index(C.COL_OUT)
         if view_col_in is None or view_col_out is None or model.rowCount() == 0:
             model.layoutChanged.emit() # Fallback
         else:
@@ -733,11 +730,11 @@ class ResetTimecodesCommand(QUndoCommand):
 
         model = self.tw.pandas_model
         df = model.dataframe()
-        df['IN'] = self.original_ins
-        df['OUT'] = self.original_outs
+        df[C.COL_IN] = self.original_ins
+        df[C.COL_OUT] = self.original_outs
         
-        view_col_in = model.get_view_column_index('IN')
-        view_col_out = model.get_view_column_index('OUT')
+        view_col_in = model.get_view_column_index(C.COL_IN)
+        view_col_out = model.get_view_column_index(C.COL_OUT)
         if view_col_in is None or view_col_out is None or model.rowCount() == 0:
             model.layoutChanged.emit() # Fallback
         else:
@@ -758,14 +755,14 @@ class CopyInToPreviousOutCommand(QUndoCommand):
         if df.empty: return
 
         if self.original_outs is None:
-            self.original_outs = df['OUT'].copy()
+            self.original_outs = df[C.COL_OUT].copy()
             
-        df['OUT'] = df['IN'].shift(-1)
+        df[C.COL_OUT] = df[C.COL_IN].shift(-1)
         
         if not self.original_outs.empty:
-            df.loc[df.index[-1], 'OUT'] = self.original_outs.iloc[-1]
+            df.loc[df.index[-1], C.COL_OUT] = self.original_outs.iloc[-1]
         
-        view_col_out = model.get_view_column_index('OUT')
+        view_col_out = model.get_view_column_index(C.COL_OUT)
         if view_col_out is None or model.rowCount() == 0:
             model.layoutChanged.emit() # Fallback
         else:
@@ -779,9 +776,9 @@ class CopyInToPreviousOutCommand(QUndoCommand):
 
         model = self.tw.pandas_model
         df = model.dataframe()
-        df['OUT'] = self.original_outs
+        df[C.COL_OUT] = self.original_outs
         
-        view_col_out = model.get_view_column_index('OUT')
+        view_col_out = model.get_view_column_index(C.COL_OUT)
         if view_col_out is None or model.rowCount() == 0:
             model.layoutChanged.emit() # Fallback
         else:

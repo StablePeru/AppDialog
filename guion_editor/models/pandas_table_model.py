@@ -4,7 +4,6 @@ from PyQt6.QtCore import QAbstractTableModel, Qt, QModelIndex, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from typing import Any, List, Dict, Optional, Tuple, Union
 
-# -> NUEVO: Importar constantes
 from .. import constants as C
 
 # Colores de validación (apropiados para tema oscuro)
@@ -22,11 +21,7 @@ class PandasTableModel(QAbstractTableModel):
         super().__init__(parent)
         self.column_map = column_map
         self.view_column_names = view_column_names
-        # -> MODIFICADO: Usa constantes
-        self.df_column_order = [
-            col_name for col_name in column_map.values()
-            if col_name != C.ROW_NUMBER_COL_IDENTIFIER and col_name != C.DURATION_COL_IDENTIFIER
-        ]
+        self.df_column_order = C.DF_COLUMN_ORDER
 
         self._dataframe = pd.DataFrame(columns=self.df_column_order)
         self._ensure_df_structure()
@@ -114,7 +109,6 @@ class PandasTableModel(QAbstractTableModel):
         if col_identifier is None:
             return None
 
-        # -> MODIFICADO: Usa constantes
         if col_identifier == C.ROW_NUMBER_COL_IDENTIFIER:
             if role == Qt.ItemDataRole.DisplayRole:
                 return str(df_row_idx + 1)
