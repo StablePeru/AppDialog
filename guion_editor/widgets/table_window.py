@@ -3,43 +3,40 @@ import json
 import os
 import re
 from typing import Any, List, Dict, Optional, Tuple
-
 import pandas as pd
 import bisect
 
-from PyQt6.QtCore import pyqtSignal, QObject, QEvent, Qt, QSize, QModelIndex, QTimer, QPoint
-from PyQt6.QtGui import QFont, QColor, QIntValidator, QBrush, QIcon, QKeyEvent, QKeySequence, QAction
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QModelIndex, QTimer, QPoint
+from PyQt6.QtGui import QFont, QIntValidator, QIcon, QKeyEvent, QKeySequence, QAction
 from PyQt6.QtWidgets import (
-    QWidget, QFileDialog, QAbstractItemView,
-    QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
-    QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu, QSizePolicy, QDialog, QToolTip,
-    QProgressDialog, QApplication
+    QWidget, QAbstractItemView, QMessageBox, QVBoxLayout, QHBoxLayout, QPushButton,
+    QComboBox, QLineEdit, QLabel, QFormLayout, QInputDialog, QCheckBox, QMenu,
+    QSizePolicy, QDialog, QToolTip, QProgressDialog, QApplication
 )
 from PyQt6.QtGui import QUndoStack
 
-# -> NUEVO: Importar constantes
 from .. import constants as C
-from guion_editor.widgets.custom_table_view import CustomTableView
-from guion_editor.models.pandas_table_model import PandasTableModel
-from guion_editor.delegates.custom_delegates import TimeCodeDelegate, CharacterDelegate
-from guion_editor.delegates.guion_delegate import DialogDelegate
-from guion_editor.utils.dialog_utils import ajustar_dialogo
-from guion_editor.utils.guion_manager import GuionManager
-from guion_editor.widgets.custom_text_edit import CustomTextEdit
-from guion_editor.widgets.excel_mapping_dialog import ExcelMappingDialog
-from guion_editor.widgets.shift_timecode_dialog import ShiftTimecodeDialog
-from guion_editor.commands.undo_commands import (
+from .custom_table_view import CustomTableView
+from ..models.pandas_table_model import PandasTableModel
+from ..delegates.custom_delegates import TimeCodeDelegate, CharacterDelegate
+from ..delegates.guion_delegate import DialogDelegate
+from ..utils.dialog_utils import ajustar_dialogo
+from ..utils.file_io_handler import FileIOHandler
+from ..utils.guion_manager import GuionManager 
+from ..widgets.custom_text_edit import CustomTextEdit 
+from ..widgets.shift_timecode_dialog import ShiftTimecodeDialog
+from ..commands.undo_commands import (
     EditCommand, AddRowCommand, RemoveRowsCommand, MoveRowCommand,
     SplitInterventionCommand, MergeInterventionsCommand, ChangeSceneCommand, HeaderEditCommand,
     ToggleBookmarkCommand, UpdateMultipleCharactersCommand, SplitCharacterCommand,
-    TrimAllCharactersCommand, ShiftTimecodesCommand, ResetTimecodesCommand, ResetScenesCommand
+    TrimAllCharactersCommand, ShiftTimecodesCommand, ResetTimecodesCommand, ResetScenesCommand,
+    CopyInToPreviousOutCommand
 )
 
 class TableWindow(QWidget):
     in_out_signal = pyqtSignal(str, int)
     character_name_changed = pyqtSignal()
 
-    # -> MODIFICADO: Mapeos usan constantes
     COL_NUM_INTERV_VIEW = 0; COL_ID_VIEW = 1; COL_SCENE_VIEW = 2; COL_IN_VIEW = 3
     COL_OUT_VIEW = 4; COL_DURATION_VIEW = 5; COL_CHARACTER_VIEW = 6; COL_DIALOGUE_VIEW = 7
     COL_EUSKERA_VIEW = 8; COL_OHARRAK_VIEW = 9; COL_BOOKMARK_VIEW = 10
@@ -47,24 +44,23 @@ class TableWindow(QWidget):
     VIEW_COLUMN_NAMES = ["Nº", "ID", "SCENE", "IN", "OUT", "DURACIÓN", "PERSONAJE", "DIÁLOGO", "EUSKERA", "OHARRAK", "BOOKMARK"]
 
     VIEW_TO_DF_COL_MAP = {
-        COL_NUM_INTERV_VIEW: C.ROW_NUMBER_COL_IDENTIFIER,
-        COL_ID_VIEW: C.COL_ID,
-        COL_SCENE_VIEW: C.COL_SCENE,
-        COL_IN_VIEW: C.COL_IN,
-        COL_OUT_VIEW: C.COL_OUT,
-        COL_DURATION_VIEW: C.DURATION_COL_IDENTIFIER,
-        COL_CHARACTER_VIEW: C.COL_PERSONAJE,
-        COL_DIALOGUE_VIEW: C.COL_DIALOGO,
-        COL_EUSKERA_VIEW: C.COL_EUSKERA,
-        COL_OHARRAK_VIEW: C.COL_OHARRAK,
-        COL_BOOKMARK_VIEW: C.COL_BOOKMARK
+        COL_NUM_INTERV_VIEW: C.ROW_NUMBER_COL_IDENTIFIER, COL_ID_VIEW: C.COL_ID,
+        COL_SCENE_VIEW: C.COL_SCENE, COL_IN_VIEW: C.COL_IN, COL_OUT_VIEW: C.COL_OUT,
+        COL_DURATION_VIEW: C.DURATION_COL_IDENTIFIER, COL_CHARACTER_VIEW: C.COL_PERSONAJE,
+        COL_DIALOGUE_VIEW: C.COL_DIALOGO, COL_EUSKERA_VIEW: C.COL_EUSKERA,
+        COL_OHARRAK_VIEW: C.COL_OHARRAK, COL_BOOKMARK_VIEW: C.COL_BOOKMARK
     }
     DF_COLUMN_ORDER = C.DF_COLUMN_ORDER
 
     def __init__(self, video_player_widget: Any, main_window: Optional[QWidget] = None,
-                 guion_manager: Optional[GuionManager] = None, get_icon_func=None):
+                 guion_manager = None, get_icon_func=None):
         super().__init__()
+        # -> MODIFICADO: guion_manager se pasa al handler, pero se mantiene la referencia aquí
         self._init_internal_state(video_player_widget, main_window, guion_manager, get_icon_func)
+        
+        # -> NUEVO: Crear la instancia del handler
+        self.file_io_handler = FileIOHandler(self)
+
         self._init_timers()
         self.setup_ui()
         self.update_action_buttons_state()
@@ -73,6 +69,43 @@ class TableWindow(QWidget):
         self.update_window_title()
         QTimer.singleShot(0, self.hide_default_columns)
 
+    # ... (el resto de _init_internal_state, _init_timers, _connect_signals, etc., permanecen igual) ...
+    # ... (desde aquí hasta los métodos de archivo, el código es el mismo) ...
+
+    # --- INICIO DE LA SECCIÓN DE MÉTODOS DE ARCHIVO REFACTORIZADOS ---
+
+    def open_docx_dialog(self) -> None:
+        """Delega la apertura de DOCX al FileIOHandler."""
+        self.file_io_handler.load_docx()
+        
+    def load_from_docx_path(self, file_path: str):
+        """Delega la carga de DOCX desde una ruta al FileIOHandler."""
+        self.file_io_handler._load_docx_path(file_path)
+
+    def import_from_excel_dialog(self) -> None:
+        """Delega la importación de Excel al FileIOHandler."""
+        self.file_io_handler.import_excel()
+
+    def load_from_excel_path(self, file_path: str):
+        """Delega la carga de Excel desde una ruta al FileIOHandler."""
+        self.file_io_handler._load_excel_path(file_path)
+
+    def load_from_json_dialog(self) -> None:
+        """Delega la carga de JSON al FileIOHandler."""
+        self.file_io_handler.load_json()
+
+    def load_from_json_path(self, file_path: str):
+        """Delega la carga de JSON desde una ruta al FileIOHandler."""
+        self.file_io_handler._load_json_path(file_path)
+
+    def export_to_excel_dialog(self) -> bool:
+        """Delega la exportación a Excel al FileIOHandler."""
+        return self.file_io_handler.export_excel()
+
+    def save_to_json_dialog(self) -> bool:
+        """Delega el guardado como JSON al FileIOHandler."""
+        return self.file_io_handler.save_as_json()
+        
     def hide_default_columns(self):
         self.table_view.horizontalHeader().setSectionsMovable(True)
         self.table_view.setColumnHidden(self.COL_BOOKMARK_VIEW, True)
@@ -199,12 +232,6 @@ class TableWindow(QWidget):
 
     def get_subtitle_timeline(self) -> List[Tuple[int, int, str]]: return self.cached_subtitle_timeline
     
-    # ... El resto de la clase, incluyendo setup_ui, etc. ...
-    # (Los métodos restantes no usan constantes de columna de manera tan intensiva,
-    # así que los omito aquí por brevedad, pero el archivo completo debería ser reemplazado
-    # para asegurar que todos los usos de cadenas de texto como 'PERSONAJE', etc., sean reemplazados).
-    # ...
-    # Dado que los cambios son extensos, te proporciono el archivo completo.
     def setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         icon_size_header_toggle = QSize(20, 20)
@@ -422,49 +449,33 @@ class TableWindow(QWidget):
         if not self.error_df_indices: return
         self._current_error_nav_idx = (self._current_error_nav_idx + 1) % len(self.error_df_indices)
         target_df_idx = self.error_df_indices[self._current_error_nav_idx]
-        
         error_message = self.pandas_model._time_validation_status.get(target_df_idx, "Error desconocido.")
         if error_message is True: return
-
-        # Determina la columna con el error
         view_col_to_highlight = self.COL_OUT_VIEW if "OUT" in str(error_message) else self.COL_IN_VIEW
-        
-        # Selecciona la fila y establece la celda específica como la actual
         self.table_view.clearSelection()
         self.table_view.selectRow(target_df_idx)
         self.table_view.setCurrentIndex(self.pandas_model.index(target_df_idx, view_col_to_highlight))
-        
         self.table_view.scrollTo(self.pandas_model.index(target_df_idx, view_col_to_highlight), QAbstractItemView.ScrollHint.PositionAtCenter)
         self.table_view.setFocus()
-
-        # Muestra el tooltip
         cell_index = self.pandas_model.index(target_df_idx, view_col_to_highlight)
         cell_rect = self.table_view.visualRect(cell_index)
         tooltip_pos = self.table_view.viewport().mapToGlobal(cell_rect.topLeft())
-        
         QToolTip.showText(tooltip_pos + QPoint(0, cell_rect.height()), str(error_message), self.table_view, cell_rect, 3000)
-
 
     def go_to_next_scene_error(self):
         if not self.scene_error_df_indices: return
         self._current_scene_error_nav_idx = (self._current_scene_error_nav_idx + 1) % len(self.scene_error_df_indices)
         target_df_idx = self.scene_error_df_indices[self._current_scene_error_nav_idx]
-        
-        # Selecciona la fila y establece la celda específica como la actual
         self.table_view.clearSelection()
         self.table_view.selectRow(target_df_idx)
         self.table_view.setCurrentIndex(self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW))
-
         self.table_view.scrollTo(self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW), QAbstractItemView.ScrollHint.PositionAtCenter)
         self.table_view.setFocus()
-
         error_message = self.pandas_model._scene_validation_status.get(target_df_idx, "Error de escena desconocido.")
         if error_message is True: return
-        
         cell_index = self.pandas_model.index(target_df_idx, self.COL_SCENE_VIEW)
         cell_rect = self.table_view.visualRect(cell_index)
         tooltip_pos = self.table_view.viewport().mapToGlobal(cell_rect.topLeft())
-        
         QToolTip.showText(tooltip_pos + QPoint(0, cell_rect.height()), str(error_message), self.table_view, cell_rect, 3000)
 
     def setup_table_view(self, layout: QVBoxLayout) -> None:
@@ -576,11 +587,7 @@ class TableWindow(QWidget):
         self._request_error_indicator_update(); self._request_scene_error_indicator_update()
         self._request_bookmark_indicator_update(); self._request_recache_subtitles()
         self._recache_times()
-
-    def open_docx_dialog(self) -> None:
-        file_name, _ = QFileDialog.getOpenFileName(self, "Abrir Guion DOCX", "", "Documentos Word (*.docx)")
-        if file_name: self.load_from_docx_path(file_name)
-        
+    
     def open_shift_timecodes_dialog(self):
         if self.pandas_model.dataframe().empty: QMessageBox.information(self, "Desplazar Timecodes", "No hay datos en el guion para desplazar."); return
         dialog = ShiftTimecodeDialog(default_fps=25, get_icon_func=self.get_icon, parent=self)
@@ -588,142 +595,12 @@ class TableWindow(QWidget):
             values = dialog.get_values()
             if values and values[1] > 0: self.undo_stack.push(ShiftTimecodesCommand(self, *values)); QMessageBox.information(self, "Éxito", "Los timecodes han sido desplazados.")
 
-    def load_from_docx_path(self, file_path: str):
-        progress = QProgressDialog("Cargando guion desde DOCX...", "Cancelar", 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setRange(0, 0)
-        progress.show()
-        QApplication.processEvents()
-
-        try:
-            df, header_data, _ = self.guion_manager.load_from_docx(file_path)
-            self._post_load_script_actions(file_path, df, header_data)
-        # --- INICIO DEL CAMBIO ---
-        except FileNotFoundError:
-            self.handle_exception(FileNotFoundError(f"El archivo no se encontró en la ruta: {file_path}"), f"Error al cargar DOCX")
-            self.clear_script_state()
-        except Exception as e: # Mantenemos uno general para errores de formato o inesperados
-            self.handle_exception(e, f"Error al procesar el archivo DOCX: {file_path}")
-            self.clear_script_state()
-        # --- FIN DEL CAMBIO ---
-        finally:
-            progress.close()
-
-    def import_from_excel_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Importar Guion desde Excel", "", "Archivos Excel (*.xlsx)")
-        if path: self.load_from_excel_path(path)
-
-    def load_from_excel_path(self, file_path: str):
-        progress = QProgressDialog("Procesando archivo Excel...", "Cancelar", 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setRange(0, 0)
-        progress.show()
-        QApplication.processEvents()
-
-        try:
-            raw_df, header_data, needs_mapping = self.guion_manager.check_excel_columns(file_path)
-            final_df = None
-            if needs_mapping:
-                progress.close() 
-                dialog = ExcelMappingDialog(raw_df, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    progress.setLabelText("Aplicando mapeo y cargando datos...")
-                    progress.show()
-                    QApplication.processEvents()
-                    
-                    mapping = dialog.get_mapping()
-                    mapped_df = pd.DataFrame()
-                    for app_col, excel_col in mapping.items():
-                        if excel_col != "--- NO ASIGNAR / USAR VALOR POR DEFECTO ---":
-                            mapped_df[app_col] = raw_df.get(excel_col, "")
-                    final_df = mapped_df
-                else:
-                    progress.close()
-                    return
-            else:
-                final_df = raw_df
-                
-            if final_df is not None:
-                df_processed, _ = self.guion_manager.process_dataframe(final_df, file_source=file_path)
-                self._post_load_script_actions(file_path, df_processed, header_data)
-        # --- INICIO DEL CAMBIO ---
-        except FileNotFoundError:
-            self.handle_exception(FileNotFoundError(f"El archivo no se encontró en la ruta: {file_path}"), f"Error al cargar Excel")
-            self.clear_script_state()
-        except (ValueError, KeyError) as e: # Errores comunes de pandas o de formato
-            self.handle_exception(e, f"El archivo Excel '{os.path.basename(file_path)}' tiene un formato o columnas inesperadas.")
-            self.clear_script_state()
-        except Exception as e:
-            self.handle_exception(e, f"Error al procesar el archivo Excel: {file_path}")
-            self.clear_script_state()
-        # --- FIN DEL CAMBIO ---
-        finally:
-            progress.close()
-
-    def load_from_json_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Cargar Guion desde JSON", "", "Archivos JSON (*.json)")
-        if path: self.load_from_json_path(path)
-
-    def load_from_json_path(self, file_path: str):
-        progress = QProgressDialog("Cargando guion desde JSON...", "Cancelar", 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setRange(0, 0)
-        progress.show()
-        QApplication.processEvents()
-
-        try:
-            df, header_data, _ = self.guion_manager.load_from_json(file_path)
-            self._post_load_script_actions(file_path, df, header_data)
-        # --- INICIO DEL CAMBIO ---
-        except FileNotFoundError:
-            self.handle_exception(FileNotFoundError(f"El archivo no se encontró en la ruta: {file_path}"), f"Error al cargar JSON")
-            self.clear_script_state()
-        except json.JSONDecodeError as e:
-            self.handle_exception(e, f"El archivo JSON '{os.path.basename(file_path)}' está corrupto o mal formado.")
-            self.clear_script_state()
-        except Exception as e:
-            self.handle_exception(e, f"Error al procesar el archivo JSON: {file_path}")
-            self.clear_script_state()
-        # --- FIN DEL CAMBIO ---
-        finally:
-            progress.close()
-
     def _generate_default_filename(self, extension: str) -> str:
         header_data = self._get_header_data_from_ui()
         product = str(header_data.get("product_name", "")).strip().replace(" ", "_")
         chapter = str(header_data.get("chapter_number", "")).strip().replace(" ", "_")
         base_name_parts = [part for part in [product, chapter] if part]
         return f"{'_'.join(base_name_parts) if base_name_parts else 'guion'}.{extension}"
-
-    def export_to_excel_dialog(self) -> bool:
-        if self.pandas_model.dataframe().empty: QMessageBox.information(self, "Exportar", "No hay datos para exportar."); return False
-        default_filename = self._generate_default_filename("xlsx")
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar a Excel", default_filename, "Archivos Excel (*.xlsx)")
-        if path:
-            try:
-                self.guion_manager.save_to_excel(path, self.pandas_model.dataframe(), self._get_header_data_from_ui())
-                QMessageBox.information(self, "Éxito", "Guion guardado en Excel.")
-                self.current_script_name, self.current_script_path = os.path.basename(path), path
-                self.undo_stack.setClean()
-                if self.main_window: self.main_window.add_to_recent_files(path)
-                return True
-            except Exception as e: self.handle_exception(e, "Error al guardar en Excel")
-        return False
-
-    def save_to_json_dialog(self) -> bool:
-        if self.pandas_model.dataframe().empty: QMessageBox.information(self, "Guardar", "No hay datos para guardar."); return False
-        default_filename = self._generate_default_filename("json")
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar como JSON", default_filename, "Archivos JSON (*.json)")
-        if path:
-            try:
-                self.guion_manager.save_to_json(path, self.pandas_model.dataframe(), self._get_header_data_from_ui())
-                QMessageBox.information(self, "Éxito", "Guion guardado como JSON.")
-                self.current_script_name, self.current_script_path = os.path.basename(path), path
-                self.undo_stack.setClean()
-                if self.main_window: self.main_window.add_to_recent_files(path)
-                return True
-            except Exception as e: self.handle_exception(e, "Error al guardar como JSON")
-        return False
 
     def update_action_buttons_state(self):
         selected_rows = self.table_view.selectionModel().selectedRows()
@@ -847,55 +724,31 @@ class TableWindow(QWidget):
         if not current_idx.isValid():
             QMessageBox.warning(self, "Separar", "Por favor, seleccione una fila para separar.")
             return
-
         text_to_split: Optional[str] = None
         cursor_pos: int = -1
         df_col_name: Optional[str] = None
-
-        # --- INICIO DE LA NUEVA LÓGICA MEJORADA ---
-
-        # 1. Comprobar si hay un editor activo en la tabla
         active_editor = self.table_view.focusWidget()
         if isinstance(active_editor, CustomTextEdit) and self.table_view.state() == QAbstractItemView.State.EditingState:
-            # ¡Perfecto! El usuario está editando ahora mismo.
             text_to_split = active_editor.toPlainText()
             cursor_pos = active_editor.textCursor().position()
-            
-            # Obtenemos el índice del editor para saber qué columna se está editando
             editor_index = self.table_view.indexAt(active_editor.pos())
             if editor_index.isValid():
                 df_col_name = self.pandas_model.get_df_column_name(editor_index.column())
-
-        # 2. Si no hay editor activo, usar la última posición guardada (comportamiento anterior como fallback)
         elif self.last_focused_dialog_index and self.last_focused_dialog_index.row() == current_idx.row():
             text_to_split = self.last_focused_dialog_text
             cursor_pos = self.last_focused_dialog_cursor_pos
             df_col_name = self.pandas_model.get_df_column_name(self.last_focused_dialog_index.column())
-
-        # --- FIN DE LA NUEVA LÓGICA ---
-
-        # 3. Si no tenemos datos válidos, guiar al usuario
         if text_to_split is None or cursor_pos == -1 or df_col_name not in [C.COL_DIALOGO, C.COL_EUSKERA]:
-            QMessageBox.information(self, "Separar",
-                                    "Para separar una intervención:\n\n"
-                                    "1. Haz doble clic en una celda de 'DIÁLOGO' o 'EUSKERA'.\n"
-                                    "2. Coloca el cursor en el punto exacto de la división.\n"
-                                    "3. Pulsa el botón 'Separar' (o su atajo).\n")
+            QMessageBox.information(self, "Separar", "Para separar una intervención:\n\n1. Haz doble clic en una celda de 'DIÁLOGO' o 'EUSKERA'.\n2. Coloca el cursor en el punto exacto de la división.\n3. Pulsa el botón 'Separar' (o su atajo).\n")
             return
-
-        # Limpiamos el estado para evitar reutilizarlo accidentalmente
         self.last_focused_dialog_index = None
-
-        # Validaciones y ejecución del comando (sin cambios desde aquí)
         if not (0 <= cursor_pos <= len(text_to_split)):
             QMessageBox.warning(self, "Separar", "La posición del cursor es inválida.")
             return
-
         before_text, after_text = text_to_split[:cursor_pos].strip(), text_to_split[cursor_pos:].strip()
         if not after_text:
             QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después del cursor.")
             return
-
         command = SplitInterventionCommand(self, current_idx.row(), before_text, after_text, text_to_split, df_col_name)
         self.undo_stack.push(command)
 
@@ -1099,7 +952,8 @@ class TableWindow(QWidget):
         view_col_char = self.pandas_model.get_view_column_index(C.COL_PERSONAJE)
         if view_col_char is not None:
             for df_idx in range(self.pandas_model.rowCount()):
-                old_name, new_name = str(self.pandas_model.dataframe().at[df_idx, C.COL_PERSONAJE]), old_name.upper()
+                old_name = str(self.pandas_model.dataframe().at[df_idx, C.COL_PERSONAJE])
+                new_name = old_name.upper()
                 if old_name != new_name: self.undo_stack.push(EditCommand(self, df_idx, view_col_char, old_name, new_name))
         self.undo_stack.endMacro()
         if not self.undo_stack.isClean() and self.undo_stack.command(self.undo_stack.count()-1).text().startswith("Convertir"):
@@ -1131,6 +985,5 @@ class TableWindow(QWidget):
         if self.pandas_model.dataframe().empty: QMessageBox.information(self, "Operación no posible", "No hay datos en el guion."); return
         reply = QMessageBox.question(self, "Confirmar Operación", "Esto sobrescribirá todos los valores de la columna 'OUT' (excepto el de la última fila) con los valores 'IN' de la fila siguiente.\n\n¿Desea continuar?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
         if reply == QMessageBox.StandardButton.Yes:
-            from guion_editor.commands.undo_commands import CopyInToPreviousOutCommand
             self.undo_stack.push(CopyInToPreviousOutCommand(self))
             QMessageBox.information(self, "Éxito", "Los tiempos OUT han sido actualizados.")
