@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QSplitter, QDialog, QInputDialog,
     QMessageBox, QFileDialog
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, QSettings
-from PyQt6.QtGui import QAction, QKeySequence, QIcon
+from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QEvent
+from PyQt6.QtGui import QAction, QKeySequence, QIcon, QDragEnterEvent, QDropEvent
 
 from guion_editor.widgets.video_player_widget import VideoPlayerWidget
 from guion_editor.widgets.table_window import TableWindow
@@ -27,16 +27,14 @@ ICON_CACHE = {}
 ICON_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles', 'icons'))
 
 def setup_logging():
-    """Configura el sistema de logging para la aplicación."""
     log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'guion_editor.log')
 
-    # Configuración del logger raíz
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - [%(module)s:%(lineno)d] - %(message)s',
         handlers=[
             logging.FileHandler(log_file_path, mode='w', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout) # Para seguir viendo los logs en la consola
+            logging.StreamHandler(sys.stdout)
         ]
     )
     logging.info("Logging configurado y aplicación iniciada.")
@@ -77,6 +75,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Editor de Guion con Video")
         self.setGeometry(100, 100, 1600, 900)
+        
+        self.setAcceptDrops(True)
 
         self.trim_value = 0
         self.font_size = 9
@@ -91,6 +91,11 @@ class MainWindow(QMainWindow):
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.videoPlayerWidget = VideoPlayerWidget(get_icon_func=get_icon, main_window=self)
+        
+        # -> NUEVO: Habilitar drops en el widget de video e instalar el filtro
+        self.videoPlayerWidget.setAcceptDrops(True)
+        self.videoPlayerWidget.installEventFilter(self)
+        
         self.splitter.addWidget(self.videoPlayerWidget)
 
         self.tableWindow = TableWindow(self.videoPlayerWidget, main_window=self, guion_manager=self.guion_manager, get_icon_func=get_icon)
@@ -816,16 +821,83 @@ class MainWindow(QMainWindow):
     def get_icon_func_for_dialogs(self):
         return get_icon
 
+    def eventFilter(self, source, event: QEvent) -> bool:
+            """
+            Intercepta eventos destinados a otros widgets. En este caso,
+            capturamos los eventos de Drag/Drop para el videoPlayerWidget.
+            """
+            if source is self.videoPlayerWidget:
+                # Si el evento es un DragEnter, lo procesamos con nuestro propio manejador
+                if event.type() == QEvent.Type.DragEnter:
+                    # Re-casteamos el evento para tener autocompletado y acceso a sus métodos
+                    drag_event = QDragEnterEvent(event)
+                    self.dragEnterEvent(drag_event)
+                    return True # Indicamos que hemos manejado el evento
+                
+                # Si el evento es un Drop, también lo procesamos nosotros
+                elif event.type() == QEvent.Type.Drop:
+                    drop_event = QDropEvent(event)
+                    self.dropEvent(drop_event)
+                    return True # Evento manejado
+
+            # Para cualquier otro evento o fuente, dejamos que siga su curso normal
+            return super().eventFilter(source, event)
+
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """
+        Este evento se activa cuando un archivo se arrastra sobre la ventana.
+        """
+        mime_data = event.mimeData()
+        if mime_data.hasUrls():
+            if len(mime_data.urls()) == 1:
+                file_path = mime_data.urls()[0].toLocalFile()
+                _, extension = os.path.splitext(file_path.lower())
+                
+                video_exts = ['.mp4', '.mov', '.avi', '.mkv']
+                script_exts = ['.json', '.xlsx', '.docx']
+                
+                if extension in video_exts or extension in script_exts:
+                    event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent):
+        """
+        Este evento se activa cuando el usuario suelta el archivo sobre la ventana.
+        """
+        mime_data = event.mimeData()
+        if mime_data.hasUrls() and len(mime_data.urls()) == 1:
+            file_path = mime_data.urls()[0].toLocalFile()
+            _, extension = os.path.splitext(file_path.lower())
+
+            logging.info(f"Archivo soltado en la aplicación: {file_path}")
+            
+            video_exts = ['.mp4', '.mov', '.avi', '.mkv']
+            script_exts = {
+                '.json': self.tableWindow.load_from_json_path,
+                '.xlsx': self.tableWindow.load_from_excel_path,
+                '.docx': self.tableWindow.load_from_docx_path,
+            }
+            
+            try:
+                if extension in video_exts:
+                    self.videoPlayerWidget.load_video(file_path)
+                    self.add_to_recent_files(file_path)
+                    event.acceptProposedAction()
+                elif extension in script_exts:
+                    load_function = script_exts[extension]
+                    load_function(file_path)
+                    event.acceptProposedAction()
+            except Exception as e:
+                logging.error(f"Error al procesar el archivo soltado: {file_path}", exc_info=True)
+                QMessageBox.critical(self, "Error al Abrir", f"No se pudo cargar el archivo arrastrado:\n{e}")
+
 def handle_exception(exc_type, exc_value, exc_traceback):
-    # Log the full exception to the file, which is the most important part
     logging.critical("Excepción no controlada en el hilo principal:", exc_info=(exc_type, exc_value, exc_traceback))
 
-    # For KeyboardInterrupt, let the default hook handle it (usually exits the app)
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
 
-    # Create a user-friendly message for the dialog box
     user_message = f"Ocurrió un error inesperado:\n\nTipo: {exc_type.__name__}\nMensaje: {exc_value}\n\n"
     user_message += "Se ha guardado un registro detallado del error en el archivo 'guion_editor.log'."
 
@@ -839,7 +911,6 @@ def handle_exception(exc_type, exc_value, exc_traceback):
             msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg_box.exec()
         except Exception as e_msgbox:
-            # If even the message box fails, log that too.
             logging.error(f"No se pudo mostrar el QMessageBox de error: {e_msgbox}")
 
 
