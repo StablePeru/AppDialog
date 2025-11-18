@@ -15,17 +15,17 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QUndoStack
 
-from .. import constants as C
-from .custom_table_view import CustomTableView
-from ..models.pandas_table_model import PandasTableModel
-from ..delegates.custom_delegates import TimeCodeDelegate, CharacterDelegate
-from ..delegates.guion_delegate import DialogDelegate
-from ..utils.dialog_utils import ajustar_dialogo
-from ..utils.file_io_handler import FileIOHandler
-from ..utils.guion_manager import GuionManager 
-from ..widgets.custom_text_edit import CustomTextEdit 
-from ..widgets.shift_timecode_dialog import ShiftTimecodeDialog
-from ..commands.undo_commands import (
+from guion_editor import constants as C
+from guion_editor.widgets.custom_table_view import CustomTableView
+from guion_editor.models.pandas_table_model import PandasTableModel
+from guion_editor.delegates.custom_delegates import TimeCodeDelegate, CharacterDelegate
+from guion_editor.delegates.guion_delegate import DialogDelegate
+from guion_editor.utils.dialog_utils import ajustar_dialogo
+from guion_editor.utils.file_io_handler import FileIOHandler
+from guion_editor.utils.guion_manager import GuionManager
+from guion_editor.widgets.custom_text_edit import CustomTextEdit 
+from guion_editor.widgets.shift_timecode_dialog import ShiftTimecodeDialog
+from guion_editor.commands.undo_commands import (
     EditCommand, AddRowCommand, RemoveRowsCommand, MoveRowCommand,
     SplitInterventionCommand, MergeInterventionsCommand, ChangeSceneCommand, HeaderEditCommand,
     ToggleBookmarkCommand, UpdateMultipleCharactersCommand, SplitCharacterCommand,

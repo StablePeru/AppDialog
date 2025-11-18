@@ -5,7 +5,7 @@ import traceback
 from collections import defaultdict
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from .. import constants as C
+from guion_editor import constants_logic as C
 import logging
 
 # =================================================================================

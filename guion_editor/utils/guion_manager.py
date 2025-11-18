@@ -6,7 +6,7 @@ from typing import Tuple, Dict, Any
 from openpyxl.styles import PatternFill
 
 from .dialog_utils import leer_guion
-from .. import constants as C
+from guion_editor import constants_logic as C
 
 class GuionManager:
     BASE_COLUMNS = [C.COL_IN, C.COL_OUT, C.COL_PERSONAJE, C.COL_DIALOGO]

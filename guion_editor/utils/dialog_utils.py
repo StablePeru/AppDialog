@@ -1,8 +1,9 @@
 # guion_editor/utils/dialog_utils.py
 import re
 from docx import Document
-from .. import constants as C
 import logging
+# -> MODIFICADO: Importamos desde el nuevo archivo de constantes de lógica
+from guion_editor import constants_logic as C
 
 def ajustar_dialogo(dialogo, max_chars=60):
     # ... (código sin cambios)

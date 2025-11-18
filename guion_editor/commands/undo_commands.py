@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import QAbstractItemView, QMessageBox
 if TYPE_CHECKING:
     from guion_editor.widgets.table_window import TableWindow
 
-from ..utils.dialog_utils import tc_to_frames, frames_to_tc
-from .. import constants as C
+from guion_editor.utils.dialog_utils import tc_to_frames, frames_to_tc
+from guion_editor import constants_logic as C
 
 class EditCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow', df_row_index: int, view_col_index: int, old_value: Any, new_value: Any):

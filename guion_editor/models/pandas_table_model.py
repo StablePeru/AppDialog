@@ -4,7 +4,7 @@ from PyQt6.QtCore import QAbstractTableModel, Qt, QModelIndex, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from typing import Any, List, Dict, Optional, Tuple, Union
 
-from .. import constants as C
+from guion_editor import constants as C
 
 # Colores de validación (apropiados para tema oscuro)
 VALID_TIME_BG_COLOR = QColor(Qt.GlobalColor.transparent) # Sin color de fondo para válido
