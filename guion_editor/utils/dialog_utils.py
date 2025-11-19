@@ -2,39 +2,46 @@
 import re
 from docx import Document
 import logging
-# -> MODIFICADO: Importamos desde el nuevo archivo de constantes de lógica
 from guion_editor import constants_logic as C
 
 def ajustar_dialogo(dialogo, max_chars=60):
-    # ... (código sin cambios)
-    lineas_ajustadas = []
-    for linea_original in dialogo.split('\n'):
-        palabras = linea_original.split()
-        if not palabras:
-            lineas_ajustadas.append("")
-            continue
+    if not dialogo:
+        return ""
 
-        linea_actual = ""
-        for palabra in palabras:
-            if not linea_actual:
-                linea_actual = palabra
-            elif contar_caracteres(linea_actual + " " + palabra) <= max_chars:
-                linea_actual += " " + palabra
-            else:
-                lineas_ajustadas.append(linea_actual)
-                linea_actual = palabra
-        
+    # Usamos split() sin argumentos. Esto divide el texto por cualquier
+    # espacio en blanco (incluyendo \n, \t) y elimina los vacios.
+    # Asi eliminamos los saltos de linea originales indeseados.
+    palabras = dialogo.split()
+
+    if not palabras:
+        return ""
+
+    lineas_ajustadas = []
+    linea_actual = ""
+
+    for palabra in palabras:
+        if not linea_actual:
+            linea_actual = palabra
+        # Comprobamos si al anadir la palabra superamos el limite
+        elif contar_caracteres(linea_actual + " " + palabra) <= max_chars:
+            linea_actual += " " + palabra
+        else:
+            # Si supera, guardamos la linea actual y empezamos una nueva
+            lineas_ajustadas.append(linea_actual)
+            linea_actual = palabra
+    
+    # Anadir la ultima linea pendiente
+    if linea_actual:
         lineas_ajustadas.append(linea_actual)
 
     return "\n".join(lineas_ajustadas)
 
 def contar_caracteres(dialogo):
-    # ... (código sin cambios)
+    # Eliminar contenido entre parentesis para el conteo
     dialogo_limpio = re.sub(r'\([^)]*\)', '', dialogo)
     return len(dialogo_limpio)
 
 def es_nombre_personaje(texto):
-    # ... (código sin cambios)
     if '.' in texto or ',' in texto:
         return False
     palabras = texto.split()
@@ -43,7 +50,6 @@ def es_nombre_personaje(texto):
     return texto.upper() == texto
 
 def leer_guion(docx_file):
-    # ... (código sin cambios)
     try:
         doc = Document(docx_file)
         guion = []
@@ -86,7 +92,6 @@ def leer_guion(docx_file):
         return []
 
 def guardar_dialogo(guion, personaje, dialogo_acumulado):
-    # ... (código sin cambios)
     texto_completo = " ".join(dialogo_acumulado) if dialogo_acumulado else ""
     dialogo_ajustado = ajustar_dialogo(texto_completo)
     guion.append({
@@ -97,7 +102,6 @@ def guardar_dialogo(guion, personaje, dialogo_acumulado):
     })
 
 def tc_to_frames(tc: str, fps: int) -> int | None:
-    # ... (código sin cambios)
     tc = str(tc).strip()
     if not tc or tc.lower() == "nan":
         return None
@@ -111,7 +115,6 @@ def tc_to_frames(tc: str, fps: int) -> int | None:
         return None
 
 def frames_to_tc(frames: int, fps: int) -> str:
-    # ... (código sin cambios)
     if frames is None:
         return ""
     if frames < 0:
