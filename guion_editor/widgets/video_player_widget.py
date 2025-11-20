@@ -5,7 +5,7 @@ import bisect
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QSlider, QLabel,
     QMessageBox, QHBoxLayout, QStackedLayout, QCheckBox, QComboBox,
-    QSplitter 
+    QSplitter, QSizePolicy
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -13,6 +13,7 @@ from PyQt6.QtCore import QUrl, Qt, QTimer, pyqtSignal, QSize, QKeyCombination
 from PyQt6.QtGui import QKeySequence, QFont, QIcon, QKeyEvent, QFontMetrics, QMouseEvent, QColor
 
 from .time_code_edit import TimeCodeEdit
+from guion_editor.widgets.waveform_widget import WaveformWidget
 
 class VideoPlayerWidget(QWidget):
     in_out_signal = pyqtSignal(str, int)
@@ -70,6 +71,11 @@ class VideoPlayerWidget(QWidget):
 
 
     def init_ui(self) -> None:
+        # 1. Inicializamos el Widget de Onda
+        self.waveform_widget = WaveformWidget(self)
+        self.waveform_widget.setVisible(False) 
+        self.waveform_widget.tracks_found.connect(self.populate_audio_tracks)
+
         self.media_player = QMediaPlayer()
         if not self.media_player.audioOutput():
             self._audio_output_handler = QAudioOutput()
@@ -109,6 +115,10 @@ class VideoPlayerWidget(QWidget):
         self.media_player.playbackStateChanged.connect(self.update_play_button_icon)
         self.media_player.positionChanged.connect(self.update_slider_position)
         self.media_player.positionChanged.connect(self._trigger_subtitle_update) 
+        
+        # Sincronizar la posición de la onda con el video
+        self.media_player.positionChanged.connect(self.waveform_widget.set_position)
+
         self.media_player.durationChanged.connect(self.update_slider_range)
         self.media_player.mediaStatusChanged.connect(self.on_media_status_changed)
         self.media_player.errorOccurred.connect(self.on_media_error)
@@ -211,6 +221,36 @@ class VideoPlayerWidget(QWidget):
         self.subtitle_toggle_checkbox.setToolTip("Mostrar/Ocultar subtítulos del guion")
         self.subtitle_toggle_checkbox.stateChanged.connect(self._handle_subtitle_toggle)
 
+        # --- CONTROLES DE ONDA DE AUDIO ---
+        self.waveform_toggle_checkbox = QCheckBox("Onda")
+        self.waveform_toggle_checkbox.setObjectName("waveform_toggle_checkbox")
+        self.waveform_toggle_checkbox.setToolTip("Mostrar/Ocultar visualización de onda de audio")
+        self.waveform_toggle_checkbox.stateChanged.connect(self._handle_waveform_toggle)
+
+        self.audio_track_combo = QComboBox()
+        self.audio_track_combo.setToolTip("Seleccionar pista de audio")
+        self.audio_track_combo.setFixedWidth(120)
+        self.audio_track_combo.setVisible(False) 
+        self.audio_track_combo.currentIndexChanged.connect(self._handle_audio_track_change)
+
+        # --- SELECTOR DE CALIDAD ---
+        self.quality_combo = QComboBox()
+        self.quality_combo.setToolTip("Calidad de la onda (Muestras/segundo)")
+        self.quality_combo.setFixedWidth(100)
+        
+        # Opciones de calidad (Nombre, Valor Hz)
+        self.quality_combo.addItem("Baja (100)", 100)
+        self.quality_combo.addItem("Media (400)", 400)
+        self.quality_combo.addItem("Alta (1000)", 1000)
+        self.quality_combo.addItem("Ultra (3000)", 3000)
+        self.quality_combo.addItem("Mega (5000)", 5000)   # NUEVO
+        self.quality_combo.addItem("Extrema (10000)", 10000) # NUEVO
+        
+        self.quality_combo.setCurrentIndex(2) # Por defecto Alta (1000)
+        self.quality_combo.setVisible(False)
+        self.quality_combo.currentIndexChanged.connect(self._handle_quality_change)
+        # ---------------------------------
+
         self.subtitle_source_selector = QComboBox()
         self.subtitle_source_selector.setObjectName("subtitle_source_selector")
         self.subtitle_source_selector.addItems(["Diálogo", "Euskera"])
@@ -234,14 +274,13 @@ class VideoPlayerWidget(QWidget):
         layout.addWidget(top_info_layout_container)
 
         self.video_splitter = QSplitter(Qt.Orientation.Vertical)
-        
         self.video_splitter.addWidget(self.video_widget)
+        self.video_splitter.addWidget(self.waveform_widget)
         self.video_splitter.addWidget(self.subtitle_container)
-
-        self.video_splitter.setSizes([800, 200]) 
+        self.video_splitter.setSizes([700, 80, 120]) 
         self.video_splitter.setCollapsible(0, False) 
         self.video_splitter.setCollapsible(1, True) 
-
+        self.video_splitter.setCollapsible(2, True)
         layout.addWidget(self.video_splitter, 1)
 
         layout.addWidget(self.slider) 
@@ -261,6 +300,11 @@ class VideoPlayerWidget(QWidget):
         video_buttons_internal_layout.addWidget(self.out_button)
         video_buttons_internal_layout.addWidget(self.me_toggle_checkbox) 
         video_buttons_internal_layout.addWidget(self.subtitle_toggle_checkbox)
+        
+        video_buttons_internal_layout.addWidget(self.waveform_toggle_checkbox)
+        video_buttons_internal_layout.addWidget(self.audio_track_combo)
+        video_buttons_internal_layout.addWidget(self.quality_combo) # Añadido al layout
+        
         video_buttons_internal_layout.addWidget(self.subtitle_source_selector)
         video_buttons_internal_layout.addStretch(1) 
         video_buttons_internal_layout.addWidget(self.volume_button)
@@ -269,42 +313,45 @@ class VideoPlayerWidget(QWidget):
         layout.addWidget(self.video_controls_bar_widget)
         self.setLayout(layout)
 
-    def _refresh_subtitle_timeline(self):
-        if not self.table_window_ref:
-            self.subtitle_timeline = []
-            self.subtitle_start_times = []
-            return
-            
-        self.subtitle_timeline = self.table_window_ref.get_subtitle_timeline()
-        self.subtitle_start_times = [item[0] for item in self.subtitle_timeline]
-        self.current_subtitle_timeline_idx = -1
-        self._trigger_subtitle_update(self.media_player.position())
-
-
-    def _trigger_subtitle_update(self, position_ms: int):
-        if not self.subtitle_toggle_checkbox.isChecked() or not self.subtitle_timeline:
-            return
-
-        idx = bisect.bisect_right(self.subtitle_start_times, position_ms)
+    def _handle_waveform_toggle(self, state: int):
+        is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
+        self.waveform_widget.setVisible(is_checked)
+        self.audio_track_combo.setVisible(is_checked)
+        self.quality_combo.setVisible(is_checked)
         
-        found_subtitle_idx = -1
-        text_to_display = ""
+        if is_checked:
+            if not self.waveform_widget.has_data() and not self.media_player.source().isEmpty():
+                file_path = self.media_player.source().toLocalFile()
+                if file_path:
+                    self.waveform_widget.scan_audio_tracks(file_path)
 
-        if idx > 0:
-            candidate_idx = idx - 1
-            start_ms, end_ms, dialogue = self.subtitle_timeline[candidate_idx]
-            
-            if start_ms <= position_ms < end_ms:
-                found_subtitle_idx = candidate_idx
-                text_to_display = dialogue
+    def populate_audio_tracks(self, tracks):
+        self.audio_track_combo.blockSignals(True)
+        self.audio_track_combo.clear()
         
-        if self.current_subtitle_timeline_idx != found_subtitle_idx:
-            self.subtitle_display_label.setText(text_to_display)
-            self.current_subtitle_timeline_idx = found_subtitle_idx
+        if tracks:
+            self.audio_track_combo.addItems(tracks)
+            self.audio_track_combo.setEnabled(True)
+            self.audio_track_combo.setCurrentIndex(0)
+            self.waveform_widget.load_audio_track(0)
+        else:
+            self.audio_track_combo.addItem("Sin Audio")
+            self.audio_track_combo.setEnabled(False)
+            
+        self.audio_track_combo.blockSignals(False)
+
+    def _handle_audio_track_change(self, index):
+        if index >= 0:
+            self.waveform_widget.load_audio_track(index)
+
+    def _handle_quality_change(self, index):
+        """Cambia la calidad de la onda."""
+        quality_hz = self.quality_combo.currentData()
+        if quality_hz:
+            self.waveform_widget.set_sample_rate(quality_hz)
 
     def _handle_subtitle_toggle(self, state: int):
         is_checked = (Qt.CheckState(state) == Qt.CheckState.Checked)
-        
         self.subtitle_source_selector.setEnabled(is_checked)
         self.subtitle_container.setVisible(is_checked)
 
@@ -317,171 +364,38 @@ class VideoPlayerWidget(QWidget):
     def _handle_subtitle_source_change(self):
         if not self.table_window_ref:
             return
-
         selected_text = self.subtitle_source_selector.currentText()
         if selected_text == "Diálogo":
             self.subtitle_source_column = 'DIÁLOGO'
         elif selected_text == "Euskera":
-            self.subtitle_source_column = 'EUSKERA' # -> CORREGIDO
-
+            self.subtitle_source_column = 'EUSKERA' 
         self.table_window_ref.trigger_recache_with_source(self.subtitle_source_column)
 
-    def update_key_listeners(self):
-        pass
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        if not self.main_window or not hasattr(self.main_window, 'mark_out_hold_key_sequence'):
-            super().keyPressEvent(event)
+    def _refresh_subtitle_timeline(self):
+        if not self.table_window_ref:
+            self.subtitle_timeline = []
+            self.subtitle_start_times = []
             return
+        self.subtitle_timeline = self.table_window_ref.get_subtitle_timeline()
+        self.subtitle_start_times = [item[0] for item in self.subtitle_timeline]
+        self.current_subtitle_timeline_idx = -1
+        self._trigger_subtitle_update(self.media_player.position())
 
-        current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
-            
-        key_match = False
-        if not current_mark_out_shortcut.isEmpty():
-            if event.keyCombination() == current_mark_out_shortcut[0]: 
-                key_match = True
-        
-        if key_match and not event.isAutoRepeat() and not self.f6_key_pressed_internally:
-            self.f6_key_pressed_internally = True
-            self.handle_out_button_pressed() 
-            event.accept()
+    def _trigger_subtitle_update(self, position_ms: int):
+        if not self.subtitle_toggle_checkbox.isChecked() or not self.subtitle_timeline:
             return
-        
-        super().keyPressEvent(event)
-
-    def keyReleaseEvent(self, event: QKeyEvent) -> None:
-        if not self.main_window or not hasattr(self.main_window, 'mark_out_hold_key_sequence'):
-            super().keyReleaseEvent(event)
-            return
-
-        current_mark_out_shortcut: QKeySequence = self.main_window.mark_out_hold_key_sequence
-
-        key_match = False
-        if not current_mark_out_shortcut.isEmpty():
-            if event.keyCombination() == current_mark_out_shortcut[0]:
-                key_match = True
-            
-        if key_match and not event.isAutoRepeat() and self.f6_key_pressed_internally:
-            self.f6_key_pressed_internally = False
-            self.handle_out_button_released()
-            event.accept()
-            return
-        
-        super().keyReleaseEvent(event)
-
-    def setup_timers(self) -> None:
-        self.display_update_timer = QTimer(self)
-        self.display_update_timer.setInterval(int(1000 / 30)) 
-        self.display_update_timer.timeout.connect(self.update_time_code_display)
-        self.display_update_timer.start()
-        
-    def handle_out_button_pressed(self):
-        if not self.out_timer.isActive():
-            self.out_timer.start()
-            self.mark_out_continuous()
-
-    def handle_out_button_released(self):
-        if self.out_timer.isActive():
-            self.out_timer.stop()
-            self.out_released.emit() 
-
-    def mark_in(self) -> None:
-        try:
-            position_ms = self.media_player.position()
-            self.in_out_signal.emit("IN", position_ms)
-        except Exception as e: QMessageBox.warning(self, "Error", f"Error en mark_in: {str(e)}")
-
-    def mark_out_continuous(self) -> None:
-        try:
-            position_ms = self.media_player.position()
-            self.in_out_signal.emit("OUT", position_ms)
-        except Exception as e: print(f"Error en mark_out_continuous (timer): {str(e)}")
-
-    def toggle_play(self) -> None:
-        current_state = self.media_player.playbackState()
-        if self.media_player.source().isEmpty() and current_state != QMediaPlayer.PlaybackState.PlayingState:
-            return
-            
-        if current_state == QMediaPlayer.PlaybackState.PlayingState:
-            self.media_player.pause()
-            if self.me_player and not self.me_player.source().isEmpty():
-                self.me_player.pause()
-        else:
-            self.media_player.play()
-            if self.me_player and not self.me_player.source().isEmpty() and self.use_me_audio:
-                self.me_player.play()
-                self.me_player.setPosition(self.media_player.position())
-
-    def change_position(self, change_ms: int) -> None:
-        if self.media_player.duration() <= 0 and self.media_player.source().isEmpty(): return
-        current_pos = self.media_player.position()
-        new_position = current_pos + change_ms
-        
-        if self.media_player.duration() > 0 :
-            new_position = max(0, min(new_position, self.media_player.duration()))
-        else:
-            new_position = max(0, new_position)
-        self.media_player.setPosition(new_position)
-        if self.me_player and not self.me_player.source().isEmpty():
-            self.me_player.setPosition(new_position)
-        self._trigger_subtitle_update(new_position)
-
-
-    def set_position_from_slider_move(self, position: int) -> None:
-        if self.media_player.duration() <= 0 and position > 0:
-            self.slider.blockSignals(True)
-            current_player_pos = self.media_player.position()
-            self.slider.setValue(current_player_pos if current_player_pos >= 0 else 0)
-            self.slider.blockSignals(False)
-            return
-        if self.media_player.isSeekable():
-            self.media_player.setPosition(position)
-            if self.me_player and not self.me_player.source().isEmpty():
-                self.me_player.setPosition(position)
-            self._trigger_subtitle_update(position)
-
-
-    def set_volume_from_slider_value(self, volume_percent: int) -> None:
-        self.user_volume_float = volume_percent / 100.0
-        self._update_audio_outputs()
-
-    def update_volume_slider_display(self, volume_float: float):
-        volume_percent_user = int(self.user_volume_float * 100)
-        self.volume_slider_vertical.blockSignals(True)
-        self.volume_slider_vertical.setValue(volume_percent_user)
-        self.volume_slider_vertical.blockSignals(False)
-
-    def update_play_button_icon(self, state: QMediaPlayer.PlaybackState) -> None:
-        if state == QMediaPlayer.PlaybackState.PlayingState:
-            self.play_button.setIcon(self.pause_icon); self.play_button.setToolTip("Pausar (Ver Shortcuts)")
-        else:
-            self.play_button.setIcon(self.play_icon); self.play_button.setToolTip("Reproducir (Ver Shortcuts)")
-
-    def update_slider_position(self, position: int) -> None:
-        if not self.slider.isSliderDown():
-            self.slider.blockSignals(True)
-            self.slider.setValue(position)
-            self.slider.blockSignals(False)
-
-    def update_slider_range(self, duration: int) -> None:
-        self.slider.setRange(0, duration if duration > 0 else 0)
-
-    def _convert_ms_to_tc_parts(self, position_ms: int) -> tuple[int, int, int, int]:
-        hours, minutes, seconds, frames = 0, 0, 0, 0
-        if position_ms >= 0:
-            msecs_per_frame = 1000.0 / self.FPS_RATE
-            total_seconds, msecs = divmod(position_ms, 1000)
-            hours, rem_seconds = divmod(total_seconds, 3600)
-            minutes, seconds = divmod(rem_seconds, 60)
-            frames = int(round(msecs / msecs_per_frame))
-            if frames >= self.FPS_RATE: frames = int(self.FPS_RATE - 1)
-        return int(hours), int(minutes), int(seconds), int(frames)
-
-    def update_time_code_display(self) -> None:
-        if self.time_code_display_stack.currentWidget() == self.time_code_label:
-            position = self.media_player.position()
-            h, m, s, f = self._convert_ms_to_tc_parts(position)
-            self.time_code_label.setText(f"{h:02}:{m:02}:{s:02}:{f:02}")
+        idx = bisect.bisect_right(self.subtitle_start_times, position_ms)
+        found_subtitle_idx = -1
+        text_to_display = ""
+        if idx > 0:
+            candidate_idx = idx - 1
+            start_ms, end_ms, dialogue = self.subtitle_timeline[candidate_idx]
+            if start_ms <= position_ms < end_ms:
+                found_subtitle_idx = candidate_idx
+                text_to_display = dialogue
+        if self.current_subtitle_timeline_idx != found_subtitle_idx:
+            self.subtitle_display_label.setText(text_to_display)
+            self.current_subtitle_timeline_idx = found_subtitle_idx
 
     def load_video(self, video_path: str) -> None:
         try:
@@ -494,6 +408,16 @@ class VideoPlayerWidget(QWidget):
                  return
             
             self.media_player.setSource(media_url)
+
+            self.audio_track_combo.clear()
+            self.audio_track_combo.setVisible(self.waveform_toggle_checkbox.isChecked())
+            self.quality_combo.setVisible(self.waveform_toggle_checkbox.isChecked())
+
+            if self.waveform_toggle_checkbox.isChecked():
+                self.waveform_widget.scan_audio_tracks(video_path)
+            else:
+                self.waveform_widget.clear()
+                self.waveform_widget.current_video_path = video_path 
 
             if self.me_player:
                 self.me_player.setSource(QUrl()) 
@@ -512,7 +436,6 @@ class VideoPlayerWidget(QWidget):
                     audio_out.volumeChanged.connect(self.update_volume_slider_display)
                     setattr(audio_out, '_volume_signal_connected_vpw', True)
                 self.volume_slider_vertical.setValue(int(self.user_volume_float * 100))
-
 
             self._update_audio_outputs() 
             self.media_player.play()
@@ -553,7 +476,6 @@ class VideoPlayerWidget(QWidget):
             self.me_toggle_checkbox.setEnabled(False)
             if self.me_player:
                 self.me_player.setSource(QUrl())
-
 
     def toggle_me_audio_source(self, state: int) -> None:
         self.use_me_audio = (Qt.CheckState(state) == Qt.CheckState.Checked)
@@ -597,7 +519,6 @@ class VideoPlayerWidget(QWidget):
                 self.volume_slider_vertical.setValue(int(self.user_volume_float * 100))
             self._refresh_subtitle_timeline()
 
-
         elif status == QMediaPlayer.MediaStatus.EndOfMedia:
             self.media_player.setPosition(0)
             self.media_player.pause()
@@ -621,7 +542,6 @@ class VideoPlayerWidget(QWidget):
             self.subtitle_display_label.setText("") 
             self._refresh_subtitle_timeline()
             self._update_audio_outputs()
-
 
     def on_media_error(self, error_code: QMediaPlayer.Error, error_string: str) -> None:
         if error_code != QMediaPlayer.Error.NoError:
@@ -744,7 +664,128 @@ class VideoPlayerWidget(QWidget):
             self.time_code_display_stack.setCurrentWidget(self.time_code_label)
             self.display_update_timer.start()
 
+    def toggle_play(self) -> None:
+        current_state = self.media_player.playbackState()
+        if self.media_player.source().isEmpty() and current_state != QMediaPlayer.PlaybackState.PlayingState:
+            return
+            
+        if current_state == QMediaPlayer.PlaybackState.PlayingState:
+            self.media_player.pause()
+            if self.me_player and not self.me_player.source().isEmpty():
+                self.me_player.pause()
+        else:
+            self.media_player.play()
+            if self.me_player and not self.me_player.source().isEmpty() and self.use_me_audio:
+                self.me_player.play()
+                self.me_player.setPosition(self.media_player.position())
+
+    def change_position(self, change_ms: int) -> None:
+        if self.media_player.duration() <= 0 and self.media_player.source().isEmpty(): return
+        current_pos = self.media_player.position()
+        new_position = current_pos + change_ms
+        
+        if self.media_player.duration() > 0 :
+            new_position = max(0, min(new_position, self.media_player.duration()))
+        else:
+            new_position = max(0, new_position)
+        self.media_player.setPosition(new_position)
+        if self.me_player and not self.me_player.source().isEmpty():
+            self.me_player.setPosition(new_position)
+        self._trigger_subtitle_update(new_position)
+
+    def set_position_from_slider_move(self, position: int) -> None:
+        if self.media_player.duration() <= 0 and position > 0:
+            self.slider.blockSignals(True)
+            current_player_pos = self.media_player.position()
+            self.slider.setValue(current_player_pos if current_player_pos >= 0 else 0)
+            self.slider.blockSignals(False)
+            return
+        if self.media_player.isSeekable():
+            self.media_player.setPosition(position)
+            if self.me_player and not self.me_player.source().isEmpty():
+                self.me_player.setPosition(position)
+            self._trigger_subtitle_update(position)
+
+    def set_volume_from_slider_value(self, volume_percent: int) -> None:
+        self.user_volume_float = volume_percent / 100.0
+        self._update_audio_outputs()
+
+    def update_volume_slider_display(self, volume_float: float):
+        volume_percent_user = int(self.user_volume_float * 100)
+        self.volume_slider_vertical.blockSignals(True)
+        self.volume_slider_vertical.setValue(volume_percent_user)
+        self.volume_slider_vertical.blockSignals(False)
+
+    def update_play_button_icon(self, state: QMediaPlayer.PlaybackState) -> None:
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self.play_button.setIcon(self.pause_icon); self.play_button.setToolTip("Pausar (Ver Shortcuts)")
+        else:
+            self.play_button.setIcon(self.play_icon); self.play_button.setToolTip("Reproducir (Ver Shortcuts)")
+
+    def update_slider_position(self, position: int) -> None:
+        if not self.slider.isSliderDown():
+            self.slider.blockSignals(True)
+            self.slider.setValue(position)
+            self.slider.blockSignals(False)
+
+    def update_slider_range(self, duration: int) -> None:
+        self.slider.setRange(0, duration if duration > 0 else 0)
+
+    def _convert_ms_to_tc_parts(self, position_ms: int) -> tuple[int, int, int, int]:
+        hours, minutes, seconds, frames = 0, 0, 0, 0
+        if position_ms >= 0:
+            msecs_per_frame = 1000.0 / self.FPS_RATE
+            total_seconds, msecs = divmod(position_ms, 1000)
+            hours, rem_seconds = divmod(total_seconds, 3600)
+            minutes, seconds = divmod(rem_seconds, 60)
+            frames = int(round(msecs / msecs_per_frame))
+            if frames >= self.FPS_RATE: frames = int(self.FPS_RATE - 1)
+        return int(hours), int(minutes), int(seconds), int(frames)
+
+    def update_time_code_display(self) -> None:
+        if self.time_code_display_stack.currentWidget() == self.time_code_label:
+            position = self.media_player.position()
+            h, m, s, f = self._convert_ms_to_tc_parts(position)
+            self.time_code_label.setText(f"{h:02}:{m:02}:{s:02}:{f:02}")
+
+    def handle_out_button_pressed(self):
+        if not self.out_timer.isActive():
+            self.out_timer.start()
+            self.mark_out_continuous()
+
+    def handle_out_button_released(self):
+        if self.out_timer.isActive():
+            self.out_timer.stop()
+            self.out_released.emit() 
+
+    def mark_in(self) -> None:
+        try:
+            position_ms = self.media_player.position()
+            self.in_out_signal.emit("IN", position_ms)
+        except Exception as e: QMessageBox.warning(self, "Error", f"Error en mark_in: {str(e)}")
+
+    def mark_out_continuous(self) -> None:
+        try:
+            position_ms = self.media_player.position()
+            self.in_out_signal.emit("OUT", position_ms)
+        except Exception as e: print(f"Error en mark_out_continuous (timer): {str(e)}")
+
     def convert_milliseconds_to_time_code_str(self, ms: int) -> str:
         if ms < 0: ms = 0
         h, m, s, f = self._convert_ms_to_tc_parts(ms)
         return f"{h:02}:{m:02}:{s:02}:{f:02}"
+
+    def setup_timers(self) -> None:
+        self.display_update_timer = QTimer(self)
+        self.display_update_timer.setInterval(int(1000 / 30)) 
+        self.display_update_timer.timeout.connect(self.update_time_code_display)
+        self.display_update_timer.start()
+
+    def update_time_code_display(self) -> None:
+        if self.time_code_display_stack.currentWidget() == self.time_code_label:
+            position = self.media_player.position()
+            h, m, s, f = self._convert_ms_to_tc_parts(position)
+            self.time_code_label.setText(f"{h:02}:{m:02}:{s:02}:{f:02}")
+
+    def update_key_listeners(self):
+        pass
