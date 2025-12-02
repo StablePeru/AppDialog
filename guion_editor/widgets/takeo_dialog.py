@@ -9,8 +9,9 @@ from PyQt6.QtWidgets import (
     QProgressDialog
 )
 from PyQt6.QtCore import Qt, QThread
-from guion_editor.utils.takeo_optimizer_logic import TakeoWorker, TakeoOptimizerLogic # Importamos el Worker
+from guion_editor.utils.takeo_optimizer_logic import TakeoWorker, TakeoOptimizerLogic
 from guion_editor.widgets.export_selection_dialog import ExportSelectionDialog
+from guion_editor import constants as C 
 
 def load_takeo_stylesheet() -> str:
     try:
@@ -81,6 +82,7 @@ class TakeoDialog(QDialog):
         layout.addWidget(self.button_box)
 
     def populate_character_list(self):
+        self.char_list_widget.clear()
         characters = self.table_window.get_character_names_from_model()
         for char in characters:
             item = QListWidgetItem(char); item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -100,7 +102,43 @@ class TakeoDialog(QDialog):
             logging.warning("Intento de iniciar optimización mientras una ya está en curso.")
             return
 
+        # --- 1. DETECCIÓN Y AVISO DE PERSONAJES CON ESPACIOS ---
+        df = self.table_window.pandas_model.dataframe()
+        if not df.empty and C.COL_PERSONAJE in df.columns:
+            # Buscar personajes que sean diferentes si les aplicamos strip()
+            dirty_names_set = set()
+            for name in df[C.COL_PERSONAJE].unique():
+                name_str = str(name)
+                # Si el nombre tiene espacios al principio o final, lo guardamos
+                if name_str != name_str.strip():
+                    dirty_names_set.add(name_str)
+            
+            if dirty_names_set:
+                # Construimos la lista para mostrar al usuario
+                lista_nombres = "\n".join([f"• '{name}'" for name in sorted(list(dirty_names_set))])
+                
+                # Mensaje informativo
+                msg = (f"Se han encontrado personajes con espacios sobrantes:\n\n"
+                       f"{lista_nombres}\n\n"
+                       "Se procederá a corregirlos automáticamente antes de optimizar.\n"
+                       "¿Continuar?")
+                
+                reply = QMessageBox.warning(
+                    self, 
+                    "Personajes a Corregir", 
+                    msg, 
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+                )
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    self._perform_cleanup()
+                else:
+                    return # Cancelamos si el usuario no quiere
+        # -----------------------------------------------------------
+
         config = {'max_duration': self.duration_spin.value(), 'max_lines_per_take': self.max_lines_spin.value(), 'max_consecutive_lines_per_character': self.max_consecutive_spin.value(), 'max_chars_per_line': self.max_chars_spin.value(), 'max_silence_between_interventions': self.silence_spin.value()}
+        
+        # Obtenemos la selección (ahora limpia si se ejecutó el bloque anterior)
         selected_chars = self.get_selected_characters()
         if not selected_chars: 
             QMessageBox.warning(self, "Sin Selección", "Debe seleccionar al menos un personaje.")
@@ -109,12 +147,11 @@ class TakeoDialog(QDialog):
         current_df = self.table_window.pandas_model.dataframe()
         dialogue_col = self.dialogue_source_combo.currentText()
         
-        # --- LÓGICA DE HILOS ---
+        # Configuración del hilo
         self.thread = QThread()
         self.worker = TakeoWorker(config, current_df.copy(), selected_chars, dialogue_col)
         self.worker.moveToThread(self.thread)
         
-        # Conectar señales del worker a los slots de este diálogo
         self.worker.finished.connect(self._on_optimization_finished)
         self.worker.error.connect(self._on_optimization_error)
         self.thread.started.connect(self.worker.run)
@@ -122,26 +159,47 @@ class TakeoDialog(QDialog):
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         
-        # Iniciar el hilo
         self.thread.start()
         
-        # Proporcionar feedback al usuario
         self.run_button.setEnabled(False)
         self.run_button.setText("Procesando...")
         self.setCursor(Qt.CursorShape.WaitCursor)
+
+    def _perform_cleanup(self):
+        """Ejecuta la limpieza de nombres manteniendo la selección del usuario."""
+        # 1. Guardar la selección actual
+        selected_stripped = []
+        for i in range(self.char_list_widget.count()):
+            item = self.char_list_widget.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                selected_stripped.append(item.text().strip())
+
+        # 2. Ejecutar la limpieza en la tabla (función existente)
+        self.table_window.trim_all_character_names()
         
+        # 3. Refrescar la lista visual con los nombres corregidos
+        self.populate_character_list()
+        
+        # 4. Restaurar la selección
+        for i in range(self.char_list_widget.count()):
+            item = self.char_list_widget.item(i)
+            if item.text() in selected_stripped:
+                item.setCheckState(Qt.CheckState.Checked)
+            else:
+                item.setCheckState(Qt.CheckState.Unchecked)
+
     def _on_optimization_finished(self, detail_df, summary_df, failures_df, problematic_report, takes_generated):
-        """Este método se ejecuta en el hilo principal cuando el worker termina."""
         logging.info("Recepción de resultados del worker de Takeo.")
         self.unsetCursor()
         self.run_button.setEnabled(True)
         self.run_button.setText("Optimizar y Guardar...")
         
+        # Aquí he eliminado el reporte de fallos anterior (_show_failure_report_dialog)
+        
         self.save_results(detail_df, summary_df, failures_df, problematic_report, takes_generated)
         self.accept()
 
     def _on_optimization_error(self, error_string):
-        """Este método se ejecuta si el worker emite una señal de error."""
         self.unsetCursor()
         self.run_button.setEnabled(True)
         self.run_button.setText("Optimizar y Guardar...")
@@ -190,9 +248,8 @@ class TakeoDialog(QDialog):
             QMessageBox.critical(self, "Error al Guardar", f"No se pudieron guardar los informes: {e}")
             
     def closeEvent(self, event):
-        """Asegurarse de que el hilo se cierre correctamente si se cierra la ventana."""
         if self.thread and self.thread.isRunning():
             logging.info("Cerrando diálogo de Takeo, intentando detener el hilo...")
             self.thread.quit()
-            self.thread.wait(500) # Esperar hasta 500ms a que el hilo termine limpiamente
+            self.thread.wait(500) 
         super().closeEvent(event)
