@@ -102,38 +102,52 @@ class TakeoDialog(QDialog):
             logging.warning("Intento de iniciar optimización mientras una ya está en curso.")
             return
 
-        # --- 1. DETECCIÓN Y AVISO DE PERSONAJES CON ESPACIOS ---
+        # --- 1. DETECCIÓN, AVISO Y EXPORTACIÓN DEBUG ---
         df = self.table_window.pandas_model.dataframe()
         if not df.empty and C.COL_PERSONAJE in df.columns:
-            # Buscar personajes que sean diferentes si les aplicamos strip()
-            dirty_names_set = set()
-            for name in df[C.COL_PERSONAJE].unique():
-                name_str = str(name)
-                # Si el nombre tiene espacios al principio o final, lo guardamos
-                if name_str != name_str.strip():
-                    dirty_names_set.add(name_str)
+            # Detectar filas donde el personaje tiene espacios extra
+            # Creamos una máscara booleana
+            dirty_mask = df[C.COL_PERSONAJE].astype(str) != df[C.COL_PERSONAJE].astype(str).str.strip()
             
-            if dirty_names_set:
-                # Construimos la lista para mostrar al usuario
-                lista_nombres = "\n".join([f"• '{name}'" for name in sorted(list(dirty_names_set))])
+            # Si hay filas sucias...
+            if dirty_mask.any():
+                dirty_rows = df[dirty_mask]
+                unique_dirty_names = sorted(dirty_rows[C.COL_PERSONAJE].unique())
                 
-                # Mensaje informativo
-                msg = (f"Se han encontrado personajes con espacios sobrantes:\n\n"
-                       f"{lista_nombres}\n\n"
-                       "Se procederá a corregirlos automáticamente antes de optimizar.\n"
-                       "¿Continuar?")
+                # Construimos la lista para mostrar
+                lista_nombres = "\n".join([f"• '{name}'" for name in unique_dirty_names])
+                count = len(unique_dirty_names)
                 
-                reply = QMessageBox.warning(
-                    self, 
-                    "Personajes a Corregir", 
-                    msg, 
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
-                )
+                msg = (f"Se han encontrado {count} personajes con espacios sobrantes (ej: 'Nombre ').\n"
+                       "Esto puede causar errores en el Takeo.\n\n"
+                       f"Personajes afectados:\n{lista_nombres}\n\n"
+                       "Seleccione una acción:")
                 
-                if reply == QMessageBox.StandardButton.Yes:
+                # Creamos un MessageBox personalizado con 3 botones
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Error de Formato en Personajes")
+                msg_box.setText(msg)
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+                
+                # Botones personalizados
+                btn_fix = msg_box.addButton("Corregir Automáticamente", QMessageBox.ButtonRole.AcceptRole)
+                btn_export = msg_box.addButton("Exportar Excel (Debug)", QMessageBox.ButtonRole.ActionRole)
+                btn_cancel = msg_box.addButton(QMessageBox.StandardButton.Cancel)
+                
+                msg_box.exec()
+                clicked_button = msg_box.clickedButton()
+
+                if clicked_button == btn_fix:
+                    # El usuario quiere arreglarlo y seguir
                     self._perform_cleanup()
+                
+                elif clicked_button == btn_export:
+                    # El usuario quiere exportar las líneas problemáticas
+                    self._export_dirty_rows(dirty_rows)
+                    return # Detenemos el proceso para que puedan revisar el Excel
+                
                 else:
-                    return # Cancelamos si el usuario no quiere
+                    return # Cancelar operación
         # -----------------------------------------------------------
 
         config = {'max_duration': self.duration_spin.value(), 'max_lines_per_take': self.max_lines_spin.value(), 'max_consecutive_lines_per_character': self.max_consecutive_spin.value(), 'max_chars_per_line': self.max_chars_spin.value(), 'max_silence_between_interventions': self.silence_spin.value()}
@@ -147,7 +161,6 @@ class TakeoDialog(QDialog):
         current_df = self.table_window.pandas_model.dataframe()
         dialogue_col = self.dialogue_source_combo.currentText()
         
-        # Configuración del hilo
         self.thread = QThread()
         self.worker = TakeoWorker(config, current_df.copy(), selected_chars, dialogue_col)
         self.worker.moveToThread(self.thread)
@@ -165,22 +178,39 @@ class TakeoDialog(QDialog):
         self.run_button.setText("Procesando...")
         self.setCursor(Qt.CursorShape.WaitCursor)
 
+    def _export_dirty_rows(self, dirty_rows_df: pd.DataFrame):
+        """Exporta las filas problemáticas tal cual están a un Excel."""
+        if dirty_rows_df.empty:
+            return
+
+        filename = "DEBUG_Personajes_Con_Espacios.xlsx"
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar Reporte de Errores", filename, "Archivos Excel (*.xlsx)")
+        
+        if path:
+            try:
+                # Exportamos tal cual
+                dirty_rows_df.to_excel(path, index=False)
+                QMessageBox.information(
+                    self, 
+                    "Exportación Exitosa", 
+                    f"Se ha guardado el reporte en:\n{path}\n\n"
+                    "Puede usar este archivo para identificar qué líneas grabar."
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Error al Exportar", f"No se pudo guardar el archivo:\n{e}")
+
     def _perform_cleanup(self):
         """Ejecuta la limpieza de nombres manteniendo la selección del usuario."""
-        # 1. Guardar la selección actual
         selected_stripped = []
         for i in range(self.char_list_widget.count()):
             item = self.char_list_widget.item(i)
             if item.checkState() == Qt.CheckState.Checked:
                 selected_stripped.append(item.text().strip())
 
-        # 2. Ejecutar la limpieza en la tabla (función existente)
         self.table_window.trim_all_character_names()
         
-        # 3. Refrescar la lista visual con los nombres corregidos
         self.populate_character_list()
         
-        # 4. Restaurar la selección
         for i in range(self.char_list_widget.count()):
             item = self.char_list_widget.item(i)
             if item.text() in selected_stripped:
@@ -193,8 +223,6 @@ class TakeoDialog(QDialog):
         self.unsetCursor()
         self.run_button.setEnabled(True)
         self.run_button.setText("Optimizar y Guardar...")
-        
-        # Aquí he eliminado el reporte de fallos anterior (_show_failure_report_dialog)
         
         self.save_results(detail_df, summary_df, failures_df, problematic_report, takes_generated)
         self.accept()

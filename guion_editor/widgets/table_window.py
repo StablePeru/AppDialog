@@ -759,7 +759,7 @@ class TableWindow(QWidget):
         h, rem_seconds = divmod(total_seconds, 3600)
         m, s = divmod(rem_seconds, 60)
         f = min(int(round(rem_ms / (1000.0 / C.FPS))), int(C.FPS - 1))
-        return f"{int(h):02}:{int(m):02}:{int(s):02}:{int(f):02}"
+        return f"{int(h):02d}:{int(m):02d}:{int(s):02d}:{int(f):02d}"
 
     def update_in_out_from_player(self, action_type: str, position_ms: int) -> None:
         idx = self.table_view.currentIndex()
@@ -992,3 +992,70 @@ class TableWindow(QWidget):
         """Establece el estado de los widgets de control de la UI a partir de un diccionario."""
         self.link_out_in_checkbox.setChecked(states.get("link_out_in_enabled", True))
         self.sync_video_checkbox.setChecked(states.get("sync_video_enabled", True))
+
+    # --- NUEVA FUNCIÓN PARA OBTENER DATOS LIMPIOS ---
+    def get_cleaned_dataframe_for_subs(self, cleanup_mode: str = "AMBAS") -> pd.DataFrame:
+        """
+        Devuelve una COPIA del dataframe actual donde:
+        1. Se elimina todo el contenido entre paréntesis en DIÁLOGO y EUSKERA.
+        2. Se eliminan filas según el modo seleccionado:
+           - "AMBAS": Borra fila si AMBAS columnas quedan vacías.
+           - "EUSKERA": Borra fila si EUSKERA queda vacío (aunque haya texto en Diálogo).
+           - "DIALOGO": Borra fila si DIÁLOGO queda vacío (aunque haya texto en Euskera).
+        """
+        df = self.pandas_model.dataframe().copy()
+        
+        # Columnas a limpiar (asegurarnos de que existen)
+        has_dialogo = C.COL_DIALOGO in df.columns
+        has_euskera = C.COL_EUSKERA in df.columns
+        target_cols = [col for col in [C.COL_DIALOGO, C.COL_EUSKERA] if col in df.columns]
+        
+        if not target_cols:
+            return df
+
+        def clean_text(text):
+            if pd.isna(text): return ""
+            txt_str = str(text)
+            txt_str = re.sub(r'\([^)]*\)', '', txt_str) # Eliminar paréntesis
+            return " ".join(txt_str.split()) # Eliminar espacios extra
+
+        # 1. Limpiar texto en ambas columnas (siempre se limpian ambas)
+        for col in target_cols:
+            df[col] = df[col].apply(clean_text)
+
+        # 2. Calcular máscara de filas a borrar
+        rows_to_drop_mask = pd.Series(False, index=df.index)
+        
+        for index, row in df.iterrows():
+            # Comprobamos si las celdas están vacías tras la limpieza
+            dialogo_is_empty = True
+            if has_dialogo and row[C.COL_DIALOGO] and str(row[C.COL_DIALOGO]).strip():
+                dialogo_is_empty = False
+                
+            euskera_is_empty = True
+            if has_euskera and row[C.COL_EUSKERA] and str(row[C.COL_EUSKERA]).strip():
+                euskera_is_empty = False
+
+            # Aplicar lógica según el modo elegido
+            should_drop = False
+            
+            if cleanup_mode == "EUSKERA":
+                # Si falta Euskera, borramos, sin importar el diálogo original
+                if euskera_is_empty:
+                    should_drop = True
+            elif cleanup_mode == "DIALOGO":
+                # Si falta Diálogo, borramos
+                if dialogo_is_empty:
+                    should_drop = True
+            else: # Mode "AMBAS"
+                # Solo borramos si faltan los dos
+                if dialogo_is_empty and euskera_is_empty:
+                    should_drop = True
+            
+            if should_drop:
+                rows_to_drop_mask[index] = True
+
+        # 3. Eliminar filas
+        df_cleaned = df[~rows_to_drop_mask].reset_index(drop=True)
+        
+        return df_cleaned

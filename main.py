@@ -21,6 +21,7 @@ from guion_editor.widgets.config_dialog import ConfigDialog
 from guion_editor.widgets.shortcut_config_dialog import ShortcutConfigDialog
 from guion_editor.utils.shortcut_manager import ShortcutManager
 from guion_editor.utils.guion_manager import GuionManager
+from guion_editor.widgets.advanced_srt_export_dialog import AdvancedSrtExportDialog
 from guion_editor import constants as C
 
 ICON_CACHE = {}
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
     AUTOSAVE_INTERVAL_MS = 120000
     RECOVERY_DIR = r"W:\Z_JSON\Backup"
     SAVE_DIR = r"W:\Z_JSON\SinSubir"
+    SUBS_DIR = r"W:\Z_JSON\Subs"  # <--- NUEVA CARPETA
 
     def __init__(self):
         super().__init__()
@@ -92,7 +94,6 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.videoPlayerWidget = VideoPlayerWidget(get_icon_func=get_icon, main_window=self)
         
-        # -> NUEVO: Habilitar drops en el widget de video e instalar el filtro
         self.videoPlayerWidget.setAcceptDrops(True)
         self.videoPlayerWidget.installEventFilter(self)
         
@@ -103,7 +104,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.splitter)
 
         self.videoPlayerWidget.set_table_window_reference(self.tableWindow)
-
 
         self.recent_files = self.load_recent_files()
         self.mark_out_hold_key_sequence = QKeySequence("F6")
@@ -224,8 +224,15 @@ class MainWindow(QMainWindow):
             if "edit_redo" in self.actions:
                  self.actions["edit_redo"].setEnabled(self.tableWindow.undo_stack.canRedo())
 
+    # --- MÉTODO MODIFICADO PARA SOPORTAR CARPETA SUBS ---
     def save_script_directly(self):
-        TARGET_DIR = self.SAVE_DIR
+        # Determinamos el directorio basado en el nombre del archivo actual
+        current_name = self.tableWindow.current_script_name or ""
+        
+        if "_SUB" in current_name:
+            TARGET_DIR = self.SUBS_DIR
+        else:
+            TARGET_DIR = self.SAVE_DIR
 
         if self.tableWindow.pandas_model.dataframe().empty:
             QMessageBox.information(self, "Guardar", "No hay datos para guardar.")
@@ -242,6 +249,12 @@ class MainWindow(QMainWindow):
             return False
 
         filename = self.tableWindow._generate_default_filename("json")
+        
+        # Si estamos en modo SUB y el nombre generado no tiene _SUB, forzarlo
+        if TARGET_DIR == self.SUBS_DIR and "_SUB" not in filename:
+             name_part, ext_part = os.path.splitext(filename)
+             filename = f"{name_part}_SUB{ext_part}"
+
         full_path = os.path.join(TARGET_DIR, filename)
 
         if os.path.exists(full_path) and full_path != self.tableWindow.current_script_path:
@@ -279,6 +292,81 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
 
+    # --- NUEVO MÉTODO PARA GENERAR VERSIÓN SUB ---
+    def create_sub_version_and_clean(self):
+        """
+        1. Pregunta qué columna determina si la fila se borra.
+        2. Obtiene una versión limpia del guion (sin paréntesis).
+        3. Elimina filas basándose en la columna elegida.
+        4. Guarda esa versión como un NUEVO archivo Excel con sufijo _SUB en la carpeta SUBS.
+        5. Carga ese nuevo archivo en el editor.
+        """
+        if self.tableWindow.pandas_model.dataframe().empty:
+            QMessageBox.information(self, "Crear Versión SUB", "No hay datos para procesar.")
+            return
+
+        # Opciones para el usuario
+        options = [
+            "AMBAS (Solo borrar si las dos están vacías)",
+            "EUSKERA (Borrar si Euskera queda vacío)",
+            "DIÁLOGO (Borrar si Diálogo queda vacío)"
+        ]
+
+        item, ok = QInputDialog.getItem(
+            self, 
+            "Generar Versión SUB", 
+            "Se limpiarán paréntesis en TODAS las columnas.\n\n"
+            "¿Qué criterio usar para ELIMINAR la fila entera?", 
+            options, 
+            0, 
+            False
+        )
+        
+        if not ok:
+            return
+
+        # Determinar el modo interno basado en la selección
+        mode = "AMBAS"
+        if "EUSKERA" in item:
+            mode = "EUSKERA"
+        elif "DIÁLOGO" in item:
+            mode = "DIALOGO"
+
+        # 1. Obtener datos limpios con el modo seleccionado
+        clean_df = self.tableWindow.get_cleaned_dataframe_for_subs(cleanup_mode=mode)
+        header_data = self.tableWindow._get_header_data_from_ui()
+
+        # 2. Preparar ruta y nombre
+        try:
+            if not os.path.exists(self.SUBS_DIR):
+                os.makedirs(self.SUBS_DIR)
+        except OSError as e:
+            QMessageBox.critical(self, "Error", f"No se pudo crear la carpeta Subs:\n{e}")
+            return
+
+        base_name = self.tableWindow._generate_default_filename("xlsx")
+        name_root, ext = os.path.splitext(base_name)
+        
+        if name_root.endswith("_SUB"):
+            new_filename = f"{name_root}{ext}"
+        else:
+            new_filename = f"{name_root}_SUB{ext}"
+            
+        new_path = os.path.join(self.SUBS_DIR, new_filename)
+
+        # 3. Guardar el nuevo Excel
+        try:
+            self.guion_manager.save_to_excel(new_path, clean_df, header_data)
+            logging.info(f"Versión SUB creada en: {new_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error al Guardar", f"No se pudo crear el archivo _SUB:\n{e}")
+            return
+
+        # 4. Cargar el nuevo archivo
+        self.tableWindow.load_from_excel_path(new_path)
+        
+        QMessageBox.information(self, "Éxito", f"Se ha creado y cargado la versión de subtítulos:\n\n{new_filename}\n\nUbicación: {self.SUBS_DIR}")
+
     def create_all_actions(self):
         # File Menu Actions
         self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", "file_open_video")
@@ -312,6 +400,9 @@ class MainWindow(QMainWindow):
         # Config Menu Actions
         self.add_managed_action("Configuración App", self.open_config_dialog, "Ctrl+K", "settings_icon.svg", "config_app_settings")
         self.add_managed_action("Optimizar Takes (Takeo)...", self.open_takeo_dialog, None, "takeo_icon.svg", "tools_run_takeo")
+        # --- AÑADIDA NUEVA ACCIÓN ---
+        self.add_managed_action("Generar Versión SUB (Limpiar () y Vacíos)", self.create_sub_version_and_clean, None, "clean_subs_icon.svg", "tools_create_sub_version")
+        # ----------------------------
         self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter")
         self.add_managed_action("Reiniciar Todas las Escenas a '1'", self.tableWindow.reset_all_scenes, None, "reset_scenes_icon.svg", "tools_reset_scenes")
         self.add_managed_action("Reiniciar Todos los Tiempos a Cero", self.tableWindow.reset_all_timecodes, None, "reset_timecodes_icon.svg", "tools_reset_timecodes")
@@ -348,27 +439,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Exportar a SRT", "No hay datos en el guion para exportar.")
             return
 
-        items = [C.COL_DIALOGO, C.COL_EUSKERA]
-        item, ok = QInputDialog.getItem(self, "Seleccionar Columna para Exportar",
-                                        "¿Qué columna de texto desea usar para los subtítulos?",
-                                        items, 0, False)
-        
-        if not ok or not item:
-            return 
-
-        default_filename = self.tableWindow._generate_default_filename("srt")
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar a Subtítulos (.srt)", default_filename, "Archivos SubRip (*.srt)")
-
-        if path:
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            try:
-                self.guion_manager.save_to_srt(path, self.tableWindow.pandas_model.dataframe(), column_to_export=item)
-                QMessageBox.information(self, "Éxito", f"Subtítulos exportados a:\n{path}")
-            except Exception as e:
-                logging.error(f"No se pudo guardar el archivo SRT en {path}", exc_info=True)
-                QMessageBox.critical(self, "Error de Exportación", f"No se pudo guardar el archivo SRT:\n{e}")
-            finally:
-                QApplication.restoreOverrideCursor()
+        # Usamos el nuevo diálogo avanzado que incluye la lógica de tu programa externo
+        dialog = AdvancedSrtExportDialog(self.tableWindow, get_icon_func=get_icon, parent=self)
+        dialog.exec()
             
     def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
         if not object_name:
@@ -454,6 +527,9 @@ class MainWindow(QMainWindow):
         configMenu.addAction(self.actions["config_app_settings"])
         configMenu.addSeparator()
         configMenu.addAction(self.actions["tools_run_takeo"])
+        # --- AÑADIDA NUEVA ACCIÓN ---
+        configMenu.addAction(self.actions["tools_create_sub_version"]) 
+        # ----------------------------
         configMenu.addAction(self.actions["tools_xlsx_converter"])
         configMenu.addSeparator()
         configMenu.addAction(self.actions["tools_reset_scenes"])
@@ -827,27 +903,20 @@ class MainWindow(QMainWindow):
             capturamos los eventos de Drag/Drop para el videoPlayerWidget.
             """
             if source is self.videoPlayerWidget:
-                # Si el evento es un DragEnter, lo procesamos con nuestro propio manejador
                 if event.type() == QEvent.Type.DragEnter:
-                    # Re-casteamos el evento para tener autocompletado y acceso a sus métodos
                     drag_event = QDragEnterEvent(event)
                     self.dragEnterEvent(drag_event)
-                    return True # Indicamos que hemos manejado el evento
+                    return True 
                 
-                # Si el evento es un Drop, también lo procesamos nosotros
                 elif event.type() == QEvent.Type.Drop:
                     drop_event = QDropEvent(event)
                     self.dropEvent(drop_event)
-                    return True # Evento manejado
+                    return True 
 
-            # Para cualquier otro evento o fuente, dejamos que siga su curso normal
             return super().eventFilter(source, event)
 
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        """
-        Este evento se activa cuando un archivo se arrastra sobre la ventana.
-        """
         mime_data = event.mimeData()
         if mime_data.hasUrls():
             if len(mime_data.urls()) == 1:
@@ -861,9 +930,6 @@ class MainWindow(QMainWindow):
                     event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
-        """
-        Este evento se activa cuando el usuario suelta el archivo sobre la ventana.
-        """
         mime_data = event.mimeData()
         if mime_data.hasUrls() and len(mime_data.urls()) == 1:
             file_path = mime_data.urls()[0].toLocalFile()
