@@ -8,9 +8,6 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from guion_editor import constants_logic as C
 import logging
 
-# =================================================================================
-#  CLASE DE LÓGICA PURA (SIN CAMBIOS)
-# =================================================================================
 class TakeoOptimizerLogic:
     def __init__(self, config: dict):
         self.max_duration = config.get('max_duration', 30)
@@ -24,7 +21,8 @@ class TakeoOptimizerLogic:
         self.segmentation_failures_report = []
         self.actual_takes_generated = 0
 
-    def run_optimization(self, script_data: pd.DataFrame, selected_characters: list, dialogue_source_column: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    # --- MODIFICADO: Aceptamos reparto_map ---
+    def run_optimization(self, script_data: pd.DataFrame, selected_characters: list, dialogue_source_column: str, reparto_map: dict = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         if script_data is None or script_data.empty or dialogue_source_column not in script_data.columns:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -34,7 +32,8 @@ class TakeoOptimizerLogic:
         if filtered_data.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             
-        detail_df, summary_df = self._create_optimized_takes_dp(filtered_data, dialogue_source_column)
+        # Pasamos el reparto_map a la función interna
+        detail_df, summary_df = self._create_optimized_takes_dp(filtered_data, dialogue_source_column, reparto_map)
         
         failures_df = pd.DataFrame()
         if self.segmentation_failures_report:
@@ -42,6 +41,8 @@ class TakeoOptimizerLogic:
 
         return detail_df, summary_df, failures_df
 
+    # ... (Métodos parse_time, _get_effective_len, expand_dialogue, _check_individual_interventions, unify_and_check, check_duration, check_inter_intervention_silence, is_segment_feasible, group_dialogues_simultaneous_dp, partition_scene_blocks, _fuse_run_texts se mantienen IGUAL) ...
+    # [Para ahorrar espacio, asumo que el resto de métodos auxiliares siguen ahí sin cambios]
     def parse_time(self, time_str):
         parts = str(time_str).split(':')
         if len(parts) == 3: hh, mm, ss = map(int, parts); return hh * 3600 + mm * 60 + ss
@@ -160,14 +161,13 @@ class TakeoOptimizerLogic:
         return self.expand_dialogue(" _ ".join(" ".join(lines) for lines in texts_list_of_lists))
 
     def generate_detail(self, blocks_with_takes, dialogue_source_column: str):
+        # ... (Sin cambios aquí) ...
         rows = []
         df_blocks = pd.DataFrame(blocks_with_takes)
-        
         for take, group_df in df_blocks.groupby("take"):
             group_records = sorted(group_df.to_dict('records'), key=lambda x: x['in_time'])
             interventions = [{"char": d["personaje"], "lines": d["lines"], "in": b["in_time_str"], "out": b["out_time_str"]} for b in group_records for d in b["dialogues"]]
             if not interventions: continue
-            
             run = []
             for interv in interventions:
                 if not run or interv["char"] == run[-1]["char"]:
@@ -178,41 +178,52 @@ class TakeoOptimizerLogic:
                         row_data = {"TAKE": take, C.COL_PERSONAJE: run[0]["char"], dialogue_source_column: line, C.COL_IN: run[0]["in"], C.COL_OUT: run[-1]["out"]}
                         rows.append(row_data)
                     run = [interv]
-            
             if run:
                 fused_lines = self._fuse_run_texts([r["lines"] for r in run])
                 for line in fused_lines:
                     row_data = {"TAKE": take, C.COL_PERSONAJE: run[0]["char"], dialogue_source_column: line, C.COL_IN: run[0]["in"], C.COL_OUT: run[-1]["out"]}
                     rows.append(row_data)
-
         if not rows: return pd.DataFrame()
-        
         df = pd.DataFrame(rows)
         if dialogue_source_column not in df.columns:
             df[dialogue_source_column] = ""
-
         df['sort_key'] = df[C.COL_IN].apply(self.parse_time)
         df['take_start_time'] = df.groupby('TAKE')['sort_key'].transform('min')
-
         df_sorted = df.sort_values(by=["take_start_time", "sort_key"])
-
         chronological_take_order = df_sorted['TAKE'].unique()
         take_renumber_map = {old_take_num: new_take_num for new_take_num, old_take_num in enumerate(chronological_take_order, 1)}
         df_sorted['TAKE'] = df_sorted['TAKE'].map(take_renumber_map)
-
         return df_sorted.drop(columns=['take_start_time', 'sort_key'])
 
-    def generate_summary(self, blocks_with_takes):
+    # --- MODIFICADO: Generar resumen con Interpretes ---
+    def generate_summary(self, blocks_with_takes, reparto_map: dict = None):
         summary = defaultdict(set)
         for block in blocks_with_takes:
             if "take" in block:
                 for p in block["characters"]: summary[p].add(block["take"])
-        rows = [{C.COL_PERSONAJE: p, "TAKES (apariciones)": len(t)} for p, t in sorted(summary.items())]
+        
+        rows = []
+        for p, t in sorted(summary.items()):
+            # Obtener el intérprete del mapa, si existe
+            interprete = reparto_map.get(p, "") if reparto_map else ""
+            rows.append({
+                "PERSONAJE": p, 
+                "TAKES (apariciones)": len(t),
+                "INTERPRETES": interprete
+            })
+            
         total = sum(row["TAKES (apariciones)"] for row in rows)
-        rows.append({C.COL_PERSONAJE: "TOTAL SUMA APARICIONES", "TAKES (apariciones)": total})
+        
+        # Fila final de totales
+        rows.append({
+            "PERSONAJE": "TOTAL SUMA APARICIONES", 
+            "TAKES (apariciones)": total,
+            "INTERPRETES": ""
+        })
         return pd.DataFrame(rows)
 
-    def _create_optimized_takes_dp(self, data, dialogue_source_column: str):
+    # --- MODIFICADO: Pasar reparto_map ---
+    def _create_optimized_takes_dp(self, data, dialogue_source_column: str, reparto_map: dict = None):
         blocks_by_scene = defaultdict(list)
         for block in self.group_dialogues_simultaneous_dp(data, dialogue_source_column):
             blocks_by_scene[block["scene"]].append(block)
@@ -235,46 +246,37 @@ class TakeoOptimizerLogic:
 
         assigned = [b for b in final_blocks if "take" in b]
         detail_df = self.generate_detail(assigned, dialogue_source_column)
-        summary_df = self.generate_summary(assigned)
+        # Pasamos el reparto_map aquí
+        summary_df = self.generate_summary(assigned, reparto_map)
         
         self.actual_takes_generated = detail_df['TAKE'].max() if not detail_df.empty and 'TAKE' in detail_df.columns else 0
         
         return detail_df, summary_df
 
-# =================================================================================
-#  NUEVA CLASE WORKER PARA EL HILO
-# =================================================================================
 class TakeoWorker(QObject):
-    """
-    Este worker se ejecutará en un hilo separado para no congelar la GUI.
-    """
-    # Señal emitida cuando el trabajo ha terminado exitosamente.
-    # Envía los DataFrames de resultados, el informe de problemas y el número total de takes.
     finished = pyqtSignal(pd.DataFrame, pd.DataFrame, pd.DataFrame, list, int)
-    
-    # Señal emitida si ocurre un error durante la ejecución.
     error = pyqtSignal(str)
 
-    def __init__(self, config: dict, script_data: pd.DataFrame, selected_characters: list, dialogue_source_column: str):
+    # --- MODIFICADO: Aceptar reparto_map en init ---
+    def __init__(self, config: dict, script_data: pd.DataFrame, selected_characters: list, dialogue_source_column: str, reparto_map: dict = None):
         super().__init__()
         self.config = config
         self.script_data = script_data
         self.selected_characters = selected_characters
         self.dialogue_source_column = dialogue_source_column
+        self.reparto_map = reparto_map # Guardar
 
     def run(self):
-        """
-        El método principal que realiza el trabajo pesado.
-        Nunca se debe llamar a este método directamente desde el hilo principal.
-        """
         try:
             logging.info("Iniciando optimización de Takeo en hilo secundario...")
             optimizer = TakeoOptimizerLogic(self.config)
 
+            # Pasar reparto_map
             detail_df, summary_df, failures_df = optimizer.run_optimization(
                 self.script_data,
                 self.selected_characters,
-                self.dialogue_source_column
+                self.dialogue_source_column,
+                self.reparto_map
             )
             
             problematic_report = optimizer.problematic_interventions_report
@@ -284,7 +286,6 @@ class TakeoWorker(QObject):
             self.finished.emit(detail_df, summary_df, failures_df, problematic_report, takes_generated)
 
         except Exception as e:
-            # Si algo sale mal, capturamos la excepción y emitimos la señal de error.
             error_str = f"Error en el hilo de Takeo: {e}\n{traceback.format_exc()}"
             logging.error(error_str)
             self.error.emit(error_str)

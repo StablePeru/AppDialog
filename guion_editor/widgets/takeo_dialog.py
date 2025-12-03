@@ -13,6 +13,9 @@ from guion_editor.utils.takeo_optimizer_logic import TakeoWorker, TakeoOptimizer
 from guion_editor.widgets.export_selection_dialog import ExportSelectionDialog
 from guion_editor import constants as C 
 
+# Importar estilos de OpenPyXL para el formato
+from openpyxl.styles import Font, Alignment, Border, Side
+
 def load_takeo_stylesheet() -> str:
     try:
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -41,6 +44,7 @@ class TakeoDialog(QDialog):
             self.setStyleSheet(stylesheet)
         self.setup_ui()
 
+    # ... (setup_ui, populate_character_list, select_all_characters, deselect_all_characters, get_selected_characters se mantienen IGUAL) ...
     def setup_ui(self):
         layout = QVBoxLayout(self)
         config_group = QGroupBox("Reglas de Takeo")
@@ -102,57 +106,34 @@ class TakeoDialog(QDialog):
             logging.warning("Intento de iniciar optimización mientras una ya está en curso.")
             return
 
-        # --- 1. DETECCIÓN, AVISO Y EXPORTACIÓN DEBUG ---
+        # ... (Bloque de detección de filas sucias se mantiene IGUAL) ...
         df = self.table_window.pandas_model.dataframe()
         if not df.empty and C.COL_PERSONAJE in df.columns:
-            # Detectar filas donde el personaje tiene espacios extra
-            # Creamos una máscara booleana
             dirty_mask = df[C.COL_PERSONAJE].astype(str) != df[C.COL_PERSONAJE].astype(str).str.strip()
-            
-            # Si hay filas sucias...
             if dirty_mask.any():
                 dirty_rows = df[dirty_mask]
                 unique_dirty_names = sorted(dirty_rows[C.COL_PERSONAJE].unique())
-                
-                # Construimos la lista para mostrar
                 lista_nombres = "\n".join([f"• '{name}'" for name in unique_dirty_names])
                 count = len(unique_dirty_names)
-                
                 msg = (f"Se han encontrado {count} personajes con espacios sobrantes (ej: 'Nombre ').\n"
                        "Esto puede causar errores en el Takeo.\n\n"
                        f"Personajes afectados:\n{lista_nombres}\n\n"
                        "Seleccione una acción:")
-                
-                # Creamos un MessageBox personalizado con 3 botones
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Error de Formato en Personajes")
                 msg_box.setText(msg)
                 msg_box.setIcon(QMessageBox.Icon.Warning)
-                
-                # Botones personalizados
                 btn_fix = msg_box.addButton("Corregir Automáticamente", QMessageBox.ButtonRole.AcceptRole)
                 btn_export = msg_box.addButton("Exportar Excel (Debug)", QMessageBox.ButtonRole.ActionRole)
                 btn_cancel = msg_box.addButton(QMessageBox.StandardButton.Cancel)
-                
                 msg_box.exec()
                 clicked_button = msg_box.clickedButton()
-
-                if clicked_button == btn_fix:
-                    # El usuario quiere arreglarlo y seguir
-                    self._perform_cleanup()
-                
-                elif clicked_button == btn_export:
-                    # El usuario quiere exportar las líneas problemáticas
-                    self._export_dirty_rows(dirty_rows)
-                    return # Detenemos el proceso para que puedan revisar el Excel
-                
-                else:
-                    return # Cancelar operación
-        # -----------------------------------------------------------
+                if clicked_button == btn_fix: self._perform_cleanup()
+                elif clicked_button == btn_export: self._export_dirty_rows(dirty_rows); return
+                else: return
 
         config = {'max_duration': self.duration_spin.value(), 'max_lines_per_take': self.max_lines_spin.value(), 'max_consecutive_lines_per_character': self.max_consecutive_spin.value(), 'max_chars_per_line': self.max_chars_spin.value(), 'max_silence_between_interventions': self.silence_spin.value()}
         
-        # Obtenemos la selección (ahora limpia si se ejecutó el bloque anterior)
         selected_chars = self.get_selected_characters()
         if not selected_chars: 
             QMessageBox.warning(self, "Sin Selección", "Debe seleccionar al menos un personaje.")
@@ -160,9 +141,25 @@ class TakeoDialog(QDialog):
             
         current_df = self.table_window.pandas_model.dataframe()
         dialogue_col = self.dialogue_source_combo.currentText()
+
+        # --- MODIFICADO: Extraer diccionario de reparto ---
+        reparto_map = {}
+        if C.COL_REPARTO in current_df.columns:
+            # Crear mapa {Personaje: Interprete}
+            # dropna y drop_duplicates para limpiar
+            temp_df = current_df[[C.COL_PERSONAJE, C.COL_REPARTO]].dropna()
+            # Tomar el último valor no vacío para cada personaje
+            # O mejor, iteramos para asegurarnos.
+            for _, row in temp_df.iterrows():
+                char = str(row[C.COL_PERSONAJE]).strip()
+                actor = str(row[C.COL_REPARTO]).strip()
+                if char and actor:
+                    reparto_map[char] = actor
+        # --------------------------------------------------
         
         self.thread = QThread()
-        self.worker = TakeoWorker(config, current_df.copy(), selected_chars, dialogue_col)
+        # Pasamos reparto_map al worker
+        self.worker = TakeoWorker(config, current_df.copy(), selected_chars, dialogue_col, reparto_map)
         self.worker.moveToThread(self.thread)
         
         self.worker.finished.connect(self._on_optimization_finished)
@@ -178,52 +175,34 @@ class TakeoDialog(QDialog):
         self.run_button.setText("Procesando...")
         self.setCursor(Qt.CursorShape.WaitCursor)
 
+    # ... (_export_dirty_rows, _perform_cleanup, _on_optimization_finished, _on_optimization_error se mantienen IGUAL) ...
     def _export_dirty_rows(self, dirty_rows_df: pd.DataFrame):
-        """Exporta las filas problemáticas tal cual están a un Excel."""
-        if dirty_rows_df.empty:
-            return
-
+        if dirty_rows_df.empty: return
         filename = "DEBUG_Personajes_Con_Espacios.xlsx"
         path, _ = QFileDialog.getSaveFileName(self, "Exportar Reporte de Errores", filename, "Archivos Excel (*.xlsx)")
-        
         if path:
             try:
-                # Exportamos tal cual
                 dirty_rows_df.to_excel(path, index=False)
-                QMessageBox.information(
-                    self, 
-                    "Exportación Exitosa", 
-                    f"Se ha guardado el reporte en:\n{path}\n\n"
-                    "Puede usar este archivo para identificar qué líneas grabar."
-                )
-            except Exception as e:
-                QMessageBox.critical(self, "Error al Exportar", f"No se pudo guardar el archivo:\n{e}")
+                QMessageBox.information(self, "Exportación Exitosa", f"Se ha guardado el reporte en:\n{path}\n\nPuede usar este archivo para identificar qué líneas grabar.")
+            except Exception as e: QMessageBox.critical(self, "Error al Exportar", f"No se pudo guardar el archivo:\n{e}")
 
     def _perform_cleanup(self):
-        """Ejecuta la limpieza de nombres manteniendo la selección del usuario."""
         selected_stripped = []
         for i in range(self.char_list_widget.count()):
             item = self.char_list_widget.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
-                selected_stripped.append(item.text().strip())
-
+            if item.checkState() == Qt.CheckState.Checked: selected_stripped.append(item.text().strip())
         self.table_window.trim_all_character_names()
-        
         self.populate_character_list()
-        
         for i in range(self.char_list_widget.count()):
             item = self.char_list_widget.item(i)
-            if item.text() in selected_stripped:
-                item.setCheckState(Qt.CheckState.Checked)
-            else:
-                item.setCheckState(Qt.CheckState.Unchecked)
+            if item.text() in selected_stripped: item.setCheckState(Qt.CheckState.Checked)
+            else: item.setCheckState(Qt.CheckState.Unchecked)
 
     def _on_optimization_finished(self, detail_df, summary_df, failures_df, problematic_report, takes_generated):
         logging.info("Recepción de resultados del worker de Takeo.")
         self.unsetCursor()
         self.run_button.setEnabled(True)
         self.run_button.setText("Optimizar y Guardar...")
-        
         self.save_results(detail_df, summary_df, failures_df, problematic_report, takes_generated)
         self.accept()
 
@@ -233,6 +212,51 @@ class TakeoDialog(QDialog):
         self.run_button.setText("Optimizar y Guardar...")
         QMessageBox.critical(self, "Error en la Optimización", f"Ocurrió un error durante el proceso:\n{error_string}")
         self.reject()
+
+    # --- NUEVA FUNCIÓN PARA GUARDAR RESUMEN CON FORMATO ---
+    def save_formatted_summary(self, path: str, df: pd.DataFrame, title_text: str):
+        """Guarda el resumen con el formato visual específico solicitado."""
+        with pd.ExcelWriter(path, engine='openpyxl') as writer:
+            # Escribir datos empezando en fila 2 (para dejar espacio al título)
+            # sheet_name='Sheet1' es el default, usaremos ese
+            df.to_excel(writer, index=False, startrow=1, sheet_name='Resumen')
+            
+            workbook = writer.book
+            worksheet = writer.sheets['Resumen']
+            
+            # --- TÍTULO (Fila 1) ---
+            worksheet['A1'] = title_text
+            # Fusionar A1:C1 (o hasta la última columna de datos)
+            max_col = len(df.columns)
+            worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+            
+            title_cell = worksheet['A1']
+            title_cell.font = Font(bold=True, size=14, name='Calibri')
+            title_cell.alignment = Alignment(horizontal='left', vertical='center') # Alineado izquierda según captura
+            
+            # --- ESTILOS DE TABLA (Bordes y Negrita en cabecera) ---
+            thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                                 top=Side(style='thin'), bottom=Side(style='thin'))
+            bold_font = Font(bold=True)
+            
+            # Iterar sobre todas las celdas de la tabla (incluyendo cabecera en fila 2)
+            # min_row=2 porque la fila 1 es el título merged
+            for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=1, max_col=max_col):
+                for cell in row:
+                    cell.border = thin_border
+                    # Si es la fila de cabecera (fila 2), poner negrita
+                    if cell.row == 2:
+                        cell.font = bold_font
+                        cell.alignment = Alignment(horizontal='center')
+                    
+                    # Alinear columnas de datos (según captura, nombre izquierda, numeros derecha)
+                    elif cell.column == 2: # Columna B (Takes)
+                        cell.alignment = Alignment(horizontal='right')
+            
+            # Ajustar anchos de columna (aproximados)
+            worksheet.column_dimensions['A'].width = 30 # Personaje
+            worksheet.column_dimensions['B'].width = 20 # Takes
+            worksheet.column_dimensions['C'].width = 30 # Intérpretes
 
     def save_results(self, detail_df, summary_df, failures_df, problematic_report, takes_generated):
         reports_available = {
@@ -254,12 +278,24 @@ class TakeoDialog(QDialog):
         save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar Directorio para Guardar Informes")
         if not save_dir: return
 
+        # Obtener título para el resumen
+        header_data = self.table_window._get_header_data_from_ui()
+        product = str(header_data.get("product_name", "")).strip().upper()
+        chapter = str(header_data.get("chapter_number", "")).strip()
+        title_text = f"{product} {chapter}".strip()
+        if not title_text: title_text = "RESUMEN DE TAKES"
+
         saved_files = []
         try:
             if choices["detail"] and reports_available["detail"]:
                 path = os.path.join(save_dir, "detalle_takes_optimizado.xlsx"); detail_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
+            
             if choices["summary"] and reports_available["summary"]:
-                path = os.path.join(save_dir, "resumen_takes_optimizado.xlsx"); summary_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
+                path = os.path.join(save_dir, "resumen_takes_optimizado.xlsx")
+                # --- MODIFICADO: Usar la función de guardado con formato ---
+                self.save_formatted_summary(path, summary_df, title_text)
+                saved_files.append(os.path.basename(path))
+                
             if choices["failures"] and reports_available["failures"]:
                 path = os.path.join(save_dir, "reporte_fallos_de_agrupacion.xlsx"); failures_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
             if choices["problems"] and reports_available["problems"]:
