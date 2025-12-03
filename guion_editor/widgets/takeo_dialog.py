@@ -1,20 +1,41 @@
 # guion_editor/widgets/takeo_dialog.py
 import os
+import sys
 import pandas as pd
 import logging
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QSpinBox, QDialogButtonBox,
     QListWidget, QListWidgetItem, QPushButton, QHBoxLayout, QMessageBox,
     QFileDialog, QAbstractItemView, QGroupBox, QComboBox, QLabel, QApplication,
-    QProgressDialog
+    QProgressDialog, QCheckBox
 )
 from PyQt6.QtCore import Qt, QThread
 from guion_editor.utils.takeo_optimizer_logic import TakeoWorker, TakeoOptimizerLogic
 from guion_editor.widgets.export_selection_dialog import ExportSelectionDialog
 from guion_editor import constants as C 
 
-# Importar estilos de OpenPyXL para el formato
+# Importar estilos de OpenPyXL para el formato del Excel
 from openpyxl.styles import Font, Alignment, Border, Side
+
+# --- IMPORTACIÓN DINÁMICA DEL CONVERSOR ---
+# Intentamos importar asumiendo que se ejecuta desde la raíz.
+# Si falla, añadimos la raíz al path relativo a este archivo.
+try:
+    from xlsx_converter.main import process_excel_to_txt
+except ImportError:
+    # Este archivo está en: guion_editor/widgets/takeo_dialog.py
+    # Necesitamos subir 2 niveles para llegar a la raíz donde está xlsx_converter
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.abspath(os.path.join(current_dir, '..', '..'))
+    if root_dir not in sys.path:
+        sys.path.append(root_dir)
+    
+    try:
+        from xlsx_converter.main import process_excel_to_txt
+    except ImportError as e:
+        logging.error(f"No se pudo importar el conversor TXT: {e}")
+        process_excel_to_txt = None
+# ------------------------------------------
 
 def load_takeo_stylesheet() -> str:
     try:
@@ -32,7 +53,7 @@ class TakeoDialog(QDialog):
         self.table_window = table_window
         self.get_icon = get_icon_func
         self.setWindowTitle("Optimizador de Takes (Takeo)")
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(600, 550)
         self.setObjectName("TakeoDialog")
         
         # Atributos para el manejo del hilo
@@ -44,7 +65,6 @@ class TakeoDialog(QDialog):
             self.setStyleSheet(stylesheet)
         self.setup_ui()
 
-    # ... (setup_ui, populate_character_list, select_all_characters, deselect_all_characters, get_selected_characters se mantienen IGUAL) ...
     def setup_ui(self):
         layout = QVBoxLayout(self)
         config_group = QGroupBox("Reglas de Takeo")
@@ -78,6 +98,13 @@ class TakeoDialog(QDialog):
         char_layout.addWidget(self.char_list_widget)
         layout.addWidget(char_group)
 
+        # --- Checkbox para generar TXT ---
+        self.chk_generate_txt = QCheckBox("Convertir automáticamente el 'Detalle de Takes' a TXT")
+        self.chk_generate_txt.setChecked(True) 
+        self.chk_generate_txt.setToolTip("Si se marca, se generará un archivo .txt con el formato de grabación basándose en el Excel de detalles generado.")
+        layout.addWidget(self.chk_generate_txt)
+        # ----------------------------------------
+
         self.button_box = QDialogButtonBox()
         self.run_button = self.button_box.addButton("Optimizar y Guardar...", QDialogButtonBox.ButtonRole.AcceptRole)
         cancel_button = self.button_box.addButton(QDialogButtonBox.StandardButton.Cancel)
@@ -106,19 +133,14 @@ class TakeoDialog(QDialog):
             logging.warning("Intento de iniciar optimización mientras una ya está en curso.")
             return
 
-        # ... (Bloque de detección de filas sucias se mantiene IGUAL) ...
         df = self.table_window.pandas_model.dataframe()
         if not df.empty and C.COL_PERSONAJE in df.columns:
             dirty_mask = df[C.COL_PERSONAJE].astype(str) != df[C.COL_PERSONAJE].astype(str).str.strip()
             if dirty_mask.any():
                 dirty_rows = df[dirty_mask]
                 unique_dirty_names = sorted(dirty_rows[C.COL_PERSONAJE].unique())
-                lista_nombres = "\n".join([f"• '{name}'" for name in unique_dirty_names])
                 count = len(unique_dirty_names)
-                msg = (f"Se han encontrado {count} personajes con espacios sobrantes (ej: 'Nombre ').\n"
-                       "Esto puede causar errores en el Takeo.\n\n"
-                       f"Personajes afectados:\n{lista_nombres}\n\n"
-                       "Seleccione una acción:")
+                msg = (f"Se han encontrado {count} personajes con espacios sobrantes.\nSeleccione una acción:")
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Error de Formato en Personajes")
                 msg_box.setText(msg)
@@ -133,35 +155,26 @@ class TakeoDialog(QDialog):
                 else: return
 
         config = {'max_duration': self.duration_spin.value(), 'max_lines_per_take': self.max_lines_spin.value(), 'max_consecutive_lines_per_character': self.max_consecutive_spin.value(), 'max_chars_per_line': self.max_chars_spin.value(), 'max_silence_between_interventions': self.silence_spin.value()}
-        
         selected_chars = self.get_selected_characters()
         if not selected_chars: 
             QMessageBox.warning(self, "Sin Selección", "Debe seleccionar al menos un personaje.")
             return
-            
+        
         current_df = self.table_window.pandas_model.dataframe()
         dialogue_col = self.dialogue_source_combo.currentText()
-
-        # --- MODIFICADO: Extraer diccionario de reparto ---
+        
+        # Extraer mapa de reparto si existe
         reparto_map = {}
         if C.COL_REPARTO in current_df.columns:
-            # Crear mapa {Personaje: Interprete}
-            # dropna y drop_duplicates para limpiar
             temp_df = current_df[[C.COL_PERSONAJE, C.COL_REPARTO]].dropna()
-            # Tomar el último valor no vacío para cada personaje
-            # O mejor, iteramos para asegurarnos.
             for _, row in temp_df.iterrows():
                 char = str(row[C.COL_PERSONAJE]).strip()
                 actor = str(row[C.COL_REPARTO]).strip()
-                if char and actor:
-                    reparto_map[char] = actor
-        # --------------------------------------------------
+                if char and actor: reparto_map[char] = actor
         
         self.thread = QThread()
-        # Pasamos reparto_map al worker
         self.worker = TakeoWorker(config, current_df.copy(), selected_chars, dialogue_col, reparto_map)
         self.worker.moveToThread(self.thread)
-        
         self.worker.finished.connect(self._on_optimization_finished)
         self.worker.error.connect(self._on_optimization_error)
         self.thread.started.connect(self.worker.run)
@@ -170,21 +183,17 @@ class TakeoDialog(QDialog):
         self.worker.finished.connect(self.worker.deleteLater)
         
         self.thread.start()
-        
         self.run_button.setEnabled(False)
         self.run_button.setText("Procesando...")
         self.setCursor(Qt.CursorShape.WaitCursor)
 
-    # ... (_export_dirty_rows, _perform_cleanup, _on_optimization_finished, _on_optimization_error se mantienen IGUAL) ...
     def _export_dirty_rows(self, dirty_rows_df: pd.DataFrame):
         if dirty_rows_df.empty: return
         filename = "DEBUG_Personajes_Con_Espacios.xlsx"
         path, _ = QFileDialog.getSaveFileName(self, "Exportar Reporte de Errores", filename, "Archivos Excel (*.xlsx)")
         if path:
-            try:
-                dirty_rows_df.to_excel(path, index=False)
-                QMessageBox.information(self, "Exportación Exitosa", f"Se ha guardado el reporte en:\n{path}\n\nPuede usar este archivo para identificar qué líneas grabar.")
-            except Exception as e: QMessageBox.critical(self, "Error al Exportar", f"No se pudo guardar el archivo:\n{e}")
+            try: dirty_rows_df.to_excel(path, index=False); QMessageBox.information(self, "Exportación Exitosa", f"Guardado en:\n{path}")
+            except Exception as e: QMessageBox.critical(self, "Error", f"Error: {e}")
 
     def _perform_cleanup(self):
         selected_stripped = []
@@ -213,50 +222,38 @@ class TakeoDialog(QDialog):
         QMessageBox.critical(self, "Error en la Optimización", f"Ocurrió un error durante el proceso:\n{error_string}")
         self.reject()
 
-    # --- NUEVA FUNCIÓN PARA GUARDAR RESUMEN CON FORMATO ---
     def save_formatted_summary(self, path: str, df: pd.DataFrame, title_text: str):
-        """Guarda el resumen con el formato visual específico solicitado."""
+        """Guarda el resumen con formato visual usando OpenPyXL."""
         with pd.ExcelWriter(path, engine='openpyxl') as writer:
-            # Escribir datos empezando en fila 2 (para dejar espacio al título)
-            # sheet_name='Sheet1' es el default, usaremos ese
             df.to_excel(writer, index=False, startrow=1, sheet_name='Resumen')
-            
             workbook = writer.book
             worksheet = writer.sheets['Resumen']
             
-            # --- TÍTULO (Fila 1) ---
+            # Título
             worksheet['A1'] = title_text
-            # Fusionar A1:C1 (o hasta la última columna de datos)
             max_col = len(df.columns)
             worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
-            
             title_cell = worksheet['A1']
             title_cell.font = Font(bold=True, size=14, name='Calibri')
-            title_cell.alignment = Alignment(horizontal='left', vertical='center') # Alineado izquierda según captura
+            title_cell.alignment = Alignment(horizontal='left', vertical='center')
             
-            # --- ESTILOS DE TABLA (Bordes y Negrita en cabecera) ---
+            # Estilos de tabla
             thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                                  top=Side(style='thin'), bottom=Side(style='thin'))
             bold_font = Font(bold=True)
             
-            # Iterar sobre todas las celdas de la tabla (incluyendo cabecera en fila 2)
-            # min_row=2 porque la fila 1 es el título merged
             for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=1, max_col=max_col):
                 for cell in row:
                     cell.border = thin_border
-                    # Si es la fila de cabecera (fila 2), poner negrita
-                    if cell.row == 2:
+                    if cell.row == 2: # Cabecera
                         cell.font = bold_font
                         cell.alignment = Alignment(horizontal='center')
-                    
-                    # Alinear columnas de datos (según captura, nombre izquierda, numeros derecha)
-                    elif cell.column == 2: # Columna B (Takes)
+                    elif cell.column == 2: # Columna B (Takes) alineada a derecha
                         cell.alignment = Alignment(horizontal='right')
             
-            # Ajustar anchos de columna (aproximados)
-            worksheet.column_dimensions['A'].width = 30 # Personaje
-            worksheet.column_dimensions['B'].width = 20 # Takes
-            worksheet.column_dimensions['C'].width = 30 # Intérpretes
+            worksheet.column_dimensions['A'].width = 30
+            worksheet.column_dimensions['B'].width = 20
+            worksheet.column_dimensions['C'].width = 30
 
     def save_results(self, detail_df, summary_df, failures_df, problematic_report, takes_generated):
         reports_available = {
@@ -278,7 +275,6 @@ class TakeoDialog(QDialog):
         save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar Directorio para Guardar Informes")
         if not save_dir: return
 
-        # Obtener título para el resumen
         header_data = self.table_window._get_header_data_from_ui()
         product = str(header_data.get("product_name", "")).strip().upper()
         chapter = str(header_data.get("chapter_number", "")).strip()
@@ -286,13 +282,17 @@ class TakeoDialog(QDialog):
         if not title_text: title_text = "RESUMEN DE TAKES"
 
         saved_files = []
+        detail_excel_path = None
+
         try:
             if choices["detail"] and reports_available["detail"]:
-                path = os.path.join(save_dir, "detalle_takes_optimizado.xlsx"); detail_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
+                path = os.path.join(save_dir, "detalle_takes_optimizado.xlsx")
+                detail_df.to_excel(path, index=False)
+                saved_files.append(os.path.basename(path))
+                detail_excel_path = path # Guardamos la ruta para la conversión
             
             if choices["summary"] and reports_available["summary"]:
                 path = os.path.join(save_dir, "resumen_takes_optimizado.xlsx")
-                # --- MODIFICADO: Usar la función de guardado con formato ---
                 self.save_formatted_summary(path, summary_df, title_text)
                 saved_files.append(os.path.basename(path))
                 
@@ -300,6 +300,19 @@ class TakeoDialog(QDialog):
                 path = os.path.join(save_dir, "reporte_fallos_de_agrupacion.xlsx"); failures_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
             if choices["problems"] and reports_available["problems"]:
                 prob_df = pd.DataFrame(problematic_report); path = os.path.join(save_dir, "reporte_intervenciones_problematicas.xlsx"); prob_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
+
+            # --- CONVERSIÓN AUTOMÁTICA A TXT ---
+            if self.chk_generate_txt.isChecked() and detail_excel_path and process_excel_to_txt:
+                try:
+                    target_col = self.dialogue_source_combo.currentText()
+                    txt_path = process_excel_to_txt(detail_excel_path, target_col)
+                    saved_files.append(os.path.basename(txt_path))
+                except Exception as ex_conv:
+                    logging.error(f"Error al generar TXT automático: {ex_conv}")
+                    QMessageBox.warning(self, "Advertencia TXT", f"Los Excels se generaron, pero falló la conversión automática a TXT:\n{ex_conv}")
+            elif self.chk_generate_txt.isChecked() and not process_excel_to_txt:
+                 QMessageBox.warning(self, "Advertencia", "El módulo de conversión TXT no se pudo cargar, por lo que no se generó el archivo de texto.")
+            # -----------------------------------
 
             if not saved_files:
                 QMessageBox.information(self, "Sin Resultados", "No se guardó ningún archivo según su selección."); return
