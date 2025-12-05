@@ -5,9 +5,11 @@ import os
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtGui import QShortcut, QKeySequence
 
+from guion_editor.utils.paths import get_user_config_dir, resource_path
+
 # CONFIG_FILE debe apuntar a la raíz del proyecto si main.py está allí.
 # Si main.py está en un subdirectorio, ajusta el path.
-CONFIG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'shortcuts.json'))
+CONFIG_FILE = os.path.join(get_user_config_dir(), 'shortcuts.json')
 if not os.path.exists(CONFIG_FILE): # Fallback si la estructura es diferente (ej. main.py está en la raíz)
     alt_config_file_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'shortcuts.json'))
     if os.path.exists(alt_config_file_path):

@@ -297,15 +297,15 @@ class TableWindow(QWidget):
         actions_bar_internal_layout.setSpacing(4)
         action_icon_size = QSize(16, 16)
         actions_map = [
-            (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False, "edit_add_row", None),
-            (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, "edit_delete_row", None),
-            (" Marcapáginas", self.toggle_bookmark, "bookmark_icon.svg", False, "edit_toggle_bookmark", "Marcar/Desmarcar Fila(s)"),
-            ("", self.move_row_up, "move_up_icon.svg", True, "edit_move_up", "Mover Fila Arriba"),
-            ("", self.move_row_down, "move_down_icon.svg", True, "edit_move_down", "Mover Fila Abajo"),
-            (" Ajustar Diálogos", self.main_window.call_adjust_dialogs, "adjust_dialogs_icon.svg", False, "edit_adjust_dialogs", None),
-            (" Separar", self.split_intervention, "split_intervention_icon.svg", False, "edit_split_intervention", None),
-            (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False, "edit_merge_interventions", None),
-            (" Copiar IN/OUT", self.copy_in_out_to_next, "copy_in_out_icon.svg", False, "edit_copy_in_out", "Copiar IN/OUT a Siguiente")
+            (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False, C.ACT_EDIT_ADD_ROW, None),
+            (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, C.ACT_EDIT_DELETE_ROW, None),
+            (" Marcapáginas", self.toggle_bookmark, "bookmark_icon.svg", False, C.ACT_EDIT_TOGGLE_BOOKMARK, "Marcar/Desmarcar Fila(s)"),
+            ("", self.move_row_up, "move_up_icon.svg", True, C.ACT_EDIT_MOVE_UP, "Mover Fila Arriba"),
+            ("", self.move_row_down, "move_down_icon.svg", True, C.ACT_EDIT_MOVE_DOWN, "Mover Fila Abajo"),
+            (" Ajustar Diálogos", self.main_window.call_adjust_dialogs, "adjust_dialogs_icon.svg", False, C.ACT_EDIT_ADJUST_DIALOGS, None),
+            (" Separar", self.split_intervention, "split_intervention_icon.svg", False, C.ACT_EDIT_SPLIT_INTERVENTION, None),
+            (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False, C.ACT_EDIT_MERGE_INTERVENTIONS, None),
+            (" Copiar IN/OUT", self.copy_in_out_to_next, "copy_in_out_icon.svg", False, C.ACT_EDIT_COPY_IN_OUT, "Copiar IN/OUT a Siguiente")
         ]
         for btn_text, method, icon_name, is_only_icon, action_obj_name, tooltip_override in actions_map:
             button = QPushButton()
@@ -585,15 +585,23 @@ class TableWindow(QWidget):
         num_selected = len(selected_rows)
         is_main_window_available = self.main_window and hasattr(self.main_window, 'actions')
         can_move, df_idx = (num_selected == 1), selected_rows[0].row() if num_selected == 1 else -1
+        
+        # Usamos las constantes
         actions_state = {
-            "edit_delete_row": num_selected > 0, "edit_toggle_bookmark": num_selected > 0,
-            "edit_move_up": can_move and df_idx > 0, "edit_move_down": can_move and df_idx < self.pandas_model.rowCount() - 1,
-            "edit_split_intervention": can_move, "edit_merge_interventions": num_selected >= 1,
-            "edit_copy_in_out": can_move and df_idx < self.pandas_model.rowCount() - 1, "edit_increment_scene": can_move,
+            C.ACT_EDIT_DELETE_ROW: num_selected > 0, 
+            C.ACT_EDIT_TOGGLE_BOOKMARK: num_selected > 0,
+            C.ACT_EDIT_MOVE_UP: can_move and df_idx > 0, 
+            C.ACT_EDIT_MOVE_DOWN: can_move and df_idx < self.pandas_model.rowCount() - 1,
+            C.ACT_EDIT_SPLIT_INTERVENTION: can_move, 
+            C.ACT_EDIT_MERGE_INTERVENTIONS: num_selected >= 1,
+            C.ACT_EDIT_COPY_IN_OUT: can_move and df_idx < self.pandas_model.rowCount() - 1, 
+            C.ACT_EDIT_INCREMENT_SCENE: can_move,
         }
         for name, is_enabled in actions_state.items():
-            if is_main_window_available and name in self.main_window.actions: self.main_window.actions[name].setEnabled(is_enabled)
-            if name in self.action_buttons: self.action_buttons[name].setEnabled(is_enabled)
+            if is_main_window_available and name in self.main_window.actions: 
+                self.main_window.actions[name].setEnabled(is_enabled)
+            if name in self.action_buttons: 
+                self.action_buttons[name].setEnabled(is_enabled)
 
     def clear_script_state(self):
         self.pandas_model.set_dataframe(pd.DataFrame(columns=self.DF_COLUMN_ORDER))
@@ -863,9 +871,18 @@ class TableWindow(QWidget):
     def trim_all_character_names(self):
         df = self.pandas_model.dataframe()
         if df.empty or C.COL_PERSONAJE not in df.columns: return
+        
+        # Check rápido sin cursor (es instantáneo)
         if not (df[C.COL_PERSONAJE].astype(str) != df[C.COL_PERSONAJE].astype(str).str.strip()).any():
             QMessageBox.information(self, "Limpiar Nombres", "No se encontraron nombres que necesiten limpieza."); return
-        self.undo_stack.push(TrimAllCharactersCommand(self))
+        
+        # CAMBIO: Feedback visual para la operación de escritura
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.undo_stack.push(TrimAllCharactersCommand(self))
+        finally:
+            QApplication.restoreOverrideCursor()
+            
         QMessageBox.information(self, "Limpieza Completa", "Se han limpiado los espacios sobrantes de los nombres de personaje.")
 
     def find_and_replace(self, find_text: str, replace_text: str, search_in_character: bool, search_in_dialogue: bool, search_in_euskera: bool) -> None:
@@ -941,16 +958,25 @@ class TableWindow(QWidget):
 
     def convert_all_characters_to_uppercase(self):
         if self.pandas_model.dataframe().empty: return
-        self.undo_stack.beginMacro("Convertir Personajes a Mayúsculas")
-        view_col_char = self.pandas_model.get_view_column_index(C.COL_PERSONAJE)
-        if view_col_char is not None:
-            for df_idx in range(self.pandas_model.rowCount()):
-                old_name = str(self.pandas_model.dataframe().at[df_idx, C.COL_PERSONAJE])
-                new_name = old_name.upper()
-                if old_name != new_name: self.undo_stack.push(EditCommand(self, df_idx, view_col_char, old_name, new_name))
-        self.undo_stack.endMacro()
+        
+        # CAMBIO: Feedback visual
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.undo_stack.beginMacro("Convertir Personajes a Mayúsculas")
+            view_col_char = self.pandas_model.get_view_column_index(C.COL_PERSONAJE)
+            if view_col_char is not None:
+                for df_idx in range(self.pandas_model.rowCount()):
+                    old_name = str(self.pandas_model.dataframe().at[df_idx, C.COL_PERSONAJE])
+                    new_name = old_name.upper()
+                    if old_name != new_name: self.undo_stack.push(EditCommand(self, df_idx, view_col_char, old_name, new_name))
+            self.undo_stack.endMacro()
+        finally:
+            # Siempre restaurar el cursor
+            QApplication.restoreOverrideCursor()
+
         if not self.undo_stack.isClean() and self.undo_stack.command(self.undo_stack.count()-1).text().startswith("Convertir"):
             QMessageBox.information(self, "Información", "Todos los nombres de personaje ya estaban en mayúsculas.")
+
 
     def split_character_rows(self, old_name: str, new_name1: str, new_name2: str):
         if not all([old_name, new_name1, new_name2]): QMessageBox.warning(self, "Error", "Los nombres de personaje no pueden estar vacíos."); return
@@ -982,16 +1008,16 @@ class TableWindow(QWidget):
             QMessageBox.information(self, "Éxito", "Los tiempos OUT han sido actualizados.")
 
     def get_ui_states(self) -> Dict[str, bool]:
-        """Devuelve el estado actual de los widgets de control de la UI."""
+        """Devuelve el estado actual de los widgets de control de la UI usando constantes."""
         return {
-            "link_out_in_enabled": self.link_out_in_checkbox.isChecked(),
-            "sync_video_enabled": self.sync_video_checkbox.isChecked()
+            C.SETTING_UI_LINK_OUT_IN: self.link_out_in_checkbox.isChecked(),
+            C.SETTING_UI_SYNC_VIDEO: self.sync_video_checkbox.isChecked()
         }
 
     def set_ui_states(self, states: Dict[str, bool]):
-        """Establece el estado de los widgets de control de la UI a partir de un diccionario."""
-        self.link_out_in_checkbox.setChecked(states.get("link_out_in_enabled", True))
-        self.sync_video_checkbox.setChecked(states.get("sync_video_enabled", True))
+        """Establece el estado de los widgets usando constantes."""
+        self.link_out_in_checkbox.setChecked(states.get(C.SETTING_UI_LINK_OUT_IN, True))
+        self.sync_video_checkbox.setChecked(states.get(C.SETTING_UI_SYNC_VIDEO, True))
 
     # --- NUEVA FUNCIÓN PARA OBTENER DATOS LIMPIOS ---
     def get_cleaned_dataframe_for_subs(self, cleanup_mode: str = "AMBAS") -> pd.DataFrame:

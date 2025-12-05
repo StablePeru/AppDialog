@@ -4,7 +4,7 @@ from collections import Counter
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QDoubleSpinBox,
     QPushButton, QComboBox, QTextEdit, QFileDialog, QMessageBox, QGroupBox,
-    QFormLayout, QDialogButtonBox, QWidget
+    QFormLayout, QDialogButtonBox, QWidget, QApplication
 )
 from PyQt6.QtCore import Qt
 from guion_editor import constants as C
@@ -301,6 +301,8 @@ class AdvancedSrtExportDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, "Guardar Archivo SRT", default_filename, "SubRip Subtitle (*.srt)")
         
         if path:
+            # CAMBIO: Ponemos el cursor en modo espera
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
                 df = self.table_window.pandas_model.dataframe()
                 config = self.get_current_config()
@@ -319,10 +321,14 @@ class AdvancedSrtExportDialog(QDialog):
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(srt_content)
                 
+                # Importante: Restaurar cursor antes del mensaje
+                QApplication.restoreOverrideCursor()
                 QMessageBox.information(self, "Exportación Exitosa", f"Archivo guardado en:\n{path}")
                 self.accept()
                 
             except Exception as e:
+                # Restaurar cursor también en caso de error
+                QApplication.restoreOverrideCursor()
                 import traceback
                 traceback.print_exc()
                 QMessageBox.critical(self, "Error", f"No se pudo exportar el SRT:\n{e}")

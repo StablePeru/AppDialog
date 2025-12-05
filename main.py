@@ -23,12 +23,16 @@ from guion_editor.utils.shortcut_manager import ShortcutManager
 from guion_editor.utils.guion_manager import GuionManager
 from guion_editor.widgets.advanced_srt_export_dialog import AdvancedSrtExportDialog
 from guion_editor import constants as C
+from guion_editor.utils.paths import resource_path, get_safe_save_dir, get_user_config_dir
 
 ICON_CACHE = {}
-ICON_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles', 'icons'))
+# Apuntamos a la carpeta de iconos usando la ruta relativa desde la raíz del proyecto
+ICON_BASE_PATH = resource_path(os.path.join('guion_editor', 'styles', 'icons'))
+STYLES_BASE_PATH = resource_path(os.path.join('guion_editor', 'styles'))
 
 def setup_logging():
-    log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'guion_editor.log')
+    log_dir = get_user_config_dir()
+    log_file_path = os.path.join(log_dir, 'guion_editor.log')
 
     logging.basicConfig(
         level=logging.INFO,
@@ -53,7 +57,6 @@ def get_icon(icon_name: str) -> QIcon:
     ICON_CACHE[icon_name] = icon
     return icon
 
-STYLES_BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'guion_editor', 'styles'))
 
 def load_stylesheet_content(filename: str) -> str:
     css_path = os.path.join(STYLES_BASE_PATH, filename)
@@ -69,9 +72,9 @@ def load_stylesheet_content(filename: str) -> str:
 
 class MainWindow(QMainWindow):
     AUTOSAVE_INTERVAL_MS = 120000
-    RECOVERY_DIR = r"W:\Z_JSON\Backup"
-    SAVE_DIR = r"W:\Z_JSON\SinSubir"
-    SUBS_DIR = r"W:\Z_JSON\Subs"  # <--- NUEVA CARPETA
+    RECOVERY_DIR = get_safe_save_dir(r"W:\Z_JSON\Backup")
+    SAVE_DIR = get_safe_save_dir(r"W:\Z_JSON\SinSubir")
+    SUBS_DIR = get_safe_save_dir(r"W:\Z_JSON\Subs")
 
     def __init__(self):
         super().__init__()
@@ -219,10 +222,10 @@ class MainWindow(QMainWindow):
 
     def _update_initial_undo_redo_actions_state(self):
         if hasattr(self.tableWindow, 'undo_stack'):
-            if "edit_undo" in self.actions:
-                 self.actions["edit_undo"].setEnabled(self.tableWindow.undo_stack.canUndo())
-            if "edit_redo" in self.actions:
-                 self.actions["edit_redo"].setEnabled(self.tableWindow.undo_stack.canRedo())
+            if C.ACT_EDIT_UNDO in self.actions:
+                 self.actions[C.ACT_EDIT_UNDO].setEnabled(self.tableWindow.undo_stack.canUndo())
+            if C.ACT_EDIT_REDO in self.actions:
+                 self.actions[C.ACT_EDIT_REDO].setEnabled(self.tableWindow.undo_stack.canRedo())
 
     # --- MÉTODO MODIFICADO PARA SOPORTAR CARPETA SUBS ---
     def save_script_directly(self):
@@ -368,60 +371,57 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Éxito", f"Se ha creado y cargado la versión de subtítulos:\n\n{new_filename}\n\nUbicación: {self.SUBS_DIR}")
 
     def create_all_actions(self):
-        # File Menu Actions
-        self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", "file_open_video")
-        self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", "file_load_me")
-        self.add_managed_action("Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G", "open_document_icon.svg", "file_open_docx")
-        self.add_managed_action("Exportar Guion a Excel", self.export_script_to_excel, "Ctrl+E", "export_excel_icon.svg", "file_export_excel")
-        self.add_managed_action("Exportar a Subtítulos (SRT)...", self.export_to_srt, None, "export_srt_icon.svg", "file_export_srt")
-        self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", "file_import_excel")
+        # File Menu
+        self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", C.ACT_FILE_OPEN_VIDEO)
+        self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", C.ACT_FILE_LOAD_ME)
+        self.add_managed_action("Abrir Guion (DOCX)", self.tableWindow.open_docx_dialog, "Ctrl+G", "open_document_icon.svg", C.ACT_FILE_OPEN_DOCX)
+        self.add_managed_action("Exportar Guion a Excel", self.export_script_to_excel, "Ctrl+E", "export_excel_icon.svg", C.ACT_FILE_EXPORT_EXCEL)
+        self.add_managed_action("Exportar a Subtítulos (SRT)...", self.export_to_srt, None, "export_srt_icon.svg", C.ACT_FILE_EXPORT_SRT)
+        self.add_managed_action("Importar Guion desde Excel", self.tableWindow.import_from_excel_dialog, "Ctrl+I", "import_excel_icon.svg", C.ACT_FILE_IMPORT_EXCEL)
         
-        self.add_managed_action("Guardar Guion", self.save_script_directly, "Ctrl+S", "save_json_icon.svg", "file_save_json")
-        self.add_managed_action("Guardar Guion como... (JSON)", self.save_script_as_json, "Ctrl+Shift+S", None, "file_save_json_as")
-        self.add_managed_action("Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg", "file_load_json")
+        self.add_managed_action("Guardar Guion", self.save_script_directly, "Ctrl+S", "save_json_icon.svg", C.ACT_FILE_SAVE_JSON)
+        self.add_managed_action("Guardar Guion como... (JSON)", self.save_script_as_json, "Ctrl+Shift+S", None, C.ACT_FILE_SAVE_JSON_AS)
+        self.add_managed_action("Cargar Guion desde JSON", self.tableWindow.load_from_json_dialog, "Ctrl+D", "load_json_icon.svg", C.ACT_FILE_LOAD_JSON)
 
-        # Edit Menu Actions
-        self.add_managed_action("Deshacer", self.undo_action, "Ctrl+Z", "undo_icon.svg", "edit_undo")
-        self.add_managed_action("Rehacer", self.redo_action, "Ctrl+Y", "redo_icon.svg", "edit_redo")
-        self.add_managed_action("Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N", "add_row_icon.svg", "edit_add_row")
-        self.add_managed_action("Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del", "delete_row_icon.svg", "edit_delete_row")
-        self.add_managed_action("Marcar/Desmarcar Fila", self.tableWindow.toggle_bookmark, "Ctrl+M", "bookmark_icon.svg", "edit_toggle_bookmark")
-        self.add_managed_action("Mover Arriba", self.tableWindow.move_row_up, "Alt+Up", "move_up_icon.svg", "edit_move_up")
-        self.add_managed_action("Mover Abajo", self.tableWindow.move_row_down, "Alt+Down", "move_down_icon.svg", "edit_move_down")
-        self.add_managed_action("Ajustar Diálogos", self.call_adjust_dialogs, None, "adjust_dialogs_icon.svg", "edit_adjust_dialogs")
-        self.add_managed_action("Desplazar Timecodes (IN/OUT)...", self.tableWindow.open_shift_timecodes_dialog, "Ctrl+Shift+T", "shift_timecode_icon.svg", "edit_shift_timecodes")
-        self.add_managed_action("Separar Intervención", self.tableWindow.split_intervention, "Alt+S", "split_intervention_icon.svg", "edit_split_intervention")
-        self.add_managed_action("Juntar Intervenciones", self.tableWindow.merge_interventions, "Alt+M", "merge_intervention_icon.svg", "edit_merge_interventions")
-        self.add_managed_action("Ver Reparto Completo", self.open_cast_window, None, "view_cast_icon.svg", "edit_view_cast")
-        self.add_managed_action("Buscar y Reemplazar", self.open_find_replace_dialog, "Ctrl+F", "find_replace_icon.svg", "edit_find_replace")
-        self.add_managed_action("Copiar IN/OUT a Siguiente", self.tableWindow.copy_in_out_to_next, "Ctrl+B", "copy_in_out_icon.svg", "edit_copy_in_out")
-        self.add_managed_action("Incrementar Escena", self.change_scene, "Ctrl+R", "change_scene_icon.svg", "edit_increment_scene")
+        # Edit Menu (Usando constantes C.ACT_...)
+        self.add_managed_action("Deshacer", self.undo_action, "Ctrl+Z", "undo_icon.svg", C.ACT_EDIT_UNDO)
+        self.add_managed_action("Rehacer", self.redo_action, "Ctrl+Y", "redo_icon.svg", C.ACT_EDIT_REDO)
+        self.add_managed_action("Agregar Línea", self.tableWindow.add_new_row, "Ctrl+N", "add_row_icon.svg", C.ACT_EDIT_ADD_ROW)
+        self.add_managed_action("Eliminar Fila", self.tableWindow.remove_row, "Ctrl+Del", "delete_row_icon.svg", C.ACT_EDIT_DELETE_ROW)
+        self.add_managed_action("Marcar/Desmarcar Fila", self.tableWindow.toggle_bookmark, "Ctrl+M", "bookmark_icon.svg", C.ACT_EDIT_TOGGLE_BOOKMARK)
+        self.add_managed_action("Mover Arriba", self.tableWindow.move_row_up, "Alt+Up", "move_up_icon.svg", C.ACT_EDIT_MOVE_UP)
+        self.add_managed_action("Mover Abajo", self.tableWindow.move_row_down, "Alt+Down", "move_down_icon.svg", C.ACT_EDIT_MOVE_DOWN)
+        self.add_managed_action("Ajustar Diálogos", self.call_adjust_dialogs, None, "adjust_dialogs_icon.svg", C.ACT_EDIT_ADJUST_DIALOGS)
+        self.add_managed_action("Desplazar Timecodes (IN/OUT)...", self.tableWindow.open_shift_timecodes_dialog, "Ctrl+Shift+T", "shift_timecode_icon.svg", C.ACT_EDIT_SHIFT_TIMECODES)
+        self.add_managed_action("Separar Intervención", self.tableWindow.split_intervention, "Alt+S", "split_intervention_icon.svg", C.ACT_EDIT_SPLIT_INTERVENTION)
+        self.add_managed_action("Juntar Intervenciones", self.tableWindow.merge_interventions, "Alt+M", "merge_intervention_icon.svg", C.ACT_EDIT_MERGE_INTERVENTIONS)
+        self.add_managed_action("Ver Reparto Completo", self.open_cast_window, None, "view_cast_icon.svg", C.ACT_EDIT_VIEW_CAST)
+        self.add_managed_action("Buscar y Reemplazar", self.open_find_replace_dialog, "Ctrl+F", "find_replace_icon.svg", C.ACT_EDIT_FIND_REPLACE)
+        self.add_managed_action("Copiar IN/OUT a Siguiente", self.tableWindow.copy_in_out_to_next, "Ctrl+B", "copy_in_out_icon.svg", C.ACT_EDIT_COPY_IN_OUT)
+        self.add_managed_action("Incrementar Escena", self.change_scene, "Ctrl+R", "change_scene_icon.svg", C.ACT_EDIT_INCREMENT_SCENE)
 
-        # Config Menu Actions
-        self.add_managed_action("Configuración App", self.open_config_dialog, "Ctrl+K", "settings_icon.svg", "config_app_settings")
-        self.add_managed_action("Optimizar Takes (Takeo)...", self.open_takeo_dialog, None, "takeo_icon.svg", "tools_run_takeo")
-        # --- AÑADIDA NUEVA ACCIÓN ---
-        self.add_managed_action("Generar Versión SUB (Limpiar () y Vacíos)", self.create_sub_version_and_clean, None, "clean_subs_icon.svg", "tools_create_sub_version")
-        # ----------------------------
-        self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", "tools_xlsx_converter")
-        self.add_managed_action("Reiniciar Todas las Escenas a '1'", self.tableWindow.reset_all_scenes, None, "reset_scenes_icon.svg", "tools_reset_scenes")
-        self.add_managed_action("Reiniciar Todos los Tiempos a Cero", self.tableWindow.reset_all_timecodes, None, "reset_timecodes_icon.svg", "tools_reset_timecodes")
-        self.add_managed_action("Copiar IN a OUT anterior", self.tableWindow.copy_in_to_previous_out, None, "copy_in_out_prev_icon.svg", "tools_copy_in_to_out")
+        # Config Menu
+        self.add_managed_action("Configuración App", self.open_config_dialog, "Ctrl+K", "settings_icon.svg", C.ACT_CONFIG_APP)
+        self.add_managed_action("Optimizar Takes (Takeo)...", self.open_takeo_dialog, None, "takeo_icon.svg", C.ACT_TOOLS_TAKEO)
+        self.add_managed_action("Generar Versión SUB (Limpiar () y Vacíos)", self.create_sub_version_and_clean, None, "clean_subs_icon.svg", C.ACT_TOOLS_CREATE_SUB)
+        self.add_managed_action("Conversor Excel a TXT...", self.launch_xlsx_converter, None, "convert_icon.svg", C.ACT_TOOLS_XLSX_CONVERTER)
+        self.add_managed_action("Reiniciar Todas las Escenas a '1'", self.tableWindow.reset_all_scenes, None, "reset_scenes_icon.svg", C.ACT_TOOLS_RESET_SCENES)
+        self.add_managed_action("Reiniciar Todos los Tiempos a Cero", self.tableWindow.reset_all_timecodes, None, "reset_timecodes_icon.svg", C.ACT_TOOLS_RESET_TIMECODES)
+        self.add_managed_action("Copiar IN a OUT anterior", self.tableWindow.copy_in_to_previous_out, None, "copy_in_out_prev_icon.svg", C.ACT_TOOLS_COPY_IN_OUT_PREV)
 
-        # Shortcuts Menu Actions
-        self.add_managed_action("Configurar Shortcuts", self.open_shortcut_config_dialog, None, "configure_shortcuts_icon.svg", "config_shortcuts_dialog")
-
+        # Shortcuts Menu
+        self.add_managed_action("Configurar Shortcuts", self.open_shortcut_config_dialog, None, "configure_shortcuts_icon.svg", C.ACT_SHORTCUTS_DIALOG)
 
         # Video Player Actions
-        self.add_managed_action("Video: Reproducir/Pausar", self.videoPlayerWidget.toggle_play, "F8", None, "video_toggle_play")
-        self.add_managed_action("Video: Retroceder", lambda: self.videoPlayerWidget.change_position(-5000), "F7", None, "video_rewind")
-        self.add_managed_action("Video: Avanzar", lambda: self.videoPlayerWidget.change_position(5000), "F9", None, "video_forward")
-        self.add_managed_action("Video: Marcar IN", self.videoPlayerWidget.mark_in, "F5", None, "video_mark_in")
+        self.add_managed_action("Video: Reproducir/Pausar", self.videoPlayerWidget.toggle_play, "F8", None, C.ACT_VIDEO_TOGGLE_PLAY)
+        self.add_managed_action("Video: Retroceder", lambda: self.videoPlayerWidget.change_position(-5000), "F7", None, C.ACT_VIDEO_REWIND)
+        self.add_managed_action("Video: Avanzar", lambda: self.videoPlayerWidget.change_position(5000), "F9", None, C.ACT_VIDEO_FORWARD)
+        self.add_managed_action("Video: Marcar IN", self.videoPlayerWidget.mark_in, "F5", None, C.ACT_VIDEO_MARK_IN)
 
         action_mark_out_hold = QAction("Video: Marcar OUT (Mantener)", self)
-        action_mark_out_hold.setObjectName("video_mark_out_hold")
+        action_mark_out_hold.setObjectName(C.ACT_VIDEO_MARK_OUT_HOLD)
         action_mark_out_hold.setShortcut(QKeySequence("F6"))
-        self.actions["video_mark_out_hold"] = action_mark_out_hold
+        self.actions[C.ACT_VIDEO_MARK_OUT_HOLD] = action_mark_out_hold
         self.addAction(action_mark_out_hold)
 
     def save_script_as_json(self):
@@ -477,64 +477,74 @@ class MainWindow(QMainWindow):
             self.create_shortcuts_menu(menuBar)
 
     def create_file_menu(self, menuBar):
-        fileMenu = menuBar.addMenu("&Archivo")
-        fileMenu.addAction(self.actions["file_open_video"])
-        fileMenu.addAction(self.actions["file_load_me"])
-        fileMenu.addAction(self.actions["file_open_docx"])
-        fileMenu.addSeparator()
-        fileMenu.addAction(self.actions["file_export_excel"])
-        if "file_export_srt" in self.actions:
-            fileMenu.addAction(self.actions["file_export_srt"])
-        fileMenu.addAction(self.actions["file_import_excel"])
-        fileMenu.addSeparator()
-        fileMenu.addAction(self.actions["file_save_json"])
-        if "file_save_json_as" in self.actions:
-            fileMenu.addAction(self.actions["file_save_json_as"])
-        fileMenu.addAction(self.actions["file_load_json"])
-        fileMenu.addSeparator()
+            fileMenu = menuBar.addMenu("&Archivo")
+            
+            # --- Acciones Principales (Usando las nuevas Constantes) ---
+            fileMenu.addAction(self.actions[C.ACT_FILE_OPEN_VIDEO])
+            fileMenu.addAction(self.actions[C.ACT_FILE_LOAD_ME])
+            fileMenu.addAction(self.actions[C.ACT_FILE_OPEN_DOCX])
+            
+            fileMenu.addSeparator()
+            
+            fileMenu.addAction(self.actions[C.ACT_FILE_EXPORT_EXCEL])
+            if C.ACT_FILE_EXPORT_SRT in self.actions:
+                fileMenu.addAction(self.actions[C.ACT_FILE_EXPORT_SRT])
+            fileMenu.addAction(self.actions[C.ACT_FILE_IMPORT_EXCEL])
+            
+            fileMenu.addSeparator()
+            
+            fileMenu.addAction(self.actions[C.ACT_FILE_SAVE_JSON])
+            if C.ACT_FILE_SAVE_JSON_AS in self.actions:
+                fileMenu.addAction(self.actions[C.ACT_FILE_SAVE_JSON_AS])
+            fileMenu.addAction(self.actions[C.ACT_FILE_LOAD_JSON])
 
-        self.recent_files_menu = fileMenu.addMenu("Abrir Recientemente")
-        self.recent_files_menu.setIcon(get_icon("history_icon.svg"))
-        self.update_recent_files_menu()
+            # --- SECCIÓN DE RECIENTES (Esto es lo que faltaba) ---
+            fileMenu.addSeparator()
+
+            # Creamos el submenú
+            self.recent_files_menu = fileMenu.addMenu("Abrir Recientemente")
+            self.recent_files_menu.setIcon(get_icon("history_icon.svg"))
+            
+            # Llamamos a la función que lo rellena con la lista
+            self.update_recent_files_menu()
 
     def create_edit_menu(self, menuBar):
         editMenu = menuBar.addMenu("&Editar")
-        if "edit_undo" in self.actions: editMenu.addAction(self.actions["edit_undo"])
-        if "edit_redo" in self.actions: editMenu.addAction(self.actions["edit_redo"])
+        if C.ACT_EDIT_UNDO in self.actions: editMenu.addAction(self.actions[C.ACT_EDIT_UNDO])
+        if C.ACT_EDIT_REDO in self.actions: editMenu.addAction(self.actions[C.ACT_EDIT_REDO])
         editMenu.addSeparator()
 
-        editMenu.addAction(self.actions["edit_add_row"])
-        editMenu.addAction(self.actions["edit_delete_row"])
-        if "edit_toggle_bookmark" in self.actions:
-            editMenu.addAction(self.actions["edit_toggle_bookmark"])
-        editMenu.addAction(self.actions["edit_move_up"])
-        editMenu.addAction(self.actions["edit_move_down"])
+        editMenu.addAction(self.actions[C.ACT_EDIT_ADD_ROW])
+        editMenu.addAction(self.actions[C.ACT_EDIT_DELETE_ROW])
+        if C.ACT_EDIT_TOGGLE_BOOKMARK in self.actions:
+            editMenu.addAction(self.actions[C.ACT_EDIT_TOGGLE_BOOKMARK])
+        editMenu.addAction(self.actions[C.ACT_EDIT_MOVE_UP])
+        editMenu.addAction(self.actions[C.ACT_EDIT_MOVE_DOWN])
         editMenu.addSeparator()
-        editMenu.addAction(self.actions["edit_adjust_dialogs"])
-        if "edit_shift_timecodes" in self.actions:
-            editMenu.addAction(self.actions["edit_shift_timecodes"])
-        editMenu.addAction(self.actions["edit_split_intervention"])
-        editMenu.addAction(self.actions["edit_merge_interventions"])
+        editMenu.addAction(self.actions[C.ACT_EDIT_ADJUST_DIALOGS])
+        if C.ACT_EDIT_SHIFT_TIMECODES in self.actions:
+            editMenu.addAction(self.actions[C.ACT_EDIT_SHIFT_TIMECODES])
+        editMenu.addAction(self.actions[C.ACT_EDIT_SPLIT_INTERVENTION])
+        editMenu.addAction(self.actions[C.ACT_EDIT_MERGE_INTERVENTIONS])
         editMenu.addSeparator()
-        editMenu.addAction(self.actions["edit_view_cast"])
-        editMenu.addAction(self.actions["edit_find_replace"])
+        editMenu.addAction(self.actions[C.ACT_EDIT_VIEW_CAST])
+        editMenu.addAction(self.actions[C.ACT_EDIT_FIND_REPLACE])
         editMenu.addSeparator()
-        editMenu.addAction(self.actions["edit_copy_in_out"])
-        editMenu.addAction(self.actions["edit_increment_scene"])
+        editMenu.addAction(self.actions[C.ACT_EDIT_COPY_IN_OUT])
+        editMenu.addAction(self.actions[C.ACT_EDIT_INCREMENT_SCENE])
 
     def create_config_menu(self, menuBar):
         configMenu = menuBar.addMenu("&Herramientas")
-        configMenu.addAction(self.actions["config_app_settings"])
+        configMenu.addAction(self.actions[C.ACT_CONFIG_APP])
         configMenu.addSeparator()
-        configMenu.addAction(self.actions["tools_run_takeo"])
-        # --- AÑADIDA NUEVA ACCIÓN ---
-        configMenu.addAction(self.actions["tools_create_sub_version"]) 
-        # ----------------------------
-        configMenu.addAction(self.actions["tools_xlsx_converter"])
+        configMenu.addAction(self.actions[C.ACT_TOOLS_TAKEO])
+        configMenu.addAction(self.actions[C.ACT_TOOLS_CREATE_SUB])
+        configMenu.addAction(self.actions[C.ACT_TOOLS_XLSX_CONVERTER])
         configMenu.addSeparator()
-        configMenu.addAction(self.actions["tools_reset_scenes"])
-        configMenu.addAction(self.actions["tools_reset_timecodes"])
-        configMenu.addAction(self.actions["tools_copy_in_to_out"])
+        configMenu.addAction(self.actions[C.ACT_TOOLS_RESET_SCENES])
+        configMenu.addAction(self.actions[C.ACT_TOOLS_RESET_TIMECODES])
+        configMenu.addAction(self.actions[C.ACT_TOOLS_COPY_IN_OUT_PREV])
+
 
     def create_shortcuts_menu(self, menuBar):
         for action_menu_item in menuBar.actions():
@@ -543,7 +553,7 @@ class MainWindow(QMainWindow):
                 break
 
         shortcutsMenu = menuBar.addMenu("&Shortcuts")
-        shortcutsMenu.addAction(self.actions["config_shortcuts_dialog"])
+        shortcutsMenu.addAction(self.actions[C.ACT_SHORTCUTS_DIALOG])
 
         load_config_menu = shortcutsMenu.addMenu("Cargar Configuración de Shortcuts")
         load_config_menu.setIcon(get_icon("load_config_icon.svg"))
@@ -553,15 +563,15 @@ class MainWindow(QMainWindow):
                 action.triggered.connect(lambda checked, name=config_name: self.shortcut_manager.apply_shortcuts(name))
                 load_config_menu.addAction(action)
         
-        if "config_delete_shortcut_profile" in self.actions:
-            shortcutsMenu.addAction(self.actions["config_delete_shortcut_profile"])
+        if C.ACT_SHORTCUTS_DELETE in self.actions:
+            shortcutsMenu.addAction(self.actions[C.ACT_SHORTCUTS_DELETE])
         else:
             delete_config_action = self.add_managed_action(
                 "Eliminar Configuración de Shortcuts",
                 self.delete_shortcut_configuration,
                 None,
                 "delete_config_icon.svg",
-                "config_delete_shortcut_profile"
+                C.ACT_SHORTCUTS_DELETE
             )
             shortcutsMenu.addAction(delete_config_action)
 
@@ -645,8 +655,7 @@ class MainWindow(QMainWindow):
 
     def load_recent_files(self):
         try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            recent_files_path = os.path.join(base_dir, 'recent_files.json')
+            recent_files_path = os.path.join(get_user_config_dir(), 'recent_files.json')
 
             if os.path.exists(recent_files_path):
                 with open(recent_files_path, 'r', encoding='utf-8') as f:
@@ -658,8 +667,7 @@ class MainWindow(QMainWindow):
 
     def save_recent_files(self):
         try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            recent_files_path = os.path.join(base_dir, 'recent_files.json')
+            recent_files_path = os.path.join(get_user_config_dir(), 'recent_files.json')
 
             with open(recent_files_path, 'w', encoding='utf-8') as f:
                 json.dump(self.recent_files, f, indent=2)
@@ -786,25 +794,28 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def launch_xlsx_converter(self):
-        try:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            converter_script = os.path.join(current_dir, 'xlsx_converter', 'main.py')
-
-            if not os.path.exists(converter_script):
-                QMessageBox.critical(
-                    self, "Error",
-                    f"No se encontró el script del conversor en:\n{converter_script}"
-                )
-                return
-
-            python_executable = sys.executable
-            subprocess.Popen([python_executable, converter_script])
-            if self.statusBar():
-                self.statusBar().showMessage("Lanzando conversor de Excel...", 3000)
+            try:
+                current_dir = os.path.dirname(os.path.abspath(__file__))
                 
-        except Exception as e:
-            logging.error("No se pudo iniciar el conversor.", exc_info=True)
-            QMessageBox.critical(self, "Error al Lanzar", f"No se pudo iniciar el conversor: {e}")
+                # --- CAMBIO AQUÍ: Apuntamos a la nueva ubicación dentro de widgets ---
+                converter_script = os.path.join(current_dir, 'guion_editor', 'widgets', 'xlsx_converter', 'main.py')
+                # ---------------------------------------------------------------------
+
+                if not os.path.exists(converter_script):
+                    QMessageBox.critical(
+                        self, "Error",
+                        f"No se encontró el script del conversor en:\n{converter_script}"
+                    )
+                    return
+
+                python_executable = sys.executable
+                subprocess.Popen([python_executable, converter_script])
+                if self.statusBar():
+                    self.statusBar().showMessage("Lanzando conversor de Excel...", 3000)
+                    
+            except Exception as e:
+                logging.error("No se pudo iniciar el conversor.", exc_info=True)
+                QMessageBox.critical(self, "Error al Lanzar", f"No se pudo iniciar el conversor: {e}")
 
     def undo_action(self):
         if self.tableWindow and hasattr(self.tableWindow, 'undo_stack'):
@@ -817,42 +828,45 @@ class MainWindow(QMainWindow):
     def _load_settings(self):
         settings = QSettings("TuEmpresa", "EditorDeGuion")
         
-        geometry = settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
+        geometry = settings.value(C.SETTING_GEOMETRY)
+        if geometry: self.restoreGeometry(geometry)
 
-        splitter_state = settings.value("splitter_state")
-        if splitter_state:
-            self.splitter.restoreState(splitter_state)
+        splitter_state = settings.value(C.SETTING_SPLITTER_STATE)
+        if splitter_state: self.splitter.restoreState(splitter_state)
 
-        column_state = settings.value("column_state")
-        if column_state:
-            self.tableWindow.table_view.horizontalHeader().restoreState(column_state)
+        column_state = settings.value(C.SETTING_COLUMN_STATE)
+        if column_state: self.tableWindow.table_view.horizontalHeader().restoreState(column_state)
 
-        self.font_size = settings.value("font_size", 9, type=int)
-        self.line_length = settings.value("line_length", 60, type=int)
-        self.trim_value = settings.value("trim_value", 0, type=int)
+        self.font_size = settings.value(C.SETTING_FONT_SIZE, 9, type=int)
+        self.line_length = settings.value(C.SETTING_LINE_LENGTH, 60, type=int)
+        self.trim_value = settings.value(C.SETTING_TRIM_VALUE, 0, type=int)
         
         ui_states = {
-            "link_out_in_enabled": settings.value("link_out_in_enabled", True, type=bool),
-            "sync_video_enabled": settings.value("sync_video_enabled", True, type=bool)
+            C.SETTING_UI_LINK_OUT_IN: settings.value(C.SETTING_UI_LINK_OUT_IN, True, type=bool),
+            C.SETTING_UI_SYNC_VIDEO: settings.value(C.SETTING_UI_SYNC_VIDEO, True, type=bool)
         }
         self.tableWindow.set_ui_states(ui_states)
-        
         self.apply_font_size()
 
+    # --- EN _save_settings ---
     def _save_settings(self):
         settings = QSettings("TuEmpresa", "EditorDeGuion")
         
-        settings.setValue("geometry", self.saveGeometry())
-        settings.setValue("splitter_state", self.splitter.saveState())
-        settings.setValue("column_state", self.tableWindow.table_view.horizontalHeader().saveState())
+        settings.setValue(C.SETTING_GEOMETRY, self.saveGeometry())
+        settings.setValue(C.SETTING_SPLITTER_STATE, self.splitter.saveState())
+        settings.setValue(C.SETTING_COLUMN_STATE, self.tableWindow.table_view.horizontalHeader().saveState())
         
-        settings.setValue("font_size", self.font_size)
-        settings.setValue("line_length", self.line_length)
-        settings.setValue("trim_value", self.trim_value)
+        settings.setValue(C.SETTING_FONT_SIZE, self.font_size)
+        settings.setValue(C.SETTING_LINE_LENGTH, self.line_length)
+        settings.setValue(C.SETTING_TRIM_VALUE, self.trim_value)
         
         ui_states = self.tableWindow.get_ui_states()
+        if C.SETTING_UI_LINK_OUT_IN in ui_states: # Nota: get_ui_states devuelve keys que debemos mapear si no coinciden
+             # En tableWindow.get_ui_states usabas "link_out_in_enabled" hardcoded.
+             # Lo ideal es cambiar tableWindow para que use las constantes también.
+             pass
+        # Por simplicidad, asumimos que TableWindow se actualiza en el paso 3.
+        # Aquí guardamos los valores que nos devuelve
         for key, value in ui_states.items():
             settings.setValue(key, value)
 

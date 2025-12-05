@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QThread
 from guion_editor.utils.takeo_optimizer_logic import TakeoWorker, TakeoOptimizerLogic
 from guion_editor.widgets.export_selection_dialog import ExportSelectionDialog
 from guion_editor import constants as C 
+from guion_editor.utils.paths import resource_path
 
 # Importar estilos de OpenPyXL para el formato del Excel
 from openpyxl.styles import Font, Alignment, Border, Side
@@ -21,17 +22,12 @@ from openpyxl.styles import Font, Alignment, Border, Side
 # Intentamos importar asumiendo que se ejecuta desde la raíz.
 # Si falla, añadimos la raíz al path relativo a este archivo.
 try:
-    from xlsx_converter.main import process_excel_to_txt
+    # Ahora que está dentro de la estructura del paquete, podemos importarlo directamente
+    from guion_editor.widgets.xlsx_converter.main import process_excel_to_txt
 except ImportError:
-    # Este archivo está en: guion_editor/widgets/takeo_dialog.py
-    # Necesitamos subir 2 niveles para llegar a la raíz donde está xlsx_converter
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    root_dir = os.path.abspath(os.path.join(current_dir, '..', '..'))
-    if root_dir not in sys.path:
-        sys.path.append(root_dir)
-    
+    # Fallback por si acaso se ejecuta de forma extraña, intentamos import relativo
     try:
-        from xlsx_converter.main import process_excel_to_txt
+        from .xlsx_converter.main import process_excel_to_txt
     except ImportError as e:
         logging.error(f"No se pudo importar el conversor TXT: {e}")
         process_excel_to_txt = None
@@ -39,12 +35,13 @@ except ImportError:
 
 def load_takeo_stylesheet() -> str:
     try:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        css_path = os.path.join(current_dir, '..', 'styles', 'takeo_styles.css')
+        # Mucho más limpio y seguro:
+        css_path = resource_path(os.path.join('guion_editor', 'styles', 'takeo_styles.css'))
+        
         with open(css_path, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:
-        logging.warning(f"No se pudo cargar takeo_styles.css: {e}")
+        logging.warning(f"No se pudo cargar takeo_styles.css desde {css_path}: {e}")
         return ""
 
 class TakeoDialog(QDialog):
@@ -256,73 +253,92 @@ class TakeoDialog(QDialog):
             worksheet.column_dimensions['C'].width = 30
 
     def save_results(self, detail_df, summary_df, failures_df, problematic_report, takes_generated):
-        reports_available = {
-            "detail": not detail_df.empty, 
-            "summary": not summary_df.empty, 
-            "failures": not failures_df.empty, 
-            "problems": bool(problematic_report)
-        }
-        if not any(reports_available.values()):
-            QMessageBox.information(self, "Proceso Completado", "La optimización finalizó, pero no se generaron resultados para exportar."); return
+            reports_available = {
+                "detail": not detail_df.empty, 
+                "summary": not summary_df.empty, 
+                "failures": not failures_df.empty, 
+                "problems": bool(problematic_report)
+            }
+            if not any(reports_available.values()):
+                QMessageBox.information(self, "Proceso Completado", "La optimización finalizó, pero no se generaron resultados para exportar."); return
 
-        export_dialog = ExportSelectionDialog(reports_available, self);
-        if not export_dialog.exec(): return
+            export_dialog = ExportSelectionDialog(reports_available, self);
+            if not export_dialog.exec(): return
 
-        choices = export_dialog.get_choices()
-        if not choices or not any(choices.values()):
-            QMessageBox.information(self, "Sin Selección", "No se ha seleccionado ningún archivo para exportar."); return
+            choices = export_dialog.get_choices()
+            if not choices or not any(choices.values()):
+                QMessageBox.information(self, "Sin Selección", "No se ha seleccionado ningún archivo para exportar."); return
 
-        save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar Directorio para Guardar Informes")
-        if not save_dir: return
+            save_dir = QFileDialog.getExistingDirectory(self, "Seleccionar Directorio para Guardar Informes")
+            if not save_dir: return
 
-        header_data = self.table_window._get_header_data_from_ui()
-        product = str(header_data.get("product_name", "")).strip().upper()
-        chapter = str(header_data.get("chapter_number", "")).strip()
-        title_text = f"{product} {chapter}".strip()
-        if not title_text: title_text = "RESUMEN DE TAKES"
-
-        saved_files = []
-        detail_excel_path = None
-
-        try:
-            if choices["detail"] and reports_available["detail"]:
-                path = os.path.join(save_dir, "detalle_takes_optimizado.xlsx")
-                detail_df.to_excel(path, index=False)
-                saved_files.append(os.path.basename(path))
-                detail_excel_path = path # Guardamos la ruta para la conversión
+            # --- RECOPILAR DATOS DE CABECERA DE LA UI PRINCIPAL ---
+            header_data = self.table_window._get_header_data_from_ui()
+            product = str(header_data.get("product_name", "")).strip()
+            chapter = str(header_data.get("chapter_number", "")).strip()
             
-            if choices["summary"] and reports_available["summary"]:
-                path = os.path.join(save_dir, "resumen_takes_optimizado.xlsx")
-                self.save_formatted_summary(path, summary_df, title_text)
-                saved_files.append(os.path.basename(path))
+            # Título para el Excel de Resumen
+            title_text_excel = f"{product.upper()} {chapter}".strip()
+            if not title_text_excel: title_text_excel = "RESUMEN DE TAKES"
+
+            saved_files = []
+            detail_excel_path = None
+
+            try:
+                if choices["detail"] and reports_available["detail"]:
+                    path = os.path.join(save_dir, "detalle_takes_optimizado.xlsx")
+                    detail_df.to_excel(path, index=False)
+                    saved_files.append(os.path.basename(path))
+                    detail_excel_path = path # Guardamos la ruta para la conversión
                 
-            if choices["failures"] and reports_available["failures"]:
-                path = os.path.join(save_dir, "reporte_fallos_de_agrupacion.xlsx"); failures_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
-            if choices["problems"] and reports_available["problems"]:
-                prob_df = pd.DataFrame(problematic_report); path = os.path.join(save_dir, "reporte_intervenciones_problematicas.xlsx"); prob_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
+                if choices["summary"] and reports_available["summary"]:
+                    path = os.path.join(save_dir, "resumen_takes_optimizado.xlsx")
+                    self.save_formatted_summary(path, summary_df, title_text_excel)
+                    saved_files.append(os.path.basename(path))
+                    
+                if choices["failures"] and reports_available["failures"]:
+                    path = os.path.join(save_dir, "reporte_fallos_de_agrupacion.xlsx"); failures_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
+                if choices["problems"] and reports_available["problems"]:
+                    prob_df = pd.DataFrame(problematic_report); path = os.path.join(save_dir, "reporte_intervenciones_problematicas.xlsx"); prob_df.to_excel(path, index=False); saved_files.append(os.path.basename(path))
 
-            # --- CONVERSIÓN AUTOMÁTICA A TXT ---
-            if self.chk_generate_txt.isChecked() and detail_excel_path and process_excel_to_txt:
-                try:
-                    target_col = self.dialogue_source_combo.currentText()
-                    txt_path = process_excel_to_txt(detail_excel_path, target_col)
-                    saved_files.append(os.path.basename(txt_path))
-                except Exception as ex_conv:
-                    logging.error(f"Error al generar TXT automático: {ex_conv}")
-                    QMessageBox.warning(self, "Advertencia TXT", f"Los Excels se generaron, pero falló la conversión automática a TXT:\n{ex_conv}")
-            elif self.chk_generate_txt.isChecked() and not process_excel_to_txt:
-                 QMessageBox.warning(self, "Advertencia", "El módulo de conversión TXT no se pudo cargar, por lo que no se generó el archivo de texto.")
-            # -----------------------------------
+                # --- CONVERSIÓN AUTOMÁTICA A TXT MEJORADA ---
+                if self.chk_generate_txt.isChecked() and detail_excel_path and process_excel_to_txt:
+                    try:
+                        target_col = self.dialogue_source_combo.currentText()
+                        
+                        # 1. Construir nombre de archivo: NombreProducto_DIALOG.txt
+                        # Si no hay nombre de producto, usar un genérico "Guion_DIALOG.txt"
+                        clean_product_name = product.replace(" ", "_")
+                        if not clean_product_name:
+                            clean_product_name = "Guion"
+                        
+                        txt_filename = f"{clean_product_name}_DIALOG.txt"
 
-            if not saved_files:
-                QMessageBox.information(self, "Sin Resultados", "No se guardó ningún archivo según su selección."); return
-            
-            sum_val = summary_df.iloc[-1]["TAKES (apariciones)"] if reports_available["summary"] else "N/A"
-            files_str = "\n - ".join(saved_files)
-            QMessageBox.information(self, "Proceso Completado", f"Optimización finalizada.\n\nTakes únicos generados: {takes_generated}\nSuma de apariciones: {sum_val}\n\nArchivos guardados en '{os.path.basename(save_dir)}':\n - {files_str}")
-        except Exception as e:
-            logging.error("No se pudieron guardar los informes de Takeo.", exc_info=True)
-            QMessageBox.critical(self, "Error al Guardar", f"No se pudieron guardar los informes: {e}")
+                        # 2. Llamar al conversor pasando datos extra
+                        txt_path = process_excel_to_txt(
+                            detail_excel_path, 
+                            target_col,
+                            header_data=header_data,        # Pasamos Título y Capítulo
+                            custom_output_name=txt_filename # Pasamos el nombre forzado
+                        )
+                        saved_files.append(os.path.basename(txt_path))
+                        
+                    except Exception as ex_conv:
+                        logging.error(f"Error al generar TXT automático: {ex_conv}")
+                        QMessageBox.warning(self, "Advertencia TXT", f"Los Excels se generaron, pero falló la conversión automática a TXT:\n{ex_conv}")
+                elif self.chk_generate_txt.isChecked() and not process_excel_to_txt:
+                    QMessageBox.warning(self, "Advertencia", "El módulo de conversión TXT no se pudo cargar, por lo que no se generó el archivo de texto.")
+                # -----------------------------------
+
+                if not saved_files:
+                    QMessageBox.information(self, "Sin Resultados", "No se guardó ningún archivo según su selección."); return
+                
+                sum_val = summary_df.iloc[-1]["TAKES (apariciones)"] if reports_available["summary"] else "N/A"
+                files_str = "\n - ".join(saved_files)
+                QMessageBox.information(self, "Proceso Completado", f"Optimización finalizada.\n\nTakes únicos generados: {takes_generated}\nSuma de apariciones: {sum_val}\n\nArchivos guardados en '{os.path.basename(save_dir)}':\n - {files_str}")
+            except Exception as e:
+                logging.error("No se pudieron guardar los informes de Takeo.", exc_info=True)
+                QMessageBox.critical(self, "Error al Guardar", f"No se pudieron guardar los informes: {e}")
             
     def closeEvent(self, event):
         if self.thread and self.thread.isRunning():
