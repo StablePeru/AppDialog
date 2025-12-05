@@ -6,7 +6,6 @@ import traceback
 
 from PyQt6.QtWidgets import QApplication
 
-# Intentamos importar la nueva ventana principal y config
 try:
     from .main_window import MainWindow
     from .config import COL_TAKE, COL_IN, COL_OUT, COL_PERSONAJE, COL_DIALOGO
@@ -20,15 +19,14 @@ def _normalize_text(text: str) -> str:
     if not isinstance(text, str):
         text = str(text)
     text = text.replace("…", "...").replace("“", "\"").replace("”", "\"")
+    # Eliminar saltos de línea internos
     text = text.replace('\n', ' ').replace('\r', ' ')
     return text.strip()
 
-# --- MODIFICADO: AÑADIDOS PARÁMETROS OPCIONALES header_data Y custom_output_name ---
 def process_excel_to_txt(excel_path: str, target_column: str, header_data: dict = None, custom_output_name: str = None) -> str:
     """
     Versión síncrona de la lógica de conversión.
-    Agrupa por TAKES y genera el formato de estudio.
-    Permite inyectar datos de cabecera y forzar un nombre de archivo de salida.
+    Agrupa por TAKES y fusiona intervenciones consecutivas del mismo personaje.
     """
     if not os.path.exists(excel_path):
         raise FileNotFoundError("El archivo Excel no existe.")
@@ -39,7 +37,6 @@ def process_excel_to_txt(excel_path: str, target_column: str, header_data: dict 
     # Normalizar columnas
     df.columns = df.columns.astype(str).str.upper().str.strip()
     
-    # Determinar columna de diálogo real
     col_dialogo_real = COL_DIALOGO
     target_upper = target_column.upper().strip()
     
@@ -53,7 +50,6 @@ def process_excel_to_txt(excel_path: str, target_column: str, header_data: dict 
     required = [COL_TAKE, COL_IN, COL_OUT, COL_PERSONAJE]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        # Fallback simple
         if COL_TAKE in missing:
             return _process_simple_fallback(df, excel_path, col_dialogo_real)
         raise ValueError(f"Faltan columnas: {', '.join(missing)}")
@@ -65,17 +61,15 @@ def process_excel_to_txt(excel_path: str, target_column: str, header_data: dict 
     df[COL_TAKE] = df[COL_TAKE].astype(int)
     df = df.sort_values(by=[COL_TAKE, COL_IN])
 
-    # 2. Generar Cabecera (Usando datos inyectados si existen)
+    # 2. Generar Cabecera
     lines = []
     
-    # Valores por defecto si no se pasa header_data
     titulo = os.path.splitext(os.path.basename(excel_path))[0]
     capitulo = "-"
     traductor = "-"
     takeo = "-"
 
     if header_data:
-        # Mapeamos las claves que vienen de TableWindow (product_name, etc) a las del TXT
         titulo = header_data.get("product_name") or header_data.get("Título") or titulo
         capitulo = header_data.get("chapter_number") or header_data.get("Capítulo") or capitulo
         traductor = header_data.get("Traductor") or traductor
@@ -97,20 +91,44 @@ def process_excel_to_txt(excel_path: str, target_column: str, header_data: dict 
         lines.append(f"TAKE {take_num}")
         lines.append(start_tc)
         
+        # --- LÓGICA DE FUSIÓN DE LÍNEAS ---
+        last_char = None
+        current_block_text = []
+
         for _, row in group.iterrows():
             personaje = str(row[COL_PERSONAJE]).strip().upper()
             texto = _normalize_text(row[col_dialogo_real])
-            if personaje and texto:
-                lines.append(f"{personaje}: {texto}")
+            
+            if not personaje or not texto:
+                continue
+
+            if personaje == last_char:
+                # Mismo personaje: añadir al bloque
+                current_block_text.append(texto)
+            else:
+                # Nuevo personaje: escribir el anterior si existe
+                if last_char is not None:
+                    # ' '.join une las líneas con un espacio, asegurando que no haya saltos
+                    combined_text = " ".join(current_block_text)
+                    lines.append(f"{last_char}: {combined_text}")
+                
+                # Iniciar nuevo bloque
+                last_char = personaje
+                current_block_text = [texto]
+
+        # Escribir el último bloque del take
+        if last_char is not None:
+            combined_text = " ".join(current_block_text)
+            lines.append(f"{last_char}: {combined_text}")
+        # ----------------------------------
         
         lines.append(end_tc)
         lines.append("")
 
-    # 4. Guardar (Usando nombre personalizado si existe)
+    # 4. Guardar
     folder = os.path.dirname(excel_path)
     
     if custom_output_name:
-        # Asegurar extensión .txt
         if not custom_output_name.lower().endswith('.txt'):
             custom_output_name += ".txt"
         output_path = os.path.join(folder, custom_output_name)
@@ -118,8 +136,10 @@ def process_excel_to_txt(excel_path: str, target_column: str, header_data: dict 
         base_name = os.path.splitext(os.path.basename(excel_path))[0]
         output_path = os.path.join(folder, f"{base_name}.txt")
 
-    with open(output_path, "w", encoding="utf-8") as f:
+    # --- CAMBIO IMPORTANTE AQUÍ ---
+    with open(output_path, "w", encoding="cp1252", errors='replace') as f:
         f.write("\n".join(lines))
+    # ------------------------------
         
     return output_path
 
@@ -133,7 +153,7 @@ def _process_simple_fallback(df, excel_path, target_col):
                 lines.append(f"{p}\n{t}\n")
     
     output_path = excel_path.replace(".xlsx", ".txt")
-    with open(output_path, "w", encoding="utf-8") as f:
+    with open(output_path, "w", encoding="cp1252", errors='replace') as f:
         f.write("\n".join(lines))
     return output_path
 
