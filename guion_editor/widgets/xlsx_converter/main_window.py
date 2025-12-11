@@ -39,6 +39,7 @@ class MainWindow(QWidget):
     def initUI(self):
         self.setWindowTitle("Conversor Excel a TXT Pro (Formato Estudio)")
         self.setGeometry(150, 150, 600, 700)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -49,7 +50,6 @@ class MainWindow(QWidget):
         list_v_layout.setSpacing(5)
 
         lbl_select_file = QLabel("1. Archivos Excel a Procesar (Arrastra aquí)")
-        lbl_select_file.setStyleSheet("font-weight: bold; color: #E0E0E0;")
         list_v_layout.addWidget(lbl_select_file)
 
         self.file_list_widget = QListWidget()
@@ -73,11 +73,9 @@ class MainWindow(QWidget):
 
         # --- 2. Sección de Datos de Cabecera ---
         lbl_header_info = QLabel("2. Datos de Cabecera (Para el TXT)")
-        lbl_header_info.setStyleSheet("font-weight: bold; color: #E0E0E0; margin-top: 10px;")
         main_layout.addWidget(lbl_header_info)
 
         header_frame = QFrame()
-        header_frame.setStyleSheet("background-color: #2D2D2D; border-radius: 6px; padding: 5px;")
         header_layout = QFormLayout(header_frame)
         header_layout.setSpacing(10)
 
@@ -110,7 +108,7 @@ class MainWindow(QWidget):
         action_layout.addWidget(self.cancel_button)
         
         self.convert_button = QPushButton("GENERAR TXT")
-        self.convert_button.setStyleSheet("background-color: #0078D7; font-weight: bold; padding: 10px 20px;")
+        self.convert_button.setObjectName("actionButton") 
         self.convert_button.setEnabled(False)
         self.convert_button.clicked.connect(self.start_batch_conversion)
         action_layout.addWidget(self.convert_button)

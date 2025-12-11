@@ -3,6 +3,7 @@ import sys
 import os
 import pandas as pd
 import traceback
+import logging
 
 from PyQt6.QtWidgets import QApplication
 
@@ -157,8 +158,33 @@ def _process_simple_fallback(df, excel_path, target_col):
         f.write("\n".join(lines))
     return output_path
 
+def load_stylesheet(app):
+    """Carga el estilo unificado desde la carpeta styles superior."""
+    try:
+        # Calculamos la ruta relativa: 
+        # Estamos en: guion_editor/widgets/xlsx_converter/main.py
+        # El CSS está en: guion_editor/styles/converter.css
+        # Subimos 3 niveles (main.py -> xlsx_converter -> widgets -> guion_editor) y entramos a styles
+        
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        css_path = os.path.join(base_dir, '..', '..', 'styles', 'converter.css')
+        css_path = os.path.abspath(css_path)
+
+        if os.path.exists(css_path):
+            with open(css_path, "r", encoding="utf-8") as f:
+                app.setStyleSheet(f.read())
+        else:
+            print(f"Advertencia: No se encontró el CSS en {css_path}") # Print porque logging puede no estar config en subprocess simple
+    except Exception as e:
+        print(f"Error cargando estilos del conversor: {e}")
+
 def main():
     app = QApplication(sys.argv)
+    
+    # --- APLICAR ESTILO AQUÍ ---
+    load_stylesheet(app)
+    # ---------------------------
+
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

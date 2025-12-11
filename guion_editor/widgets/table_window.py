@@ -124,6 +124,8 @@ class TableWindow(QWidget):
         self._current_header_data_for_undo: Dict[str, Any] = {}
         self.cached_subtitle_timeline: List[Tuple[int, int, str]] = []
         self._time_cache: List[Tuple[int, int]] = []; self._currently_synced_row: int = -1
+        self._rows_pending_resize = set() # Almacena índices de filas visuales a redimensionar
+        self._global_resize_pending = False # Bandera para forzar redimensionado completo
 
     def _init_timers(self):
         self._resize_rows_timer = QTimer(self); self._resize_rows_timer.setSingleShot(True); self._resize_rows_timer.setInterval(100)
@@ -504,7 +506,8 @@ class TableWindow(QWidget):
 
     def handle_column_resized(self, logical_index: int, old_size: int, new_size: int):
         if logical_index in [C.VIEW_COL_DIALOGUE, C.VIEW_COL_EUSKERA, C.VIEW_COL_OHARRAK]:
-            self.request_resize_rows_to_contents_deferred()
+            # Si cambian el ancho de columna, hay que redimensionar TODO
+            self.request_global_resize_deferred()
 
     def load_stylesheet(self) -> None:
         try:
@@ -613,10 +616,48 @@ class TableWindow(QWidget):
         self._request_bookmark_indicator_update(); self.update_window_title(); self._recache_times()
 
     def _perform_resize_rows_to_contents(self):
-        if self.table_view.isVisible() and self.pandas_model.rowCount() > 0: self.table_view.resizeRowsToContents()
-    def request_resize_rows_to_contents_deferred(self): self._resize_rows_timer.start()
+        if not self.table_view.isVisible() or self.pandas_model.rowCount() <= 0:
+            return
+
+        # Si hay una bandera global activada, hacemos el método pesado (antiguo)
+        if self._global_resize_pending:
+            self.table_view.resizeRowsToContents()
+            self._global_resize_pending = False
+            self._rows_pending_resize.clear() # Limpiamos la cola ya que redimensionamos todo
+        
+        # Si no es global, procesamos solo las filas específicas
+        elif self._rows_pending_resize:
+            # Desactivamos actualizaciones visuales momentáneamente para velocidad
+            self.table_view.setUpdatesEnabled(False) 
+            try:
+                for row_idx in self._rows_pending_resize:
+                    # Comprobamos que el índice sigue siendo válido
+                    if row_idx < self.pandas_model.rowCount():
+                        self.table_view.resizeRowToContents(row_idx)
+            finally:
+                self.table_view.setUpdatesEnabled(True)
+            
+            self._rows_pending_resize.clear()
+
+    # Crea este nuevo método auxiliar para facilitar la llamada global
+    def request_global_resize_deferred(self):
+        self._global_resize_pending = True
+        self._resize_rows_timer.start()
+
+    # Modifica este método existente para que acepte argumentos opcionales
+    def request_resize_rows_to_contents_deferred(self, specific_rows: List[int] = None):
+        if specific_rows:
+            self._rows_pending_resize.update(specific_rows)
+        else:
+            # Si se llama sin argumentos (comportamiento antiguo), asumimos global
+            self._global_resize_pending = True
+        
+        self._resize_rows_timer.start()
+
     def adjust_all_row_heights_and_validate(self) -> None:
-        self.request_resize_rows_to_contents_deferred()
+        # Aquí forzamos el global explícitamente
+        self.request_global_resize_deferred()
+        
         for row_idx in range(self.pandas_model.rowCount()):
             self.pandas_model.force_time_validation_update_for_row(row_idx)
             self.pandas_model.force_scene_validation_update_for_row(row_idx)
@@ -626,12 +667,53 @@ class TableWindow(QWidget):
     def on_model_data_changed(self, top_left_index: QModelIndex, bottom_right_index: QModelIndex, roles: List[int]):
         if not top_left_index.isValid(): return
         self.set_unsaved_changes(True)
+        
+        rows_to_resize = []
+        
         for row in range(top_left_index.row(), bottom_right_index.row() + 1):
-            df_col_name = self.pandas_model.get_df_column_name(top_left_index.column())
-            if df_col_name in [C.COL_DIALOGO, C.COL_EUSKERA, C.COL_OHARRAK]: self.request_resize_rows_to_contents_deferred()
-            elif df_col_name == C.COL_PERSONAJE: self.update_character_completer_and_notify()
+            # Iteramos para ver qué columnas cambiaron
+            # Nota: top_left_index.column() nos da la columna inicial del rango
+            # pero necesitamos saber si alguna columna de texto fue afectada.
+            
+            # Comprobación rápida: si el cambio afecta a columnas de texto, añadimos la fila
+            # Como dataChanged a veces viene por rango, asumimos que si el rango toca
+            # columnas de texto, la fila necesita resize.
+            
+            # Obtener índices de columnas de texto
+            col_dialogo = self.pandas_model.get_view_column_index(C.COL_DIALOGO)
+            col_euskera = self.pandas_model.get_view_column_index(C.COL_EUSKERA)
+            col_oharrak = self.pandas_model.get_view_column_index(C.COL_OHARRAK)
+            col_personaje = self.pandas_model.get_view_column_index(C.COL_PERSONAJE)
+            
+            text_cols = [c for c in [col_dialogo, col_euskera, col_oharrak] if c is not None]
+            
+            # Verificamos si el rango de cambio solapa con alguna columna de texto
+            # Rango del cambio: top_left_index.column() hasta bottom_right_index.column()
+            change_start = top_left_index.column()
+            change_end = bottom_right_index.column()
+            
+            needs_resize = False
+            for t_col in text_cols:
+                if change_start <= t_col <= change_end:
+                    needs_resize = True
+                    break
+            
+            if needs_resize:
+                rows_to_resize.append(row)
+
+            # Lógica existente para autocompletado de personajes
+            if col_personaje is not None and change_start <= col_personaje <= change_end:
+                self.update_character_completer_and_notify()
+
+        # --- APLICACIÓN DE LA MEJORA ---
+        if rows_to_resize:
+            # Pasamos la lista específica en lugar de llamar al global
+            self.request_resize_rows_to_contents_deferred(specific_rows=rows_to_resize)
+        
+        # Lógica existente para caché de tiempos
         if top_left_index.column() <= C.VIEW_COL_OUT and bottom_right_index.column() >= C.VIEW_COL_IN:
-            for row in range(top_left_index.row(), bottom_right_index.row() + 1): self._update_time_cache_for_row(row)
+            for row in range(top_left_index.row(), bottom_right_index.row() + 1): 
+                self._update_time_cache_for_row(row)
 
     def update_character_completer_and_notify(self):
         delegate = CharacterDelegate(get_names_callback=self.get_character_names_from_model, parent=self.table_view)
@@ -872,18 +954,27 @@ class TableWindow(QWidget):
         df = self.pandas_model.dataframe()
         if df.empty or C.COL_PERSONAJE not in df.columns: return
         
-        # Check rápido sin cursor (es instantáneo)
-        if not (df[C.COL_PERSONAJE].astype(str) != df[C.COL_PERSONAJE].astype(str).str.strip()).any():
-            QMessageBox.information(self, "Limpiar Nombres", "No se encontraron nombres que necesiten limpieza."); return
+        # 1. Simular la limpieza para ver si vale la pena ejecutar el comando
+        current_series = df[C.COL_PERSONAJE].astype(str)
         
-        # CAMBIO: Feedback visual para la operación de escritura
+        # USAMOS EXACTAMENTE LA MISMA REGEX QUE EN EL COMANDO
+        cleaned_series = current_series.str.replace(r'\s*\(.*?\)', '', regex=True).str.strip()
+        
+        # Comprobar diferencias
+        has_changes = (current_series != cleaned_series).any()
+
+        if not has_changes:
+            QMessageBox.information(self, "Limpiar Nombres", "No se encontraron nombres con paréntesis o espacios sobrantes.")
+            return
+        
+        # 2. Si hay cambios, ejecutamos el comando
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             self.undo_stack.push(TrimAllCharactersCommand(self))
         finally:
             QApplication.restoreOverrideCursor()
             
-        QMessageBox.information(self, "Limpieza Completa", "Se han limpiado los espacios sobrantes de los nombres de personaje.")
+        QMessageBox.information(self, "Limpieza Completa", "Se han eliminado paréntesis y espacios de los nombres.")
 
     def find_and_replace(self, find_text: str, replace_text: str, search_in_character: bool, search_in_dialogue: bool, search_in_euskera: bool) -> None:
         if self.pandas_model.dataframe().empty or not find_text: return

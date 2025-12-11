@@ -544,7 +544,7 @@ class SplitCharacterCommand(QUndoCommand):
 
 class TrimAllCharactersCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow'):
-        super().__init__("Limpiar espacios en nombres de personaje")
+        super().__init__("Limpiar nombres (Espacios y paréntesis)")
         self.tw = table_window
         self.original_series: Optional[pd.Series] = None
 
@@ -552,26 +552,42 @@ class TrimAllCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
         
-        mask = df[C.COL_PERSONAJE].astype(str) != df[C.COL_PERSONAJE].astype(str).str.strip()
-        if not mask.any(): return
+        # Obtenemos la serie como texto
+        current_series = df[C.COL_PERSONAJE].astype(str)
+        
+        # --- LÓGICA DE LIMPIEZA VECTORIZADA (Pandas) ---
+        # 1. str.replace con regex=True elimina ' (CONT'D)', ' (O.S.)', etc.
+        # 2. str.strip elimina espacios sobrantes resultantes.
+        cleaned_series = current_series.str.replace(r'\s*\(.*?\)', '', regex=True).str.strip()
+        # -----------------------------------------------
+
+        # Detectamos qué filas cambian realmente
+        mask = current_series != cleaned_series
+        
+        if not mask.any(): 
+            return
             
+        # Guardamos el estado original para el UNDO (solo la primera vez)
         if self.original_series is None:
             self.original_series = df.loc[mask, C.COL_PERSONAJE].copy()
             
         view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
-        if view_col_char is None:
-            df.loc[mask, C.COL_PERSONAJE] = df.loc[mask, C.COL_PERSONAJE].astype(str).str.strip()
-            model.layoutChanged.emit() # Fallback
-            self.tw.set_unsaved_changes(True)
-            return
+        
+        # Aplicamos los cambios al DataFrame Real
+        df.loc[mask, C.COL_PERSONAJE] = cleaned_series[mask]
+        
+        # Si tenemos la columna visual, notificamos fila por fila para actualizar la UI
+        if view_col_char is not None:
+            for df_idx in self.original_series.index:
+                model_idx = model.index(df_idx, view_col_char)
+                model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
+        else:
+            # Fallback si no hay columna visual (raro)
+            model.layoutChanged.emit()
 
-        df.loc[mask, C.COL_PERSONAJE] = df.loc[mask, C.COL_PERSONAJE].astype(str).str.strip()
-        
-        for df_idx in self.original_series.index:
-            model_idx = model.index(df_idx, view_col_char)
-            model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
-        
         self.tw.set_unsaved_changes(True)
+        # Esto fuerza a la ventana de Reparto a recalcularse
+        self.tw.update_character_completer_and_notify()
 
     def undo(self):
         if self.original_series is None or self.original_series.empty: return
@@ -579,20 +595,19 @@ class TrimAllCharactersCommand(QUndoCommand):
         model = self.tw.pandas_model
         df = model.dataframe()
 
-        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
-        if view_col_char is None:
-            df.loc[self.original_series.index, C.COL_PERSONAJE] = self.original_series
-            model.layoutChanged.emit() # Fallback
-            self.tw.set_unsaved_changes(True)
-            return
-            
+        # Restauramos los valores originales
         df.loc[self.original_series.index, C.COL_PERSONAJE] = self.original_series
         
-        for df_idx in self.original_series.index:
-            model_idx = model.index(df_idx, view_col_char)
-            model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
+        view_col_char = model.get_view_column_index(C.COL_PERSONAJE)
+        if view_col_char is not None:
+            for df_idx in self.original_series.index:
+                model_idx = model.index(df_idx, view_col_char)
+                model.dataChanged.emit(model_idx, model_idx, [Qt.ItemDataRole.EditRole])
+        else:
+            model.layoutChanged.emit()
         
         self.tw.set_unsaved_changes(True)
+        self.tw.update_character_completer_and_notify()
 
 class ShiftTimecodesCommand(QUndoCommand):
     def __init__(self, table_window: 'TableWindow', fps: int, offset_frames: int, sign: int):
