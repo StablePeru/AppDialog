@@ -30,7 +30,7 @@ from guion_editor.commands.undo_commands import (
     SplitInterventionCommand, MergeInterventionsCommand, ChangeSceneCommand, HeaderEditCommand,
     ToggleBookmarkCommand, UpdateMultipleCharactersCommand, SplitCharacterCommand,
     TrimAllCharactersCommand, ShiftTimecodesCommand, ResetTimecodesCommand, ResetScenesCommand,
-    CopyInToPreviousOutCommand
+    CopyInToPreviousOutCommand, AutoSplitInterventionCommand
 )
 
 class TableWindow(QWidget):
@@ -292,12 +292,14 @@ class TableWindow(QWidget):
         buttons_overall_container_layout = QHBoxLayout(self.top_controls_row_widget)
         buttons_overall_container_layout.setContentsMargins(0,0,0,0)
         buttons_overall_container_layout.setSpacing(10)
+        
         self.table_actions_widget = QWidget()
         self.table_actions_widget.setObjectName("table_actions_bar")
         actions_bar_internal_layout = QHBoxLayout(self.table_actions_widget)
         actions_bar_internal_layout.setContentsMargins(0, 0, 0, 0)
         actions_bar_internal_layout.setSpacing(4)
         action_icon_size = QSize(16, 16)
+        
         actions_map = [
             (" Agregar Línea", self.add_new_row, "add_row_icon.svg", False, C.ACT_EDIT_ADD_ROW, None),
             (" Eliminar Fila", self.remove_row, "delete_row_icon.svg", False, C.ACT_EDIT_DELETE_ROW, None),
@@ -309,6 +311,7 @@ class TableWindow(QWidget):
             (" Juntar", self.merge_interventions, "merge_intervention_icon.svg", False, C.ACT_EDIT_MERGE_INTERVENTIONS, None),
             (" Copiar IN/OUT", self.copy_in_out_to_next, "copy_in_out_icon.svg", False, C.ACT_EDIT_COPY_IN_OUT, "Copiar IN/OUT a Siguiente")
         ]
+        
         for btn_text, method, icon_name, is_only_icon, action_obj_name, tooltip_override in actions_map:
             button = QPushButton()
             if self.get_icon and icon_name:
@@ -324,13 +327,26 @@ class TableWindow(QWidget):
             button.clicked.connect(method)
             actions_bar_internal_layout.addWidget(button)
             self.action_buttons[action_obj_name] = button
+
+            # --- LÓGICA DEL CHECKBOX AUTO ---
+            # Lo insertamos justo después de añadir el botón "Separar"
+            if action_obj_name == C.ACT_EDIT_SPLIT_INTERVENTION:
+                self.auto_split_checkbox = QCheckBox("Auto")
+                self.auto_split_checkbox.setToolTip("Si está marcado, 'Separar' dividirá el texto automáticamente por puntuación (., ?, !) y paréntesis.")
+                # Un poco de estilo para separarlo visualmente de "Juntar"
+                self.auto_split_checkbox.setStyleSheet("margin-left: 4px; margin-right: 8px; font-weight: bold; color: #ccc;") 
+                actions_bar_internal_layout.addWidget(self.auto_split_checkbox)
+            # --------------------------------
+
         buttons_overall_container_layout.addWidget(self.table_actions_widget)
         buttons_overall_container_layout.addStretch(1)
+        
         self.error_indicators_container = QWidget()
         self.error_indicators_container.setObjectName("error_indicators_container")
         error_indicators_layout = QHBoxLayout(self.error_indicators_container)
         error_indicators_layout.setContentsMargins(0,0,0,0)
         error_indicators_layout.setSpacing(5)
+        
         self.time_error_indicator_button = QPushButton("")
         self.time_error_indicator_button.setObjectName("timeErrorIndicatorButton")
         self.time_error_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
@@ -338,6 +354,7 @@ class TableWindow(QWidget):
         self.time_error_indicator_button.setVisible(False)
         self.time_error_indicator_button.clicked.connect(self.go_to_next_time_error)
         error_indicators_layout.addWidget(self.time_error_indicator_button)
+        
         self.scene_error_indicator_button = QPushButton("")
         self.scene_error_indicator_button.setObjectName("sceneErrorIndicatorButton")
         self.scene_error_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
@@ -345,6 +362,7 @@ class TableWindow(QWidget):
         self.scene_error_indicator_button.setVisible(False)
         self.scene_error_indicator_button.clicked.connect(self.go_to_next_scene_error)
         error_indicators_layout.addWidget(self.scene_error_indicator_button)
+        
         self.line_error_indicator_button = QPushButton("")
         self.line_error_indicator_button.setObjectName("lineErrorIndicatorButton")
         self.line_error_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
@@ -352,6 +370,7 @@ class TableWindow(QWidget):
         self.line_error_indicator_button.setVisible(False)
         self.line_error_indicator_button.clicked.connect(self.go_to_next_line_error)
         error_indicators_layout.addWidget(self.line_error_indicator_button)
+        
         self.bookmark_indicator_button = QPushButton("")
         self.bookmark_indicator_button.setObjectName("bookmarkIndicatorButton")
         self.bookmark_indicator_button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
@@ -359,16 +378,20 @@ class TableWindow(QWidget):
         self.bookmark_indicator_button.setVisible(False)
         self.bookmark_indicator_button.clicked.connect(self.go_to_next_bookmark)
         error_indicators_layout.addWidget(self.bookmark_indicator_button)
+        
         buttons_overall_container_layout.addWidget(self.error_indicators_container)
+        
         self.link_out_in_checkbox = QCheckBox("OUT->IN")
         self.link_out_in_checkbox.setChecked(self.link_out_to_next_in_enabled)
         self.link_out_in_checkbox.setToolTip("Si está marcado, al definir un OUT también se definirá el IN de la siguiente fila.")
         self.link_out_in_checkbox.stateChanged.connect(self.toggle_link_out_to_next_in_checkbox)
         buttons_overall_container_layout.addWidget(self.link_out_in_checkbox)
+        
         self.sync_video_checkbox = QCheckBox("Sincronizar con Video")
         self.sync_video_checkbox.setToolTip("Si está marcado, la tabla se desplazará y resaltará la fila correspondiente al tiempo del video.")
         self.sync_video_checkbox.setChecked(True)
         buttons_overall_container_layout.addWidget(self.sync_video_checkbox)
+        
         layout.addWidget(self.top_controls_row_widget)
 
     def _handle_model_change_for_time_errors(self, top_left: QModelIndex, bottom_right: QModelIndex, roles: list[int]):
@@ -798,32 +821,88 @@ class TableWindow(QWidget):
         if not current_idx.isValid():
             QMessageBox.warning(self, "Separar", "Por favor, seleccione una fila para separar.")
             return
+
+        # Determinar columna (prioridad: celda seleccionada, si no DIÁLOGO por defecto)
+        df_col_name = self.pandas_model.get_df_column_name(current_idx.column())
+        if df_col_name not in [C.COL_DIALOGO, C.COL_EUSKERA]:
+            # Si no estamos en una columna de texto, intentamos usar Diálogo por defecto
+            df_col_name = C.COL_DIALOGO
+        
+        # Obtenemos el texto completo
+        full_text = str(self.pandas_model.dataframe().at[current_idx.row(), df_col_name])
+
+        # --- MODO AUTOMÁTICO ---
+        if hasattr(self, 'auto_split_checkbox') and self.auto_split_checkbox.isChecked():
+            self._execute_auto_split(current_idx.row(), df_col_name, full_text)
+            return
+        
+        # --- MODO MANUAL (Lógica original existente) ---
         text_to_split: Optional[str] = None
         cursor_pos: int = -1
-        df_col_name: Optional[str] = None
+        
+        # Intentar obtener estado del editor activo
         active_editor = self.table_view.focusWidget()
         if isinstance(active_editor, CustomTextEdit) and self.table_view.state() == QAbstractItemView.State.EditingState:
             text_to_split = active_editor.toPlainText()
             cursor_pos = active_editor.textCursor().position()
-            editor_index = self.table_view.indexAt(active_editor.pos())
-            if editor_index.isValid():
-                df_col_name = self.pandas_model.get_df_column_name(editor_index.column())
+        # Intentar usar el último estado guardado (si se perdió el foco)
         elif self.last_focused_dialog_index and self.last_focused_dialog_index.row() == current_idx.row():
             text_to_split = self.last_focused_dialog_text
             cursor_pos = self.last_focused_dialog_cursor_pos
-            df_col_name = self.pandas_model.get_df_column_name(self.last_focused_dialog_index.column())
-        if text_to_split is None or cursor_pos == -1 or df_col_name not in [C.COL_DIALOGO, C.COL_EUSKERA]:
-            QMessageBox.information(self, "Separar", "Para separar una intervención:\n\n1. Haz doble clic en una celda de 'DIÁLOGO' o 'EUSKERA'.\n2. Coloca el cursor en el punto exacto de la división.\n3. Pulsa el botón 'Separar' (o su atajo).\n")
+        
+        # Si no hay info de cursor, avisar (igual que antes)
+        if text_to_split is None or cursor_pos == -1:
+            QMessageBox.information(self, "Separar Manual", 
+                "Modo Manual: Haz doble clic en el texto, pon el cursor donde quieras cortar y pulsa Separar.\n\n"
+                "Consejo: Marca la casilla 'Auto' para separar automáticamente por puntuación.")
             return
-        self.last_focused_dialog_index = None
-        if not (0 <= cursor_pos <= len(text_to_split)):
-            QMessageBox.warning(self, "Separar", "La posición del cursor es inválida.")
-            return
+
+        self.last_focused_dialog_index = None # Reset
+        if not (0 <= cursor_pos <= len(text_to_split)): return # Safety check
+
         before_text, after_text = text_to_split[:cursor_pos].strip(), text_to_split[cursor_pos:].strip()
+        
         if not after_text:
-            QMessageBox.information(self, "Separar", "No hay texto para la nueva intervención después del cursor.")
+            QMessageBox.information(self, "Separar", "No hay texto después del cursor.")
             return
+
+        # Usar el comando antiguo para separación manual
+        from guion_editor.commands.undo_commands import SplitInterventionCommand
         command = SplitInterventionCommand(self, current_idx.row(), before_text, after_text, text_to_split, df_col_name)
+        self.undo_stack.push(command)
+
+    def _execute_auto_split(self, row_idx: int, col_name: str, text: str):
+        if not text.strip(): return
+
+        # --- CORRECCIÓN REGEX ---
+        # Explicación de los grupos:
+        # 1. \(.*?\)       -> Paréntesis (ej: (ad lib))
+        # 2. \[.*?\]       -> Corchetes
+        # 3. <.*?>         -> Tags HTML/XML
+        # 4. [^.?!(\[<]+[.?!]+  -> Texto normal que TERMINA en puntuación (. ? !)
+        # 5. [^.?!(\[<]+        -> Texto normal que NO tiene puntuación (ej: frases cortadas o antes de paréntesis)
+        # ----------------------
+        
+        # EL CAMBIO CLAVE: He quitado el '$' del final del último grupo.
+        pattern = r'(\(.*?\)|\[.*?\]|<.*?>|[^.?!(\[<]+[.?!]+|[^.?!(\[<]+)'
+        
+        # Findall devuelve una lista con los trozos
+        raw_parts = re.findall(pattern, text)
+        
+        # Limpiamos espacios y elementos vacíos
+        clean_parts = [p.strip() for p in raw_parts if p.strip()]
+        
+        # Filtro de seguridad: Si no ha separado nada (longitud 1), avisamos
+        if len(clean_parts) < 2:
+            # DEBUG: Si quieres ver qué ha detectado, descomenta la siguiente línea:
+            # print(f"DEBUG AUTO SPLIT: Texto='{text}' -> Detectado={clean_parts}")
+            QMessageBox.information(self, "Auto Separar", 
+                                    "No se encontraron puntos de corte claros.\n"
+                                    "El sistema busca: . ? ! ( ) [ ] < >")
+            return
+
+        # Ejecutar el comando de separación múltiple
+        command = AutoSplitInterventionCommand(self, row_idx, clean_parts, col_name)
         self.undo_stack.push(command)
 
     def merge_interventions(self) -> None:

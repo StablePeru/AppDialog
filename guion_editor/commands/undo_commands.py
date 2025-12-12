@@ -789,3 +789,83 @@ class CopyInToPreviousOutCommand(QUndoCommand):
             bottom_right = model.index(model.rowCount() - 1, view_col_out)
             model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.EditRole])
         self.tw.set_unsaved_changes(True)
+
+class AutoSplitInterventionCommand(QUndoCommand):
+    def __init__(self, table_window: 'TableWindow', df_idx_split: int,
+                 split_texts: List[str], df_column_name: str):
+        super().__init__()
+        self.tw = table_window
+        self.df_idx_split = df_idx_split
+        self.split_texts = split_texts # Lista con los trozos de texto
+        self.df_column_name = df_column_name
+        self.original_text = ""
+        
+        # Guardaremos los IDs de las nuevas filas creadas para poder borrarlas en el undo
+        self.added_row_ids = []
+        
+        self.setText(f"Auto-Separar fila {df_idx_split + 1} en {len(split_texts)} partes")
+
+    def redo(self):
+        model = self.tw.pandas_model
+        df = model.dataframe()
+        
+        if not (0 <= self.df_idx_split < len(df)):
+            return
+
+        view_col_idx = model.get_view_column_index(self.df_column_name)
+        if view_col_idx is None:
+            return
+
+        # 1. Guardar texto original (solo la primera vez)
+        if not self.original_text:
+            self.original_text = str(df.at[self.df_idx_split, self.df_column_name])
+
+        # 2. Actualizar la fila actual con el primer trozo
+        first_text = self.split_texts[0]
+        model.setData(model.index(self.df_idx_split, view_col_idx), first_text, Qt.ItemDataRole.EditRole)
+
+        # 3. Preparar datos base para las nuevas filas (copiando escena, personaje, etc.)
+        base_row_data = df.iloc[self.df_idx_split].to_dict().copy()
+        
+        # Limpiar los textos en la copia base para no duplicar contenido
+        if C.COL_DIALOGO in base_row_data: base_row_data[C.COL_DIALOGO] = ""
+        if C.COL_EUSKERA in base_row_data: base_row_data[C.COL_EUSKERA] = ""
+        # Limpiar tiempos en las nuevas filas (opcional, pero recomendado para evitar solapamientos)
+        base_row_data[C.COL_IN] = "00:00:00:00"
+        base_row_data[C.COL_OUT] = "00:00:00:00"
+
+        self.added_row_ids = []
+
+        # 4. Insertar el resto de trozos como nuevas filas
+        # Iteramos en reverso para insertar siempre justo debajo de la fila original y mantener el orden
+        for i, text_part in enumerate(self.split_texts[1:], start=1):
+            new_data = base_row_data.copy()
+            new_data[self.df_column_name] = text_part
+            new_data[C.COL_ID] = model.get_next_id() # Nuevo ID único
+            
+            # Guardamos el ID para el UNDO
+            self.added_row_ids.append(new_data[C.COL_ID])
+            
+            # Insertamos. Nota: insertamos en df_idx_split + i
+            model.insert_row_data(self.df_idx_split + i, new_data)
+
+        self.tw.set_unsaved_changes(True)
+        self.tw.request_resize_rows_to_contents_deferred()
+
+    def undo(self):
+        model = self.tw.pandas_model
+        
+        # 1. Restaurar el texto original en la fila madre
+        view_col_idx = model.get_view_column_index(self.df_column_name)
+        if view_col_idx is not None:
+            model.setData(model.index(self.df_idx_split, view_col_idx), self.original_text, Qt.ItemDataRole.EditRole)
+
+        # 2. Eliminar las filas creadas buscando por ID (más seguro que por índice)
+        # Las borramos en orden inverso de creación para no alterar índices pendientes
+        for row_id in reversed(self.added_row_ids):
+            idx_to_remove = model.find_df_index_by_id(row_id)
+            if idx_to_remove is not None:
+                model.remove_row_by_df_index(idx_to_remove)
+
+        self.tw.set_unsaved_changes(True)
+        self.tw.request_resize_rows_to_contents_deferred()
