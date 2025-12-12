@@ -908,13 +908,59 @@ class TableWindow(QWidget):
     def merge_interventions(self) -> None:
         selected_rows = self.table_view.selectionModel().selectedRows()
         if not selected_rows: return
-        df_idx_curr, df_idx_next = selected_rows[0].row(), selected_rows[0].row() + 1
-        if df_idx_next >= self.pandas_model.rowCount(): QMessageBox.warning(self, "Juntar", "No se puede juntar la última fila."); return
+        
+        # Obtenemos índices
+        df_idx_curr = selected_rows[0].row()
+        df_idx_next = df_idx_curr + 1
+        
+        if df_idx_next >= self.pandas_model.rowCount(): 
+            QMessageBox.warning(self, "Juntar", "No se puede juntar la última fila.")
+            return
+            
         df = self.pandas_model.dataframe()
-        if str(df.at[df_idx_curr, C.COL_PERSONAJE]) != str(df.at[df_idx_next, C.COL_PERSONAJE]): QMessageBox.warning(self, "Juntar", "Solo se pueden juntar intervenciones del mismo personaje."); return
-        merged_dialog = f"{str(df.at[df_idx_curr, C.COL_DIALOGO])} {str(df.at[df_idx_next, C.COL_DIALOGO])}".strip()
-        merged_euskera = f"{str(df.at[df_idx_curr, C.COL_EUSKERA])} {str(df.at[df_idx_next, C.COL_EUSKERA])}".strip()
-        self.undo_stack.push(MergeInterventionsCommand(self, df_idx_curr, merged_dialog, merged_euskera, df_idx_next, str(df.at[df_idx_curr, C.COL_OUT])))
+        
+        # Comprobación de personaje
+        char_curr = str(df.at[df_idx_curr, C.COL_PERSONAJE]).strip()
+        char_next = str(df.at[df_idx_next, C.COL_PERSONAJE]).strip()
+        
+        if char_curr != char_next: 
+            QMessageBox.warning(self, "Juntar", "Solo se pueden juntar intervenciones del mismo personaje.")
+            return
+
+        # --- LÓGICA DE LIMPIEZA ANTI-NAN ---
+        def clean_cell_text(val):
+            # 1. Si es nulo nativo de Pandas/Numpy
+            if pd.isna(val): return ""
+            
+            # 2. Convertimos a string y quitamos espacios
+            txt = str(val).strip()
+            
+            # 3. Si el texto literal es 'nan' (case insensitive), lo matamos
+            if txt.lower() == 'nan': return ""
+            
+            return txt
+
+        # Obtener textos limpios
+        dlg1 = clean_cell_text(df.at[df_idx_curr, C.COL_DIALOGO])
+        dlg2 = clean_cell_text(df.at[df_idx_next, C.COL_DIALOGO])
+        
+        eusk1 = clean_cell_text(df.at[df_idx_curr, C.COL_EUSKERA])
+        eusk2 = clean_cell_text(df.at[df_idx_next, C.COL_EUSKERA])
+
+        # Unir solo si hay contenido (evita espacios extra si uno está vacío)
+        merged_dialog = f"{dlg1} {dlg2}".strip()
+        merged_euskera = f"{eusk1} {eusk2}".strip()
+        # ------------------------------------
+
+        # Ejecutar comando
+        self.undo_stack.push(MergeInterventionsCommand(
+            self, 
+            df_idx_curr, 
+            merged_dialog, 
+            merged_euskera, 
+            df_idx_next, 
+            str(df.at[df_idx_curr, C.COL_OUT])
+        ))
 
     def convert_time_code_to_milliseconds(self, time_code: str) -> Optional[int]:
         try:
