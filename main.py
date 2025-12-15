@@ -30,7 +30,7 @@ ICON_CACHE = {}
 ICON_BASE_PATH = resource_path(os.path.join('guion_editor', 'styles', 'icons'))
 STYLES_BASE_PATH = resource_path(os.path.join('guion_editor', 'styles'))
 
-def setup_logging():
+def setup_logging() -> None:
     log_dir = get_user_config_dir()
     log_file_path = os.path.join(log_dir, 'guion_editor.log')
 
@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
     SAVE_DIR = get_safe_save_dir(r"W:\Z_JSON\SinSubir")
     SUBS_DIR = get_safe_save_dir(r"W:\Z_JSON\Subs")
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Editor de Guion con Video")
         self.setGeometry(100, 100, 1600, 900)
@@ -128,14 +128,14 @@ class MainWindow(QMainWindow):
         self._setup_autosave()
         self._load_settings()
 
-    def _setup_autosave(self):
+    def _setup_autosave(self) -> None:
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setInterval(self.AUTOSAVE_INTERVAL_MS)  
         self.autosave_timer.timeout.connect(self._perform_autosave)
         self.autosave_timer.start()
         logging.info(f"Autoguardado activado (cada {self.AUTOSAVE_INTERVAL_MS / 60000:.0f} minutos si hay cambios).")
 
-    def _perform_autosave(self):
+    def _perform_autosave(self) -> None:
         TARGET_DIR = self.RECOVERY_DIR
 
         if hasattr(self.tableWindow, 'undo_stack') and not self.tableWindow.undo_stack.isClean():
@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logging.error(f"Error inesperado durante el autoguardado: {e}", exc_info=True)
 
-    def _check_for_recovery_file(self):
+    def _check_for_recovery_file(self) -> None:
         TARGET_DIR = self.RECOVERY_DIR
         if not os.path.exists(TARGET_DIR):
             return
@@ -206,7 +206,7 @@ class MainWindow(QMainWindow):
             logging.error("Error al procesar el archivo de recuperación.", exc_info=True)
             QMessageBox.warning(self, "Error de Recuperación", f"No se pudo procesar el archivo de recuperación: {e}")
                 
-    def _delete_recovery_file(self):
+    def _delete_recovery_file(self) -> None:
         TARGET_DIR = self.RECOVERY_DIR
         try:
             base_filename = self.tableWindow._generate_default_filename("json")
@@ -220,7 +220,7 @@ class MainWindow(QMainWindow):
             logging.error(f"Error al eliminar el archivo de recuperación: {e}")
 
 
-    def _update_initial_undo_redo_actions_state(self):
+    def _update_initial_undo_redo_actions_state(self) -> None:
         if hasattr(self.tableWindow, 'undo_stack'):
             if C.ACT_EDIT_UNDO in self.actions:
                  self.actions[C.ACT_EDIT_UNDO].setEnabled(self.tableWindow.undo_stack.canUndo())
@@ -228,7 +228,7 @@ class MainWindow(QMainWindow):
                  self.actions[C.ACT_EDIT_REDO].setEnabled(self.tableWindow.undo_stack.canRedo())
 
     # --- MÉTODO MODIFICADO PARA SOPORTAR CARPETA SUBS ---
-    def save_script_directly(self):
+    def save_script_directly(self) -> bool:
         # Determinamos el directorio basado en el nombre del archivo actual
         current_name = self.tableWindow.current_script_name or ""
         
@@ -296,7 +296,7 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
 
     # --- NUEVO MÉTODO PARA GENERAR VERSIÓN SUB ---
-    def create_sub_version_and_clean(self):
+    def create_sub_version_and_clean(self) -> None:
         """
         1. Pregunta qué columna determina si la fila se borra.
         2. Obtiene una versión limpia del guion (sin paréntesis).
@@ -370,7 +370,7 @@ class MainWindow(QMainWindow):
         
         QMessageBox.information(self, "Éxito", f"Se ha creado y cargado la versión de subtítulos:\n\n{new_filename}\n\nUbicación: {self.SUBS_DIR}")
 
-    def create_all_actions(self):
+    def create_all_actions(self) -> None:
         # File Menu
         self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", C.ACT_FILE_OPEN_VIDEO)
         self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", C.ACT_FILE_LOAD_ME)
@@ -428,13 +428,13 @@ class MainWindow(QMainWindow):
         if self.tableWindow.save_to_json_dialog():
             self._delete_recovery_file()
 
-    def export_script_to_excel(self):
+    def export_script_to_excel(self) -> None:
         excel_export_successful = self.tableWindow.export_to_excel_dialog()
         if excel_export_successful:
             logging.info("Exportación a Excel exitosa. Realizando guardado automático a JSON...")
             self.save_script_directly()
 
-    def export_to_srt(self):
+    def export_to_srt(self) -> None:
         if self.tableWindow.pandas_model.dataframe().empty:
             QMessageBox.information(self, "Exportar a SRT", "No hay datos en el guion para exportar.")
             return

@@ -12,7 +12,7 @@ class GuionManager:
     BASE_COLUMNS = [C.COL_IN, C.COL_OUT, C.COL_PERSONAJE, C.COL_DIALOGO]
     ALL_COLUMNS = C.DF_COLUMN_ORDER
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     def process_dataframe(self, df: pd.DataFrame, file_source: str = "unknown") -> Tuple[pd.DataFrame, bool]:
