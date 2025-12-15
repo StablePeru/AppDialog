@@ -205,8 +205,8 @@ class PandasTableModel(QAbstractTableModel):
 
         if df_col_name in [C.COL_IN, C.COL_OUT]: self.force_time_validation_update_for_row(df_row_idx)
         if df_col_name == C.COL_SCENE: self.force_scene_validation_update_for_row(df_row_idx)
-        if df_col_name in [C.COL_IN, C.COL_OUT, C.COL_PERSONAJE, C.COL_DIALOGO, C.COL_EUSKERA]:
-            self._revalidate_all_lines()
+        # if df_col_name in [C.COL_IN, C.COL_OUT, C.COL_PERSONAJE, C.COL_DIALOGO, C.COL_EUSKERA]:
+        #     self._revalidate_all_lines()
         if df_col_name == C.COL_BOOKMARK:
             start_index, end_index = self.index(df_row_idx, 0), self.index(df_row_idx, self.columnCount() - 1)
             self.dataChanged.emit(start_index, end_index, [Qt.ItemDataRole.BackgroundRole])
@@ -260,7 +260,7 @@ class PandasTableModel(QAbstractTableModel):
         self._rebuild_scene_validation_after_insert(df_row_idx_to_insert_at)
         self._validate_scene_for_row(df_row_idx_to_insert_at)
         self.endInsertRows()
-        self._revalidate_all_lines()
+        # self._revalidate_all_lines()
         return True
 
     def _rebuild_time_validation_after_insert(self, inserted_df_idx: int):
@@ -284,7 +284,7 @@ class PandasTableModel(QAbstractTableModel):
             self._rebuild_time_validation_after_remove(df_row_idx)
             self._rebuild_scene_validation_after_remove(df_row_idx)
             self.endRemoveRows()
-            self._revalidate_all_lines()
+            # self._revalidate_all_lines()
             return removed_row_data
         return None
 
@@ -319,7 +319,7 @@ class PandasTableModel(QAbstractTableModel):
             self.endMoveRows()
             return False
         self.endMoveRows()
-        self._revalidate_all_lines()
+        # self._revalidate_all_lines()
         return True
 
     def get_next_id(self) -> int:
@@ -401,7 +401,7 @@ class PandasTableModel(QAbstractTableModel):
                     self.dataChanged.emit(scene_idx, scene_idx, [Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ToolTipRole])
         return None
     
-    def _revalidate_all_lines(self):
+    def revalidate_all_lines(self):
         if not hasattr(self, '_line_validation_status'): return
         old_error_indices = set(k for k, v in self._line_validation_status.items() if not v.get(C.COL_DIALOGO, True) or not v.get(C.COL_EUSKERA, True))
         new_status: Dict[int, Dict[str, bool]] = {}

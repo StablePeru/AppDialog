@@ -135,9 +135,13 @@ class TableWindow(QWidget):
         self._update_bookmark_indicator_timer = QTimer(self); self._update_bookmark_indicator_timer.setSingleShot(True); self._update_bookmark_indicator_timer.setInterval(0)
         self._recache_timer = QTimer(self); self._recache_timer.setSingleShot(True); self._recache_timer.setInterval(150)
         self._header_change_timer: Optional[QTimer] = None
+        self._heavy_validation_timer = QTimer(self)
+        self._heavy_validation_timer.setSingleShot(True)
+        self._heavy_validation_timer.setInterval(600) #
 
     def _connect_signals(self):
         self._resize_rows_timer.timeout.connect(self._perform_resize_rows_to_contents)
+        self._heavy_validation_timer.timeout.connect(self._perform_heavy_validation)
         self._update_error_indicator_timer.timeout.connect(self.update_time_error_indicator)
         self._update_scene_error_indicator_timer.timeout.connect(self.update_scene_error_indicator)
         self._update_line_error_indicator_timer.timeout.connect(self.update_line_error_indicator)
@@ -152,6 +156,7 @@ class TableWindow(QWidget):
             signal.connect(self._request_bookmark_indicator_update)
             signal.connect(self._request_line_error_indicator_update)
             signal.connect(self._request_recache_subtitles)
+            signal.connect(self._request_heavy_validation) 
         self.pandas_model.dataChanged.connect(self.on_model_data_changed)
         self.pandas_model.layoutChanged.connect(self.on_model_layout_changed)
         self.undo_stack.canUndoChanged.connect(self._update_undo_action_state)
@@ -661,6 +666,22 @@ class TableWindow(QWidget):
                 self.table_view.setUpdatesEnabled(True)
             
             self._rows_pending_resize.clear()
+
+    def _request_heavy_validation(self):
+            # Reinicia la cuenta atrás cada vez que se llama.
+            # Si escribes rápido, el timer no llega a 0 hasta que paras.
+            self._heavy_validation_timer.start()
+
+    def _perform_heavy_validation(self):
+        # Aquí es donde realmente llamamos al cálculo pesado del modelo
+        # Recuerda que le quitamos el guion bajo al método en el modelo
+        self.pandas_model.revalidate_all_lines()
+        
+        # Una vez recalculado, pedimos actualizar los indicadores visuales
+        self._request_line_error_indicator_update()
+        
+        # Forzamos un repintado de los colores de fondo (solo viewport)
+        self.table_view.viewport().update()
 
     # Crea este nuevo método auxiliar para facilitar la llamada global
     def request_global_resize_deferred(self):
