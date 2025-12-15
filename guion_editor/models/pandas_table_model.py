@@ -1,10 +1,11 @@
 # guion_editor/models/pandas_table_model.py
 import pandas as pd
-from PyQt6.QtCore import QAbstractTableModel, Qt, QModelIndex, pyqtSignal
+from PyQt6.QtCore import QAbstractTableModel, Qt, QModelIndex, pyqtSignal, QThread, QTimer, pyqtSlot
 from PyQt6.QtGui import QColor, QBrush
 from typing import Any, List, Dict, Optional, Tuple, Union
 
 from guion_editor import constants as C
+from guion_editor.workers.validation_worker import ValidationWorker
 
 # Colores de validación (apropiados para tema oscuro)
 VALID_TIME_BG_COLOR = QColor(Qt.GlobalColor.transparent) # Sin color de fondo para válido
@@ -17,6 +18,8 @@ LINE_ERROR_BG_COLOR = QColor(255, 165, 0, 60) # Naranja con algo de transparenci
 
 class PandasTableModel(QAbstractTableModel):
     layoutChangedSignal = pyqtSignal()
+    start_async_validation = pyqtSignal(pd.DataFrame)
+
 
     def __init__(self, column_map: Dict[int, str], view_column_names: List[str], parent=None):
         super().__init__(parent)
@@ -34,6 +37,23 @@ class PandasTableModel(QAbstractTableModel):
         self._time_validation_status: Dict[int, Union[bool, str]] = {}
         self._scene_validation_status: Dict[int, Union[bool, str]] = {}
         self._line_validation_status: Dict[int, Dict[str, bool]] = {}
+
+        # --- Async Validation Setup ---
+        self.validation_thread = QThread()
+        self.worker = ValidationWorker()
+        self.worker.moveToThread(self.validation_thread)
+        
+        # Connect signals
+        self.start_async_validation.connect(self.worker.validate)
+        self.worker.validation_finished.connect(self._on_validation_finished)
+        self.validation_thread.start()
+
+        # Debounce Timer
+        self._validation_debounce_timer = QTimer()
+        self._validation_debounce_timer.setSingleShot(True)
+        self._validation_debounce_timer.setInterval(300) # 300ms debounce
+        self._validation_debounce_timer.timeout.connect(self._trigger_async_validation)
+
         
     def _convert_ms_to_duration_str(self, ms: int) -> str:
         if ms < 0:
@@ -399,42 +419,45 @@ class PandasTableModel(QAbstractTableModel):
                     self.dataChanged.emit(scene_idx, scene_idx, [Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ToolTipRole])
         return None
     
+    def cleanup(self):
+        """Clean up thread on exit"""
+        self.validation_thread.quit()
+        self.validation_thread.wait()
+
     def revalidate_all_lines(self):
-        if not hasattr(self, '_line_validation_status'): return
+        """Triggers the debounced async validation."""
+        self._validation_debounce_timer.start()
+
+    def _trigger_async_validation(self):
+        """Captures current dataframe state and starts worker."""
+        if not self._dataframe.empty:
+            # Pass a copy to ensure thread safety
+            self.start_async_validation.emit(self._dataframe.copy())
+
+    @pyqtSlot(dict)
+    def _on_validation_finished(self, new_status: Dict[int, Dict[str, bool]]):
+        """Updates the model with results from the worker."""
         old_error_indices = set(k for k, v in self._line_validation_status.items() if not v.get(C.COL_DIALOGO, True) or not v.get(C.COL_EUSKERA, True))
-        new_status: Dict[int, Dict[str, bool]] = {}
-        df = self._dataframe
-        if not df.empty:
-            df_valid_times = df[(df[C.COL_IN] != C.DEFAULT_TIMECODE) | (df[C.COL_OUT] != C.DEFAULT_TIMECODE)]
-            for _, group_df in df_valid_times.groupby([C.COL_IN, C.COL_OUT]):
-                group_indices = group_df.index.tolist()
-                dialogo_error_indices = self._check_group_for_column(df, group_indices, C.COL_DIALOGO)
-                euskera_error_indices = self._check_group_for_column(df, group_indices, C.COL_EUSKERA)
-                for idx in group_indices:
-                    new_status[idx] = {C.COL_DIALOGO: idx not in dialogo_error_indices, C.COL_EUSKERA: idx not in euskera_error_indices}
+        
         self._line_validation_status = new_status
+        
         new_error_indices = set(k for k, v in self._line_validation_status.items() if not v.get(C.COL_DIALOGO, True) or not v.get(C.COL_EUSKERA, True))
         indices_to_update = old_error_indices.symmetric_difference(new_error_indices)
+        
         if indices_to_update:
-            view_col_dialogo, view_col_euskera = self.get_view_column_index(C.COL_DIALOGO), self.get_view_column_index(C.COL_EUSKERA)
+            view_col_dialogo = self.get_view_column_index(C.COL_DIALOGO)
+            view_col_euskera = self.get_view_column_index(C.COL_EUSKERA)
+            
+            # Batch updates if possible, but simplest is loop
+            # Optimization: could use layoutChanged if too many, but that resets everything
             for df_idx in indices_to_update:
                 if view_col_dialogo is not None:
-                    self.dataChanged.emit(self.index(df_idx, view_col_dialogo), self.index(df_idx, view_col_dialogo), [Qt.ItemDataRole.BackgroundRole])
+                    idx = self.index(df_idx, view_col_dialogo)
+                    if idx.isValid():
+                        self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.BackgroundRole])
                 if view_col_euskera is not None:
-                    self.dataChanged.emit(self.index(df_idx, view_col_euskera), self.index(df_idx, view_col_euskera), [Qt.ItemDataRole.BackgroundRole])
-
-    def _check_group_for_column(self, df: pd.DataFrame, group_indices: List[int], col_to_check: str) -> set:
-        total_lines_in_group, lines_per_char, rows_per_char = 0, {}, {}
-        error_indices_for_this_column = set()
-        for idx in group_indices:
-            text, char = str(df.at[idx, col_to_check]), str(df.at[idx, C.COL_PERSONAJE])
-            line_count = (text.count('\n') + 1) if text.strip() else 0
-            total_lines_in_group += line_count
-            lines_per_char[char] = lines_per_char.get(char, 0) + line_count
-            if char not in rows_per_char: rows_per_char[char] = []
-            rows_per_char[char].append(idx)
-        character_error_found = False
-        for char, count in lines_per_char.items():
-            if count >= 6: character_error_found = True; error_indices_for_this_column.update(rows_per_char[char])
-        if not character_error_found and total_lines_in_group >= 11: error_indices_for_this_column.update(group_indices)
-        return error_indices_for_this_column
+                    idx = self.index(df_idx, view_col_euskera)
+                    if idx.isValid():
+                        self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.BackgroundRole])
+                
+    # _check_group_for_column removed as it is now in ValidationWorker

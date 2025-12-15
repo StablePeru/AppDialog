@@ -18,7 +18,8 @@ class GuionManager:
     def process_dataframe(self, df: pd.DataFrame, file_source: str = "unknown") -> Tuple[pd.DataFrame, bool]:
         missing_cols = [col for col in self.BASE_COLUMNS if col not in df.columns]
         if missing_cols:
-            pass
+            for col in missing_cols:
+                df[col] = ""
 
         if C.COL_ID not in df.columns:
             if not df.empty:
@@ -73,9 +74,9 @@ class GuionManager:
             header_data = {}
             if 'Header' in xls.sheet_names:
                 try:
-                    header_df = pd.read_excel(xls, sheet_name='Header', header=None, index_col=0)
-                    if not header_df.empty:
-                         header_data = header_df[1].to_dict()
+                    header_df = pd.read_excel(xls, sheet_name='Header', header=None)
+                    if not header_df.empty and 1 in header_df.columns:
+                         header_data = header_df.set_index(0)[1].to_dict()
                          for key in ["reference_number", "chapter_number"]:
                              if key in header_data and pd.notna(header_data[key]):
                                  header_data[key] = str(int(header_data[key])) if isinstance(header_data[key], (int, float)) else str(header_data[key])

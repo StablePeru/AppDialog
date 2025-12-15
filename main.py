@@ -21,6 +21,8 @@ from guion_editor.widgets.config_dialog import ConfigDialog
 from guion_editor.widgets.shortcut_config_dialog import ShortcutConfigDialog
 from guion_editor.utils.shortcut_manager import ShortcutManager
 from guion_editor.utils.guion_manager import GuionManager
+from guion_editor.widgets.toast_widget import ToastWidget
+
 from guion_editor.widgets.advanced_srt_export_dialog import AdvancedSrtExportDialog
 from guion_editor import constants as C
 from guion_editor.utils.paths import resource_path, get_safe_save_dir, get_user_config_dir
@@ -89,6 +91,7 @@ class MainWindow(QMainWindow):
         self.guion_manager = GuionManager()
         self.actions = {} 
         self.find_replace_dialog_instance = None
+        self.toast_widget = ToastWidget(self)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -151,13 +154,11 @@ class MainWindow(QMainWindow):
                 header_data = self.tableWindow._get_header_data_from_ui()
                 self.guion_manager.save_to_json(recovery_path, current_df, header_data)
                 
-                if self.statusBar():
-                    self.statusBar().showMessage(f"Progreso autoguardado en {autosave_filename}", 3000)
+                self.show_toast(f"Progreso autoguardado en {autosave_filename}")
             
             except (OSError, IOError) as e:
                 logging.error(f"Error de sistema de archivos durante el autoguardado: {e}")
-                if self.statusBar():
-                    self.statusBar().showMessage(f"Fallo en el autoguardado: {e}", 5000)
+                self.show_toast(f"Fallo en el autoguardado: {e}")
             except Exception as e:
                 logging.error(f"Error inesperado durante el autoguardado: {e}", exc_info=True)
 
@@ -195,7 +196,7 @@ class MainWindow(QMainWindow):
                 recovery_path = os.path.join(TARGET_DIR, chosen_file_to_restore)
                 self.tableWindow.load_from_json_path(recovery_path)
                 self.tableWindow.undo_stack.setClean(False)
-                QMessageBox.information(self, "Éxito", f"El guion '{chosen_file_to_restore}' ha sido restaurado.")
+                self.show_toast(f"El guion '{chosen_file_to_restore}' ha sido restaurado.")
                 
                 try:
                     os.remove(recovery_path)
@@ -215,10 +216,28 @@ class MainWindow(QMainWindow):
             
             if os.path.exists(recovery_path):
                 os.remove(recovery_path)
-                logging.info(f"Archivo de recuperación eliminado: {recovery_path}")
         except OSError as e:
             logging.error(f"Error al eliminar el archivo de recuperación: {e}")
 
+    def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
+        if not object_name:
+             object_name = text.lower().replace("&", "").replace(" ", "_").replace("/", "_").replace(":", "").replace("(", "").replace(")", "")
+
+        action = QAction(text, self)
+        action.setObjectName(object_name)
+        if icon_name:
+            action.setIcon(get_icon(icon_name))
+        
+        if default_shortcut: 
+            action.setShortcut(QKeySequence(default_shortcut))
+
+        if slot:
+            action.triggered.connect(slot)
+
+        self.actions[object_name] = action
+        if default_shortcut:
+            self.addAction(action)
+        return action
 
     def _update_initial_undo_redo_actions_state(self) -> None:
         if hasattr(self.tableWindow, 'undo_stack'):
@@ -227,7 +246,6 @@ class MainWindow(QMainWindow):
             if C.ACT_EDIT_REDO in self.actions:
                  self.actions[C.ACT_EDIT_REDO].setEnabled(self.tableWindow.undo_stack.canRedo())
 
-    # --- MÉTODO MODIFICADO PARA SOPORTAR CARPETA SUBS ---
     def save_script_directly(self) -> bool:
         # Determinamos el directorio basado en el nombre del archivo actual
         current_name = self.tableWindow.current_script_name or ""
@@ -244,8 +262,6 @@ class MainWindow(QMainWindow):
         try:
             if not os.path.exists(TARGET_DIR):
                 os.makedirs(TARGET_DIR)
-                if self.statusBar():
-                    self.statusBar().showMessage(f"Directorio creado: {TARGET_DIR}", 4000)
         except OSError as e:
             QMessageBox.critical(self, "Error de Directorio",
                                  f"No se pudo crear el directorio de destino:\n{TARGET_DIR}\n\nError: {e}")
@@ -281,11 +297,9 @@ class MainWindow(QMainWindow):
             
             self._delete_recovery_file()
 
-            if self.statusBar():
-                self.statusBar().showMessage(f"Guion guardado en: {full_path}", 5000)
+            self.show_toast(f"Guardado: {filename}")
             
             self.add_to_recent_files(full_path)
-            
             return True
         except Exception as e:
             logging.error(f"Error al guardar el archivo en {full_path}", exc_info=True)
@@ -295,7 +309,6 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
 
-    # --- NUEVO MÉTODO PARA GENERAR VERSIÓN SUB ---
     def create_sub_version_and_clean(self) -> None:
         """
         1. Pregunta qué columna determina si la fila se borra.
@@ -368,9 +381,10 @@ class MainWindow(QMainWindow):
         # 4. Cargar el nuevo archivo
         self.tableWindow.load_from_excel_path(new_path)
         
-        QMessageBox.information(self, "Éxito", f"Se ha creado y cargado la versión de subtítulos:\n\n{new_filename}\n\nUbicación: {self.SUBS_DIR}")
+        self.show_toast(f"Versión SUB creada y cargada: {new_filename}")
 
     def create_all_actions(self) -> None:
+
         # File Menu
         self.add_managed_action("Abrir Video", self.open_video_file, "Ctrl+O", "open_video_icon.svg", C.ACT_FILE_OPEN_VIDEO)
         self.add_managed_action("Cargar M+E (Audio)", self.load_me_audio_file, "Ctrl+Shift+M", "load_audio_icon.svg", C.ACT_FILE_LOAD_ME)
@@ -442,26 +456,11 @@ class MainWindow(QMainWindow):
         # Usamos el nuevo diálogo avanzado que incluye la lógica de tu programa externo
         dialog = AdvancedSrtExportDialog(self.tableWindow, get_icon_func=get_icon, parent=self)
         dialog.exec()
-            
-    def add_managed_action(self, text: str, slot, default_shortcut: str = None, icon_name: str = None, object_name: str = None):
-        if not object_name:
-            object_name = text.lower().replace("&", "").replace(" ", "_").replace("/", "_").replace(":", "").replace("(", "").replace(")", "")
-
-        action = QAction(text, self)
-        action.setObjectName(object_name)
-        if icon_name:
-            action.setIcon(get_icon(icon_name))
-        
-        if default_shortcut: 
-            action.setShortcut(QKeySequence(default_shortcut))
-
-        if slot:
-            action.triggered.connect(slot)
-
-        self.actions[object_name] = action
-        if default_shortcut:
-            self.addAction(action)
-        return action
+    
+    def show_toast(self, message: str):
+        if not hasattr(self, 'toast_widget'):
+            self.toast_widget = ToastWidget(self)
+        self.toast_widget.show_message(message)
     
     def call_adjust_dialogs(self, checked=None):
         if self.tableWindow:
