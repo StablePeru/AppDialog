@@ -43,5 +43,9 @@
     - Sync signals (`positionChanged`) trigger updates in the TableView to highlight active lines (karaoke style or scroll-sync).
 
 ## ⚠️ Critical Context
-- **"Takeo" Feature:** Seems to refer to an optimization or specific automated utility within the app (`TakeoDialog`, `Takeo.py`).
-- **Filesystem:** The app interacts heavily with the local filesystem (`W:\Z_JSON\...`), implying it is part of a specific studio pipeline or workflow.
+- **"Takeo" Feature:** "Takeo" refers to specific dialog optimization features. The legacy `Takeo.py` standalone script has been archived in `ZANTIGUO/` as its functionality is integrated into `main.py` and `guion_editor/`.
+- **Legacy Isolation:** A `ZANTIGUO/` directory exists to hold deprecated files (`install.txt`, old docs) to keep the root clean without deleting history.
+- **Code Organization:**
+    - `guion_editor/constants.py`: UI-related constants (Colors, Geometries).
+    - `guion_editor/constants_logic.py`: core logic constants (Regex, Timecode defaults, Table Column names).
+    - **Filesystem:** The app interacts heavily with the local filesystem (`W:\Z_JSON\...`), implying it is part of a specific studio pipeline or workflow.

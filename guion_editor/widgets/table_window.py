@@ -714,28 +714,26 @@ class TableWindow(QWidget):
         
         rows_to_resize = []
         
+        # Obtener índices de columnas de texto (fuera del bucle)
+        col_dialogo = self.pandas_model.get_view_column_index(C.COL_DIALOGO)
+        col_euskera = self.pandas_model.get_view_column_index(C.COL_EUSKERA)
+        col_oharrak = self.pandas_model.get_view_column_index(C.COL_OHARRAK)
+        col_personaje = self.pandas_model.get_view_column_index(C.COL_PERSONAJE)
+        text_cols = [c for c in [col_dialogo, col_euskera, col_oharrak] if c is not None]
+
+        # Pre-calcular rango de cambio
+        change_start = top_left_index.column()
+        change_end = bottom_right_index.column()
+
+        # Check de autocompletado fuera del bucle de filas (solo depende de columnas)
+        should_update_completer = False
+        if col_personaje is not None and change_start <= col_personaje <= change_end:
+            should_update_completer = True
+
         for row in range(top_left_index.row(), bottom_right_index.row() + 1):
             # Iteramos para ver qué columnas cambiaron
-            # Nota: top_left_index.column() nos da la columna inicial del rango
-            # pero necesitamos saber si alguna columna de texto fue afectada.
-            
-            # Comprobación rápida: si el cambio afecta a columnas de texto, añadimos la fila
-            # Como dataChanged a veces viene por rango, asumimos que si el rango toca
-            # columnas de texto, la fila necesita resize.
-            
-            # Obtener índices de columnas de texto
-            col_dialogo = self.pandas_model.get_view_column_index(C.COL_DIALOGO)
-            col_euskera = self.pandas_model.get_view_column_index(C.COL_EUSKERA)
-            col_oharrak = self.pandas_model.get_view_column_index(C.COL_OHARRAK)
-            col_personaje = self.pandas_model.get_view_column_index(C.COL_PERSONAJE)
-            
-            text_cols = [c for c in [col_dialogo, col_euskera, col_oharrak] if c is not None]
             
             # Verificamos si el rango de cambio solapa con alguna columna de texto
-            # Rango del cambio: top_left_index.column() hasta bottom_right_index.column()
-            change_start = top_left_index.column()
-            change_end = bottom_right_index.column()
-            
             needs_resize = False
             for t_col in text_cols:
                 if change_start <= t_col <= change_end:
@@ -745,9 +743,8 @@ class TableWindow(QWidget):
             if needs_resize:
                 rows_to_resize.append(row)
 
-            # Lógica existente para autocompletado de personajes
-            if col_personaje is not None and change_start <= col_personaje <= change_end:
-                self.update_character_completer_and_notify()
+        if should_update_completer:
+             self.update_character_completer_and_notify()
 
         # --- APLICACIÓN DE LA MEJORA ---
         if rows_to_resize:
@@ -1104,7 +1101,7 @@ class TableWindow(QWidget):
         current_series = df[C.COL_PERSONAJE].astype(str)
         
         # USAMOS EXACTAMENTE LA MISMA REGEX QUE EN EL COMANDO
-        cleaned_series = current_series.str.replace(r'\s*\(.*?\)', '', regex=True).str.strip()
+        cleaned_series = current_series.str.replace(C.REGEX_PARENTHETICALS, '', regex=True).str.strip()
         
         # Comprobar diferencias
         has_changes = (current_series != cleaned_series).any()
@@ -1276,47 +1273,27 @@ class TableWindow(QWidget):
         if not target_cols:
             return df
 
-        def clean_text(text):
-            if pd.isna(text): return ""
-            txt_str = str(text)
-            txt_str = re.sub(r'\([^)]*\)', '', txt_str) # Eliminar paréntesis
-            return " ".join(txt_str.split()) # Eliminar espacios extra
 
         # 1. Limpiar texto en ambas columnas (siempre se limpian ambas)
-        for col in target_cols:
-            df[col] = df[col].apply(clean_text)
+        def clean_series(series):
+            return series.astype(str).str.replace(C.REGEX_PARENTHETICALS, '', regex=True).str.strip()
 
-        # 2. Calcular máscara de filas a borrar
-        rows_to_drop_mask = pd.Series(False, index=df.index)
-        
-        for index, row in df.iterrows():
-            # Comprobamos si las celdas están vacías tras la limpieza
-            dialogo_is_empty = True
-            if has_dialogo and row[C.COL_DIALOGO] and str(row[C.COL_DIALOGO]).strip():
-                dialogo_is_empty = False
-                
-            euskera_is_empty = True
-            if has_euskera and row[C.COL_EUSKERA] and str(row[C.COL_EUSKERA]).strip():
-                euskera_is_empty = False
+        if has_dialogo:
+            df[C.COL_DIALOGO] = clean_series(df[C.COL_DIALOGO])
+        if has_euskera:
+            df[C.COL_EUSKERA] = clean_series(df[C.COL_EUSKERA])
 
-            # Aplicar lógica según el modo elegido
-            should_drop = False
-            
-            if cleanup_mode == "EUSKERA":
-                # Si falta Euskera, borramos, sin importar el diálogo original
-                if euskera_is_empty:
-                    should_drop = True
-            elif cleanup_mode == "DIALOGO":
-                # Si falta Diálogo, borramos
-                if dialogo_is_empty:
-                    should_drop = True
-            else: # Mode "AMBAS"
-                # Solo borramos si faltan los dos
-                if dialogo_is_empty and euskera_is_empty:
-                    should_drop = True
-            
-            if should_drop:
-                rows_to_drop_mask[index] = True
+        # 2. Calcular máscara de filas a borrar (Vectorizado)
+        # Inicializamos máscaras como True (que significa "vacío")
+        dialogo_is_empty_mask = (df[C.COL_DIALOGO].str.len() == 0) if has_dialogo else pd.Series(True, index=df.index)
+        euskera_is_empty_mask = (df[C.COL_EUSKERA].str.len() == 0) if has_euskera else pd.Series(True, index=df.index)
+
+        if cleanup_mode == "EUSKERA":
+            rows_to_drop_mask = euskera_is_empty_mask
+        elif cleanup_mode == "DIALOGO":
+            rows_to_drop_mask = dialogo_is_empty_mask
+        else: # AMBAS
+            rows_to_drop_mask = dialogo_is_empty_mask & euskera_is_empty_mask
 
         # 3. Eliminar filas
         df_cleaned = df[~rows_to_drop_mask].reset_index(drop=True)

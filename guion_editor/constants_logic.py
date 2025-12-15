@@ -1,7 +1,17 @@
 # guion_editor/constants_logic.py
 
 # --- Constantes Globales de Lógica ---
+# --- Constantes Globales de Lógica ---
 FPS = 25.0
+DEFAULT_TIMECODE = "00:00:00:00"
+DEFAULT_SCENE = "1"
+MAX_INTERVENTION_DURATION_MS = 30000  # 30 segundos
+DEFAULT_LINE_LENGTH = 60
+
+# --- Regex Patterns ---
+# Captura texto entre paréntesis, incluyendo posibles espacios anteriores
+REGEX_PARENTHETICALS = r'\s*\(.*?\)'
+
 
 # --- Nombres de Columnas del DataFrame ---
 COL_ID = 'ID'

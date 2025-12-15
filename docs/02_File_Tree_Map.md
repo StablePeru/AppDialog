@@ -1,57 +1,59 @@
-# 🌳 File Tree Map
+# 📂 Project File Tree Map
 
-> **Snapshot Date:** 2025-12-15
-> **Scope:** Critical Application Files
+This document provides an annotated view of the project structure as of the latest update.
 
-This map annotates the project structure to help agents navigate the codebase.
+## 📦 Root Directory: `TakeoAPP/`
+| File / Directory | Description |
+| :--- | :--- |
+| `main.py` | **Entry Point**. Initializes QApplication, styles, and MainWindow. |
+| `requirements.txt` | Dependencies list (PyQt6, pandas, openpyxl, etc.). |
+| `setup.py` | Build configuration for PyInstaller/Distribution. |
+| `pytest.ini` | Configuration for pytest. |
+| `README.md` | Standard Github README (User-facing generic info). |
+| `LICENSE.md` | License info. |
+| `.gitignore` | Git ignore rules (includes `ZANTIGUO/`). |
+| `ZANTIGUO/` | **Archive**. Contains legacy/unused files (`Takeo.py`, `install.txt`, etc.). |
+| `docs/` | **Living Documentation System**. |
+| `guion_editor/` | **Core Package**. Contains all application logic. |
 
-```text
-TakeoAPP/
-├── main.py                     # 🚀 Application Entry Point (MainWindow, App startup)
-├── Takeo.py                    # 🛠️ Standalone/Legacy utility script (Check strict usage)
-├── requirements.txt            # 📦 Python Dependencies (PyQt6, Pandas, OpenPyXL)
-├── pubspec.yaml                # ⚠️ Trace of Flutter/Dart? (Likely irrelevant or misidentified in context, verify if active)
-├── README.md                   # 📄 Setup instructions and feature list
-│
-├── docs/                       # 📂 Living Documentation (You are here)
-│   ├── 00_Context_Bank_Index.md
-│   ├── 01_Project_Manifest.md
-│   └── 02_File_Tree_Map.md
-│
-└── guion_editor/               # 🧠 CORE PACKAGE: All application logic
-    ├── constants.py            # 🔢 Global constants (Action names, columns, UI strings)
-    ├── constants_logic.py      # 🔢 Logic-specific constants
-    │
-    ├── widgets/                # 🖼️ GUI Components (Views & Dialogs)
-    │   ├── table_window.py     # ⭐ MAIN EDITOR: Grid view logic, data binding, shortcuts
-    │   ├── video_player_widget.py # ⭐ VIDEO PLAYER: Media controls, sync logic
-    │   ├── cast_window.py      # Character management UI
-    │   ├── config_dialog.py    # Settings dialog (fonts, behavior)
-    │   ├── takeo_dialog.py     # "Takeo" feature specific dialog
-    │   ├── find_replace_dialog.py # Search/Replace functionality
-    │   └── advanced_srt_export_dialog.py # Subtitle export logic
-    │
-    ├── models/                 # 💾 Logic / Data Layer
-    │   └── [Likely PandasModel] # Qt AbstractItemModel wrapper for Pandas DataFrame
-    │
-    ├── delegates/              # 🎨 Custom Item Delegates
-    │   └── [Renderers]         # Custom painting for Timecode cells, active rows, etc.
-    │
-    ├── utils/                  # 🔧 Helpers
-    │   ├── guion_manager.py    # I/O Helper (Load/Save JSON/Excel)
-    │   ├── shortcut_manager.py # Keyboard shortcut handling system
-    │   └── paths.py            # Filesystem path resolvers (resource_path)
-    │
-    ├── styles/                 # 💅 Assets & Styling
-    │   └── icons/              # SVG/PNG Icons used in the UI
-    │
-    └── commands/               # ⚡ Command Pattern
-        └── [Undo/Redo]         # Likely QUndoCommand implementations for Script edits
-```
+---
 
-## 🔍 Key Locations for Agents
+## 🏗️ Core Package: `guion_editor/`
 
-- **Modifying the Grid/Editor:** `guion_editor/widgets/table_window.py` is the monolith controlling the main editing experience.
-- **Modifying Video Behavior:** `guion_editor/widgets/video_player_widget.py`.
-- **Data Structure Changes:** Check `guion_editor/models` first (to see how DataFrame is exposed) and `guion_editor/utils/guion_manager.py` (for serialization).
-- **Adding Shortcuts:** `guion_editor/utils/shortcut_manager.py` + `main.py` entry.
+### 🔹 Logic & Constants
+| File | Description |
+| :--- | :--- |
+| `constants.py` | **UI Constants**. Colors, dimensions, font sizes. |
+| `constants_logic.py` | **Logic Constants**. Regex patterns, Column Names, Timecode defaults. |
+| `shortcuts.json` | JSON mapping for keyboard shortcuts. |
+
+### 🔹 Models (Data Layer)
+| File | Description |
+| :--- | :--- |
+| `models/pandas_table_model.py` | **Core Data Model**. Wraps Pandas DataFrame for Qt TableView. Handles validation. |
+
+### 🔹 Widgets (UI Layer)
+| File | Description |
+| :--- | :--- |
+| `widgets/table_window.py` | **Main Editor**. The central spreadsheet-like view. Logic for row ops, regex cleaning. |
+| `widgets/video_player_widget.py` | **Video Player**. Handles playback and timecode sync using `C.FPS`. |
+| `widgets/takeo_dialog.py` | **Takeo Tool**. Dialog optimization utility (integrated from legacy `Takeo.py`). |
+| `widgets/time_code_edit.py` | Custom widget for TimeCode entry. |
+| `widgets/waveform_widget.py` | Audio visualization widget. |
+
+### 🔹 Utilities
+| File | Description |
+| :--- | :--- |
+| `utils/dialog_utils.py` | string manipulation, timecode math. |
+| `commands/undo_commands.py` | **Undo/Redo Logic**. Implements `QUndoCommand` for all table operations. |
+
+---
+
+## 📜 Documentation: `docs/`
+| File | Description |
+| :--- | :--- |
+| `00_Context_Bank_Index.md` | Master Index of this documentation. |
+| `01_Project_Manifest.md` | High-level summary, tech stack, and business purpose. |
+| `02_File_Tree_Map.md` | **(This File)**. Map of the codebase. |
+
+> **Note:** Files inside `ZANTIGUO/` are not documented here as they are considered archived.

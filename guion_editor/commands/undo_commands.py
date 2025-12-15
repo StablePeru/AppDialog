@@ -62,7 +62,7 @@ class AddRowCommand(QUndoCommand):
             scene = str(current_df.at[last_df_idx, C.COL_SCENE])
             char = str(current_df.at[last_df_idx, C.COL_PERSONAJE])
 
-        self.new_row_data = {C.COL_ID: self.new_row_id, C.COL_SCENE: scene, C.COL_IN: '00:00:00:00', C.COL_OUT: '00:00:00:00', C.COL_PERSONAJE: char, C.COL_DIALOGO: '', C.COL_EUSKERA: ''}
+        self.new_row_data = {C.COL_ID: self.new_row_id, C.COL_SCENE: scene, C.COL_IN: C.DEFAULT_TIMECODE, C.COL_OUT: C.DEFAULT_TIMECODE, C.COL_PERSONAJE: char, C.COL_DIALOGO: '', C.COL_EUSKERA: ''}
         self.tw.pandas_model.insert_row_data(self.df_row_insert_at, self.new_row_data)
         self.tw.table_view.selectRow(self.view_row_insert_at)
         idx_to_scroll = self.tw.pandas_model.index(self.view_row_insert_at, 0)
@@ -558,7 +558,7 @@ class TrimAllCharactersCommand(QUndoCommand):
         # --- LÓGICA DE LIMPIEZA VECTORIZADA (Pandas) ---
         # 1. str.replace con regex=True elimina ' (CONT'D)', ' (O.S.)', etc.
         # 2. str.strip elimina espacios sobrantes resultantes.
-        cleaned_series = current_series.str.replace(r'\s*\(.*?\)', '', regex=True).str.strip()
+        cleaned_series = current_series.str.replace(C.REGEX_PARENTHETICALS, '', regex=True).str.strip()
         # -----------------------------------------------
 
         # Detectamos qué filas cambian realmente
@@ -715,8 +715,8 @@ class ResetTimecodesCommand(QUndoCommand):
         if self.original_ins is None: self.original_ins = df[C.COL_IN].copy()
         if self.original_outs is None: self.original_outs = df[C.COL_OUT].copy()
             
-        df[C.COL_IN] = "00:00:00:00"
-        df[C.COL_OUT] = "00:00:00:00"
+        df[C.COL_IN] = C.DEFAULT_TIMECODE
+        df[C.COL_OUT] = C.DEFAULT_TIMECODE
         
         view_col_in = model.get_view_column_index(C.COL_IN)
         view_col_out = model.get_view_column_index(C.COL_OUT)

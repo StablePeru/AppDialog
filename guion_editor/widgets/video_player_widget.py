@@ -14,13 +14,14 @@ from PyQt6.QtGui import QKeySequence, QFont, QIcon, QKeyEvent, QFontMetrics, QMo
 
 from .time_code_edit import TimeCodeEdit
 from guion_editor.widgets.waveform_widget import WaveformWidget
+from guion_editor import constants as C
 
 class VideoPlayerWidget(QWidget):
     in_out_signal = pyqtSignal(str, int)
     out_released = pyqtSignal()
     detach_requested = pyqtSignal(QWidget)
 
-    FPS_RATE = 25.0
+    # FPS_RATE removed, using C.FPS
 
     def __init__(self, get_icon_func=None, main_window=None):
         super().__init__()
@@ -632,10 +633,10 @@ class VideoPlayerWidget(QWidget):
             
             h, m, s, f = map(int, parts)
             
-            if not (0 <= m < 60 and 0 <= s < 60 and 0 <= f < self.FPS_RATE):
-                raise ValueError(f"Valores de tiempo inválidos (MM:SS deben ser < 60, FF < {int(self.FPS_RATE)}).")
+            if not (0 <= m < 60 and 0 <= s < 60 and 0 <= f < C.FPS):
+                raise ValueError(f"Valores de tiempo inválidos (MM:SS deben ser < 60, FF < {int(C.FPS)}).")
 
-            msecs_per_frame = 1000.0 / self.FPS_RATE
+            msecs_per_frame = 1000.0 / C.FPS
             target_msecs = int(round(((h * 3600 + m * 60 + s) * 1000) + (f * msecs_per_frame)))
 
             duration_msecs = self.media_player.duration()
@@ -734,12 +735,12 @@ class VideoPlayerWidget(QWidget):
     def _convert_ms_to_tc_parts(self, position_ms: int) -> tuple[int, int, int, int]:
         hours, minutes, seconds, frames = 0, 0, 0, 0
         if position_ms >= 0:
-            msecs_per_frame = 1000.0 / self.FPS_RATE
+            msecs_per_frame = 1000.0 / C.FPS
             total_seconds, msecs = divmod(position_ms, 1000)
             hours, rem_seconds = divmod(total_seconds, 3600)
             minutes, seconds = divmod(rem_seconds, 60)
             frames = int(round(msecs / msecs_per_frame))
-            if frames >= self.FPS_RATE: frames = int(self.FPS_RATE - 1)
+            if frames >= C.FPS: frames = int(C.FPS - 1)
         return int(hours), int(minutes), int(seconds), int(frames)
 
     def update_time_code_display(self) -> None:

@@ -4,7 +4,7 @@ from docx import Document
 import logging
 from guion_editor import constants_logic as C
 
-def ajustar_dialogo(dialogo, max_chars=60):
+def ajustar_dialogo(dialogo, max_chars=C.DEFAULT_LINE_LENGTH):
     if not dialogo:
         return ""
 
@@ -38,7 +38,7 @@ def ajustar_dialogo(dialogo, max_chars=60):
 
 def contar_caracteres(dialogo):
     # Eliminar contenido entre parentesis para el conteo
-    dialogo_limpio = re.sub(r'\([^)]*\)', '', dialogo)
+    dialogo_limpio = re.sub(C.REGEX_PARENTHETICALS, '', dialogo)
     return len(dialogo_limpio)
 
 def es_nombre_personaje(texto):
@@ -95,8 +95,8 @@ def guardar_dialogo(guion, personaje, dialogo_acumulado):
     texto_completo = " ".join(dialogo_acumulado) if dialogo_acumulado else ""
     dialogo_ajustado = ajustar_dialogo(texto_completo)
     guion.append({
-        C.COL_IN: '00:00:00:00',
-        C.COL_OUT: '00:00:00:00',
+        C.COL_IN: C.DEFAULT_TIMECODE,
+        C.COL_OUT: C.DEFAULT_TIMECODE,
         C.COL_PERSONAJE: personaje,
         C.COL_DIALOGO: dialogo_ajustado
     })

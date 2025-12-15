@@ -12,7 +12,8 @@ INVALID_TIME_BG_COLOR = QColor(139, 0, 0) # Rojo oscuro para inválido
 BOOKMARK_BG_COLOR = QColor(221, 211, 237, 40) # Lila claro con transparencia
 LINE_ERROR_BG_COLOR = QColor(255, 165, 0, 60) # Naranja con algo de transparencia
 
-MAX_INTERVENTION_DURATION_MS = 30000 # Límite de 30 segundos en milisegundos
+# MAX_INTERVENTION_DURATION_MS removed, using C.MAX_INTERVENTION_DURATION_MS
+
 
 class PandasTableModel(QAbstractTableModel):
     layoutChangedSignal = pyqtSignal()
@@ -47,9 +48,9 @@ class PandasTableModel(QAbstractTableModel):
                 if df_col_name == C.COL_ID:
                     target_df[df_col_name] = pd.Series(dtype='Int64')
                 elif df_col_name in [C.COL_IN, C.COL_OUT]:
-                    target_df[df_col_name] = "00:00:00:00"
+                    target_df[df_col_name] = C.DEFAULT_TIMECODE
                 elif df_col_name == C.COL_SCENE:
-                    target_df[df_col_name] = "1"
+                    target_df[df_col_name] = C.DEFAULT_SCENE
                 elif df_col_name == C.COL_OHARRAK:
                     target_df[df_col_name] = ""
                 elif df_col_name == C.COL_BOOKMARK:
@@ -88,7 +89,7 @@ class PandasTableModel(QAbstractTableModel):
         for i in range(len(self._dataframe)):
             self._validate_in_out_for_row(i)
             self._validate_scene_for_row(i)
-        self._revalidate_all_lines()
+        self.revalidate_all_lines()
         self.endResetModel()
         self.layoutChangedSignal.emit()
 
@@ -205,8 +206,6 @@ class PandasTableModel(QAbstractTableModel):
 
         if df_col_name in [C.COL_IN, C.COL_OUT]: self.force_time_validation_update_for_row(df_row_idx)
         if df_col_name == C.COL_SCENE: self.force_scene_validation_update_for_row(df_row_idx)
-        # if df_col_name in [C.COL_IN, C.COL_OUT, C.COL_PERSONAJE, C.COL_DIALOGO, C.COL_EUSKERA]:
-        #     self._revalidate_all_lines()
         if df_col_name == C.COL_BOOKMARK:
             start_index, end_index = self.index(df_row_idx, 0), self.index(df_row_idx, self.columnCount() - 1)
             self.dataChanged.emit(start_index, end_index, [Qt.ItemDataRole.BackgroundRole])
@@ -242,8 +241,8 @@ class PandasTableModel(QAbstractTableModel):
         for col_name in self.df_column_order:
             if col_name not in new_row_series or pd.isna(new_row_series[col_name]):
                 if col_name == C.COL_ID: new_row_series[col_name] = self.get_next_id()
-                elif col_name in [C.COL_IN, C.COL_OUT]: new_row_series[col_name] = "00:00:00:00"
-                elif col_name == C.COL_SCENE: new_row_series[col_name] = "1"
+                elif col_name in [C.COL_IN, C.COL_OUT]: new_row_series[col_name] = C.DEFAULT_TIMECODE
+                elif col_name == C.COL_SCENE: new_row_series[col_name] = C.DEFAULT_SCENE
                 elif col_name in [C.COL_EUSKERA, C.COL_OHARRAK]: new_row_series[col_name] = ""
                 elif col_name == C.COL_BOOKMARK: new_row_series[col_name] = False
                 else: new_row_series[col_name] = ""
@@ -284,7 +283,6 @@ class PandasTableModel(QAbstractTableModel):
             self._rebuild_time_validation_after_remove(df_row_idx)
             self._rebuild_scene_validation_after_remove(df_row_idx)
             self.endRemoveRows()
-            # self._revalidate_all_lines()
             return removed_row_data
         return None
 
@@ -361,8 +359,8 @@ class PandasTableModel(QAbstractTableModel):
             else:
                 duration_ms = out_ms - in_ms
                 if duration_ms < 0: validation_result = f"Error: OUT ({out_tc}) es anterior a IN ({in_tc})."
-                elif duration_ms > MAX_INTERVENTION_DURATION_MS:
-                    validation_result = f"Duración ({duration_ms / 1000.0:.1f}s) excede el máximo ({MAX_INTERVENTION_DURATION_MS / 1000.0:.0f}s)."
+                elif duration_ms > C.MAX_INTERVENTION_DURATION_MS:
+                    validation_result = f"Duración ({duration_ms / 1000.0:.1f}s) excede el máximo ({C.MAX_INTERVENTION_DURATION_MS / 1000.0:.0f}s)."
             self._time_validation_status[df_row_idx] = validation_result
         elif df_row_idx in self._time_validation_status: del self._time_validation_status[df_row_idx]
 
@@ -407,7 +405,7 @@ class PandasTableModel(QAbstractTableModel):
         new_status: Dict[int, Dict[str, bool]] = {}
         df = self._dataframe
         if not df.empty:
-            df_valid_times = df[(df[C.COL_IN] != "00:00:00:00") | (df[C.COL_OUT] != "00:00:00:00")]
+            df_valid_times = df[(df[C.COL_IN] != C.DEFAULT_TIMECODE) | (df[C.COL_OUT] != C.DEFAULT_TIMECODE)]
             for _, group_df in df_valid_times.groupby([C.COL_IN, C.COL_OUT]):
                 group_indices = group_df.index.tolist()
                 dialogo_error_indices = self._check_group_for_column(df, group_indices, C.COL_DIALOGO)
