@@ -15,6 +15,7 @@ from PyQt6.QtGui import QKeySequence, QFont, QIcon, QKeyEvent, QFontMetrics, QMo
 from .time_code_edit import TimeCodeEdit
 from guion_editor.widgets.waveform_widget import WaveformWidget
 from guion_editor import constants as C
+from guion_editor.utils.theme_manager import theme_manager
 
 class VideoPlayerWidget(QWidget):
     in_out_signal = pyqtSignal(str, int)
@@ -69,6 +70,17 @@ class VideoPlayerWidget(QWidget):
             model.layoutChanged.connect(self._refresh_subtitle_timeline)
             if hasattr(self.table_window_ref, '_recache_timer'):
                 self.table_window_ref._recache_timer.timeout.connect(self._refresh_subtitle_timeline)
+    
+    def on_theme_changed(self):
+        """Update colors when theme changes."""
+        # Update specific widget styles if not covered by global stylesheet
+        bg_color = theme_manager.get_color("video_player_bg")
+        # self.video_widget.setStyleSheet(f"background-color: {bg_color.name()};") 
+        # Video widget usually handled by media player, but we can set palette if needed
+        
+        # Re-apply fonts or icons if they depend on theme (e.g. dark/light icons)
+        # For now, just ensure UI refresh
+        self.update()
 
 
     def init_ui(self) -> None:
@@ -125,6 +137,9 @@ class VideoPlayerWidget(QWidget):
         self.media_player.errorOccurred.connect(self.on_media_error)
 
         self.setup_layouts()
+        
+        theme_manager.themeChanged.connect(self.on_theme_changed)
+        self.on_theme_changed()
 
 
     def setup_controls(self) -> None:

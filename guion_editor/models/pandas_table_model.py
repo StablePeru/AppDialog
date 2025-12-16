@@ -6,12 +6,14 @@ from typing import Any, List, Dict, Optional, Tuple, Union
 
 from guion_editor import constants as C
 from guion_editor.workers.validation_worker import ValidationWorker
+from guion_editor.utils.theme_manager import theme_manager
 
 # Colores de validación (apropiados para tema oscuro)
-VALID_TIME_BG_COLOR = QColor(Qt.GlobalColor.transparent) # Sin color de fondo para válido
-INVALID_TIME_BG_COLOR = QColor(139, 0, 0) # Rojo oscuro para inválido
-BOOKMARK_BG_COLOR = QColor(221, 211, 237, 40) # Lila claro con transparencia
-LINE_ERROR_BG_COLOR = QColor(255, 165, 0, 60) # Naranja con algo de transparencia
+# Colores de validación (apropiados para tema oscuro)
+# VALID_TIME_BG_COLOR = QColor(Qt.GlobalColor.transparent) # Sin color de fondo para válido
+# INVALID_TIME_BG_COLOR = QColor(139, 0, 0) # Rojo oscuro para inválido
+# BOOKMARK_BG_COLOR = QColor(221, 211, 237, 40) # Lila claro con transparencia
+# LINE_ERROR_BG_COLOR = QColor(255, 165, 0, 60) # Naranja con algo de transparencia
 
 # MAX_INTERVENTION_DURATION_MS removed, using C.MAX_INTERVENTION_DURATION_MS
 
@@ -177,17 +179,17 @@ class PandasTableModel(QAbstractTableModel):
             line_status = self._line_validation_status.get(df_row_idx)
             if line_status:
                 is_col_valid = line_status.get(df_col_name, True)
-                if not is_col_valid: return QBrush(LINE_ERROR_BG_COLOR)
+                if not is_col_valid: return QBrush(theme_manager.get_color("table_line_error_bg"))
 
             if df_col_name in [C.COL_IN, C.COL_OUT]:
                 is_valid = self._time_validation_status.get(df_row_idx, True) is True
-                if not is_valid: return QBrush(INVALID_TIME_BG_COLOR)
+                if not is_valid: return QBrush(theme_manager.get_color("table_invalid_time_bg"))
             elif df_col_name == C.COL_SCENE:
                 is_valid = self._scene_validation_status.get(df_row_idx, True) is True
-                if not is_valid: return QBrush(INVALID_TIME_BG_COLOR)
+                if not is_valid: return QBrush(theme_manager.get_color("table_invalid_time_bg"))
 
             is_bookmarked = self._dataframe.at[df_row_idx, C.COL_BOOKMARK]
-            if is_bookmarked: return QBrush(BOOKMARK_BG_COLOR)
+            if is_bookmarked: return QBrush(theme_manager.get_color("table_bookmark_bg"))
         return None
 
     def setData(self, index: QModelIndex, value: Any, role=Qt.ItemDataRole.EditRole):

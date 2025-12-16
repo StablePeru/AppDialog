@@ -1,0 +1,30 @@
+{
+    "meta": {
+        "name": "Light Sepia",
+        "author": "System"
+    },
+    "colors": {
+        "ui_bg_primary": "#fdf6e3",
+        "ui_text_main": "#5c4d37",
+        "ui_bg_secondary": "#eee8d5",
+        "ui_border": "#d3cbb7",
+        "main_window_bg": "#fdf6e3",
+        "main_window_text": "#5c4d37",
+        "menu_bg": "#eee8d5",
+        "menu_text": "#5c4d37",
+        "menu_selected_bg": "#cb4b16",
+        "menu_selected_text": "#fdf6e3",
+        "table_grid_line": "#d3cbb7",
+        "video_player_bg": "#5c4d37",
+        "video_player_timeline": "#93a1a1",
+        "video_player_handle": "#cb4b16",
+        "cursor_highlight": "#eee8d5",
+        "table_valid_time_bg": "transparent",
+        "table_invalid_time_bg": "#ff9999",
+        "table_bookmark_bg": "rgba(203, 75, 22, 40)",
+        "table_line_error_bg": "rgba(181, 137, 0, 50)",
+        "toast_bg": "#eee8d5",
+        "toast_text": "#5c4d37",
+        "toast_border": "#d3cbb7"
+    }
+}

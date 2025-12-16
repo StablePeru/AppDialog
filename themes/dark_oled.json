@@ -1,0 +1,30 @@
+{
+    "meta": {
+        "name": "Dark OLED",
+        "author": "System"
+    },
+    "colors": {
+        "ui_bg_primary": "#000000",
+        "ui_text_main": "#ffffff",
+        "ui_bg_secondary": "#121212",
+        "ui_border": "#333333",
+        "main_window_bg": "#000000",
+        "main_window_text": "#ffffff",
+        "menu_bg": "#121212",
+        "menu_text": "#ffffff",
+        "menu_selected_bg": "#ffffff",
+        "menu_selected_text": "#000000",
+        "table_grid_line": "#333333",
+        "video_player_bg": "#000000",
+        "video_player_timeline": "#666666",
+        "video_player_handle": "#ffffff",
+        "cursor_highlight": "#222222",
+        "table_valid_time_bg": "transparent",
+        "table_invalid_time_bg": "#ff0000",
+        "table_bookmark_bg": "rgba(255, 255, 255, 40)",
+        "table_line_error_bg": "rgba(255, 255, 0, 60)",
+        "toast_bg": "#000000",
+        "toast_text": "#ffffff",
+        "toast_border": "#ffffff"
+    }
+}

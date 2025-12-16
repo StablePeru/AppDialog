@@ -1,0 +1,30 @@
+{
+    "meta": {
+        "name": "Light Corporate",
+        "author": "System"
+    },
+    "colors": {
+        "ui_bg_primary": "#f8f9fa",
+        "ui_text_main": "#212529",
+        "ui_bg_secondary": "#ffffff",
+        "ui_border": "#dee2e6",
+        "main_window_bg": "#f8f9fa",
+        "main_window_text": "#212529",
+        "menu_bg": "#ffffff",
+        "menu_text": "#212529",
+        "menu_selected_bg": "#0d6efd",
+        "menu_selected_text": "#ffffff",
+        "table_grid_line": "#dee2e6",
+        "video_player_bg": "#212529",
+        "video_player_timeline": "#adb5bd",
+        "video_player_handle": "#0d6efd",
+        "cursor_highlight": "#e9ecef",
+        "table_valid_time_bg": "transparent",
+        "table_invalid_time_bg": "#f8d7da",
+        "table_bookmark_bg": "rgba(13, 110, 253, 30)",
+        "table_line_error_bg": "rgba(255, 193, 7, 50)",
+        "toast_bg": "#ffffff",
+        "toast_text": "#212529",
+        "toast_border": "#dee2e6"
+    }
+}

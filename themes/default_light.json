@@ -1,0 +1,30 @@
+{
+    "meta": {
+        "name": "Default Light",
+        "author": "System"
+    },
+    "colors": {
+        "ui_bg_primary": "#f0f0f0",
+        "ui_text_main": "#000000",
+        "ui_bg_secondary": "#ffffff",
+        "ui_border": "#d0d0d0",
+        "main_window_bg": "#f0f0f0",
+        "main_window_text": "#000000",
+        "menu_bg": "#e0e0e0",
+        "menu_text": "#000000",
+        "menu_selected_bg": "#a0c5e8",
+        "menu_selected_text": "#000000",
+        "table_grid_line": "#d0d0d0",
+        "video_player_bg": "#333333",
+        "video_player_timeline": "#aaaaaa",
+        "video_player_handle": "#000000",
+        "cursor_highlight": "#d0d0d0",
+        "table_valid_time_bg": "transparent",
+        "table_invalid_time_bg": "#ffcccc",
+        "table_bookmark_bg": "rgba(100, 0, 200, 30)",
+        "table_line_error_bg": "rgba(255, 100, 0, 40)",
+        "toast_bg": "#e0e0e0",
+        "toast_text": "#000000",
+        "toast_border": "#aaaaaa"
+    }
+}

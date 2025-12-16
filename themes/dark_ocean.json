@@ -1,0 +1,30 @@
+{
+    "meta": {
+        "name": "Dark Ocean",
+        "author": "System"
+    },
+    "colors": {
+        "ui_bg_primary": "#0f172a",
+        "ui_text_main": "#e2e8f0",
+        "ui_bg_secondary": "#1e293b",
+        "ui_border": "#334155",
+        "main_window_bg": "#0f172a",
+        "main_window_text": "#e2e8f0",
+        "menu_bg": "#1e293b",
+        "menu_text": "#e2e8f0",
+        "menu_selected_bg": "#38bdf8",
+        "menu_selected_text": "#0f172a",
+        "table_grid_line": "#334155",
+        "video_player_bg": "#020617",
+        "video_player_timeline": "#475569",
+        "video_player_handle": "#38bdf8",
+        "cursor_highlight": "#1e293b",
+        "table_valid_time_bg": "transparent",
+        "table_invalid_time_bg": "#7f1d1d",
+        "table_bookmark_bg": "rgba(56, 189, 248, 40)",
+        "table_line_error_bg": "rgba(234, 179, 8, 50)",
+        "toast_bg": "#1e293b",
+        "toast_text": "#e2e8f0",
+        "toast_border": "#334155"
+    }
+}

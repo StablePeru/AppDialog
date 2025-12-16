@@ -26,6 +26,7 @@ from guion_editor.widgets.toast_widget import ToastWidget
 from guion_editor.widgets.advanced_srt_export_dialog import AdvancedSrtExportDialog
 from guion_editor import constants as C
 from guion_editor.utils.paths import resource_path, get_safe_save_dir, get_user_config_dir
+from guion_editor.utils.theme_manager import theme_manager
 
 ICON_CACHE = {}
 # Apuntamos a la carpeta de iconos usando la ruta relativa desde la raíz del proyecto
@@ -129,7 +130,37 @@ class MainWindow(QMainWindow):
 
         self._check_for_recovery_file()
         self._setup_autosave()
+        self._check_for_recovery_file()
+        self._setup_autosave()
         self._load_settings()
+        
+        # Theme Init
+        theme_manager.themeChanged.connect(self.apply_theme)
+        self.apply_theme()
+
+    def apply_theme(self):
+        """Applies the current theme stylesheet to the application."""
+        sheet = theme_manager.get_stylesheet_template()
+        # MainWindow specific or global app stylesheet
+        # Using separate styling for main window to avoid overriding specific widget styles if necessary
+        # But commonly we set it on the app or main window.
+        self.setStyleSheet(sheet)
+        if self.videoWindow:
+            self.videoWindow.setStyleSheet(sheet)
+            
+    def switch_theme_toggle(self):
+        """Temporary helper to toggle themes."""
+        # Cycle through json files in themes/ dir
+        themes_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "themes")
+        if not hasattr(self, '_theme_toggle_state'):
+            self._theme_toggle_state = 0
+        
+        self._theme_toggle_state = 1 - self._theme_toggle_state # Toggle 0/1
+        
+    def open_theme_editor(self):
+        from guion_editor.widgets.theme_editor_dialog import ThemeEditorDialog
+        dialog = ThemeEditorDialog(self)
+        dialog.exec()
 
     def _setup_autosave(self) -> None:
         self.autosave_timer = QTimer(self)
@@ -422,6 +453,12 @@ class MainWindow(QMainWindow):
         self.add_managed_action("Reiniciar Todas las Escenas a '1'", self.tableWindow.reset_all_scenes, None, "reset_scenes_icon.svg", C.ACT_TOOLS_RESET_SCENES)
         self.add_managed_action("Reiniciar Todos los Tiempos a Cero", self.tableWindow.reset_all_timecodes, None, "reset_timecodes_icon.svg", C.ACT_TOOLS_RESET_TIMECODES)
         self.add_managed_action("Copiar IN a OUT anterior", self.tableWindow.copy_in_to_previous_out, None, "copy_in_out_prev_icon.svg", C.ACT_TOOLS_COPY_IN_OUT_PREV)
+        
+        # View/Theme
+        action_theme_editor = QAction("Editor de Temas...", self)
+        action_theme_editor.triggered.connect(self.open_theme_editor)
+        self.addAction(action_theme_editor)
+        self.actions["theme_editor"] = action_theme_editor
 
         # Shortcuts Menu
         self.add_managed_action("Configurar Shortcuts", self.open_shortcut_config_dialog, None, "configure_shortcuts_icon.svg", C.ACT_SHORTCUTS_DIALOG)
@@ -543,6 +580,8 @@ class MainWindow(QMainWindow):
         configMenu.addAction(self.actions[C.ACT_TOOLS_RESET_SCENES])
         configMenu.addAction(self.actions[C.ACT_TOOLS_RESET_TIMECODES])
         configMenu.addAction(self.actions[C.ACT_TOOLS_COPY_IN_OUT_PREV])
+        configMenu.addSeparator()
+        configMenu.addAction(self.actions["theme_editor"])
 
 
     def create_shortcuts_menu(self, menuBar):

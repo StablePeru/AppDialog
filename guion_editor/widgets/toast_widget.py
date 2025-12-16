@@ -1,6 +1,9 @@
+
 from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGraphicsOpacityEffect
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QPoint, QEasingCurve, QSequentialAnimationGroup, QPauseAnimation
-from PyQt6.QtGui import QColor, QPalette, QFont
+from PyQt6.QtGui import QPainter, QColor, QBrush, QFont
+
+from guion_editor.utils.theme_manager import theme_manager
 
 class ToastWidget(QWidget):
     """
@@ -14,6 +17,8 @@ class ToastWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)  # Click-through
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) # Rounded corners support
 
+        self.message = "" # Store message for paintEvent
+
         # UI Setup
         self._setup_ui()
         
@@ -24,26 +29,29 @@ class ToastWidget(QWidget):
         self.hide()
 
     def _setup_ui(self):
-        # Style
-        self.setStyleSheet("""
-            QWidget {
-                background-color: rgba(40, 40, 40, 220);
-                border-radius: 10px;
-                padding: 10px;
-            }
-            QLabel {
-                color: white;
-                background-color: transparent;
-                font-weight: bold;
-                font-size: 14px;
-            }
-        """)
+        # Style is now handled by paintEvent
+        # self.setStyleSheet("""
+        #     QWidget {
+        #         background-color: rgba(40, 40, 40, 220);
+        #         border-radius: 10px;
+        #         padding: 10px;
+        #     }
+        #     QLabel {
+        #         color: white;
+        #         background-color: transparent;
+        #         font-weight: bold;
+        #         font-size: 14px;
+        #     }
+        # """)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(20, 10, 20, 10)
         
-        self.label = QLabel("")
+        # The QLabel is no longer used for displaying text, but its layout might still be useful for sizing.
+        # We'll keep it for now, but its text will be empty and paintEvent will draw the actual message.
+        self.label = QLabel("") 
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label.setStyleSheet("background-color: transparent;") # Ensure label background is transparent
         layout.addWidget(self.label)
         
         self.setLayout(layout)
@@ -77,10 +85,29 @@ class ToastWidget(QWidget):
         self.anim_group.addAnimation(self.fade_out)
         self.anim_group.finished.connect(self.hide)
 
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        bg_color = theme_manager.get_color("toast_bg")
+        text_color = theme_manager.get_color("toast_text")
+        border_color = theme_manager.get_color("toast_border")
+
+        # Fondo
+        painter.setBrush(QBrush(bg_color))
+        painter.setPen(border_color) 
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 5, 5)
+
+        # Texto
+        painter.setPen(text_color)
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.message)
+
     def show_message(self, message: str, duration_ms: int = 2000):
         # Update text
-        self.label.setText(message)
+        self.message = message
+        # self.label.setText(message) # No longer needed if painting manually, but harmless
         self.adjustSize()
+        self.update() # Trigger paintEvent
         
         # Center on parent bottom
         if self.parent():
@@ -89,9 +116,7 @@ class ToastWidget(QWidget):
             y = parent_rect.height() - self.height() - 50 # 50px from bottom
             self.move(x, y)
         
-        # Update duration if needed (adjusting the pause animation is tricky in group, 
-        # simpler to just recreate prompt or stick to default. 
-        # For this Stability Update, fixed duration is fine, but we can update hold duration property directly)
+        # Update duration
         self.hold.setDuration(duration_ms)
 
         self.raise_()

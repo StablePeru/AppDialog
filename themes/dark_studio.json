@@ -1,0 +1,30 @@
+{
+    "meta": {
+        "name": "Dark Studio",
+        "author": "System"
+    },
+    "colors": {
+        "ui_bg_primary": "#1e1e1e",
+        "ui_text_main": "#ffffff",
+        "ui_bg_secondary": "#2d2d2d",
+        "ui_border": "#3d3d3d",
+        "main_window_bg": "#1e1e1e",
+        "main_window_text": "#ffffff",
+        "menu_bg": "#2d2d2d",
+        "menu_text": "#ffffff",
+        "menu_selected_bg": "#0078d4",
+        "menu_selected_text": "#ffffff",
+        "table_grid_line": "#404040",
+        "video_player_bg": "#000000",
+        "video_player_timeline": "#555555",
+        "video_player_handle": "#ffffff",
+        "cursor_highlight": "#303030",
+        "table_valid_time_bg": "transparent",
+        "table_invalid_time_bg": "#8b0000",
+        "table_bookmark_bg": "rgba(221, 211, 237, 40)",
+        "table_line_error_bg": "rgba(255, 165, 0, 60)",
+        "toast_bg": "#333333",
+        "toast_text": "#ffffff",
+        "toast_border": "#555555"
+    }
+}
